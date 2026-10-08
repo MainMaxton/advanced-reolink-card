@@ -59,9 +59,9 @@ step "merge: squash only, PR title/body, delete branch on merge, update branch; 
 JSON
 
 echo "== GitHub Actions"
-step "actions: enabled, selected actions only" \
+step "actions: enabled, selected actions only, actions must be pinned to a full commit SHA" \
   -X PUT "repos/$REPO/actions/permissions" --input - <<JSON
-{ "enabled": true, "allowed_actions": "selected" }
+{ "enabled": true, "allowed_actions": "selected", "sha_pinning_required": true }
 JSON
 step "actions: allow GitHub-owned, verified creators, hacs/action, home-assistant/actions/hassfest" \
   -X PUT "repos/$REPO/actions/permissions/selected-actions" --input - <<JSON
