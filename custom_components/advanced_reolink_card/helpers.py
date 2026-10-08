@@ -11,10 +11,10 @@ from homeassistant.exceptions import ServiceValidationError
 from .const import ATTR_CAMERA, ATTR_CHANNEL, ATTR_CONFIG_ENTRY_ID, DOMAIN
 
 if TYPE_CHECKING:
-    from . import AudioHookConfigEntry
+    from . import AdvancedReolinkConfigEntry
 
 
-def loaded_entries(hass: HomeAssistant) -> list[AudioHookConfigEntry]:
+def loaded_entries(hass: HomeAssistant) -> list[AdvancedReolinkConfigEntry]:
     """Config entries of this integration that are set up."""
     return [
         e
@@ -34,7 +34,7 @@ def translated(key: str, **placeholders: Any) -> dict[str, Any]:
 
 def resolve_target(
     hass: HomeAssistant, data: dict[str, Any]
-) -> tuple[AudioHookConfigEntry, int]:
+) -> tuple[AdvancedReolinkConfigEntry, int]:
     """Config entry and channel from ``camera`` or ``channel`` (+ ``config_entry_id``)."""
     entries = loaded_entries(hass)
     if camera := data.get(ATTR_CAMERA):

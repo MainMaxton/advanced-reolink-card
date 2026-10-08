@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased
+
+### Breaking: renamed to Advanced Reolink Card
+- The project is now **Advanced Reolink Card**: GitHub repository
+  `MainMaxton/advanced-reolink-card` (was `MainMaxton/reolink-camera-audiohook`;
+  GitHub redirects the old URL).
+- Integration domain and folder `reolink_camera_audiohook` →
+  `advanced_reolink_card` (`custom_components/advanced_reolink_card/`).
+  Home Assistant sees this as a **new integration**: existing config entries,
+  entities and options do not carry over. To upgrade, **remove the old
+  "Reolink Camera AudioHook" integration** (Settings → Devices & services) and its
+  HACS repository, delete `custom_components/reolink_camera_audiohook/`, restart,
+  then install this repository and **add the integration again**.
+- Actions: `reolink_camera_audiohook.say` / `.play_file` →
+  `advanced_reolink_card.say` / `.play_file`. Update automations and scripts.
+- Websocket API: `reolink_camera_audiohook/talk/*` → `advanced_reolink_card/talk/*`.
+- Card: `custom:audiohook-talk-card` → `custom:advanced-reolink-card`, served from
+  `/advanced_reolink_card/advanced-reolink-card.js`. The old card type is kept as a
+  deprecated alias (logs a console warning) so existing dashboards keep rendering,
+  but its `entity` must point at the re-created speaker entity.
+- Logger: `custom_components.advanced_reolink_card` (update `logger:` config).
+- New name in the manifest, HACS metadata, translations, brand logos and docs.
+
 ## 0.3.0 - 2026-10-08
 
 ### Added

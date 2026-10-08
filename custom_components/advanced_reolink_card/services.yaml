@@ -5,7 +5,7 @@ say:
       selector:
         entity:
           filter:
-            integration: reolink_camera_audiohook
+            integration: advanced_reolink_card
             domain: media_player
     channel:
       example: 0
@@ -17,7 +17,7 @@ say:
     config_entry_id:
       selector:
         config_entry:
-          integration: reolink_camera_audiohook
+          integration: advanced_reolink_card
     message:
       required: true
       example: "Hello, please leave the parcel by the door"
@@ -45,7 +45,7 @@ play_file:
       selector:
         entity:
           filter:
-            integration: reolink_camera_audiohook
+            integration: advanced_reolink_card
             domain: media_player
     channel:
       example: 0
@@ -57,7 +57,7 @@ play_file:
     config_entry_id:
       selector:
         config_entry:
-          integration: reolink_camera_audiohook
+          integration: advanced_reolink_card
     media_content_id:
       required: true
       example: "media-source://media_source/local/doorbell.mp3"

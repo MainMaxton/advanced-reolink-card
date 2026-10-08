@@ -11,7 +11,7 @@ security problems privately (see [SECURITY.md](SECURITY.md)), not in issues.
   serial numbers / UIDs, camera names, snapshots or recordings. Diagnostics from
   Home Assistant (*Download diagnostics*) redact the password, username, address
   and device IDs; check them anyway before attaching.
-- Debug logs: enable `custom_components.reolink_camera_audiohook: debug` under
+- Debug logs: enable `custom_components.advanced_reolink_card: debug` under
   `logger:` and redact addresses and names in what you paste.
 
 ## Pull requests
@@ -50,14 +50,14 @@ anywhere and no test needs a real camera.
 Hassfest runs in CI. To run it locally, from a Home Assistant core checkout:
 
 ```bash
-python -m script.hassfest --integration-path /path/to/custom_components/reolink_camera_audiohook
+python -m script.hassfest --integration-path /path/to/custom_components/advanced_reolink_card
 ```
 
 ### Testing on real hardware
 
 Test real devices through Home Assistant itself: copy
-`custom_components/reolink_camera_audiohook/` into a test instance, set up the
-integration, and call `reolink_camera_audiohook.say` from *Developer tools →
+`custom_components/advanced_reolink_card/` into a test instance, set up the
+integration, and call `advanced_reolink_card.say` from *Developer tools →
 Actions* on a camera you are allowed to make noise with. Mention the device and
 camera models you tested with in the pull request.
 
@@ -73,7 +73,7 @@ Inter font).
 Home Assistant 2026.3 and newer load brand images straight from the integration:
 
 ```
-custom_components/reolink_camera_audiohook/brand/
+custom_components/advanced_reolink_card/brand/
   icon.png        256 x 256     icon@2x.png       512 x 512
   logo.png        708 x 128     logo@2x.png      1416 x 256
   dark_logo.png   708 x 128     dark_logo@2x.png 1416 x 256

@@ -1,6 +1,6 @@
 """High level "make a channel speak" orchestration. No Home Assistant imports.
 
-One :class:`AudioHookNvr` per NVR/camera. All talk sessions (and discovery) are
+One :class:`AdvancedReolinkNvr` per NVR/camera. All talk sessions (and discovery) are
 serialised with an asyncio lock, every talk session ends with TalkReset (also on
 errors) and every connection is logged out and closed afterwards.
 
@@ -96,7 +96,7 @@ class TalkBusyError(Exception):
 
 @dataclass
 class OpenTalk:
-    """A configured talk session, yielded by :meth:`AudioHookNvr.open_talk`."""
+    """A configured talk session, yielded by :meth:`AdvancedReolinkNvr.open_talk`."""
 
     client: BaichuanClient
     session: TalkSession
@@ -113,7 +113,7 @@ class OpenTalk:
         self.timings["drain_and_reset_s"] = round(time.monotonic() - t_stop, 3)
 
 
-class AudioHookNvr:
+class AdvancedReolinkNvr:
     """Talk to one Reolink NVR (or standalone camera) over Baichuan."""
 
     def __init__(
@@ -140,7 +140,7 @@ class AudioHookNvr:
         self.abilities: dict[int, TalkAbility] = {}
 
     def __repr__(self) -> str:  # never include the password
-        return f"<AudioHookNvr {self.host}:{self.port}>"
+        return f"<AdvancedReolinkNvr {self.host}:{self.port}>"
 
     def _client(self) -> BaichuanClient:
         return BaichuanClient(
@@ -424,7 +424,7 @@ class LiveTalkStream:
 
     def __init__(
         self,
-        nvr: AudioHookNvr,
+        nvr: AdvancedReolinkNvr,
         channel: int,
         *,
         input_rate: int = 16000,

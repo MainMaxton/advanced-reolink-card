@@ -11,21 +11,21 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 
 from .baichuan_talk import BaichuanAuthError, BaichuanError
 from .const import DOMAIN, STATUS_INTERVAL
-from .talk_manager import AudioHookNvr, ChannelState
+from .talk_manager import AdvancedReolinkNvr, ChannelState
 
 if TYPE_CHECKING:
-    from . import AudioHookConfigEntry
+    from . import AdvancedReolinkConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
 
 
-class AudioHookCoordinator(DataUpdateCoordinator[dict[int, ChannelState]]):
+class AdvancedReolinkCoordinator(DataUpdateCoordinator[dict[int, ChannelState]]):
     """Polls login + ChannelInfo (online / asleep) without waking any camera."""
 
-    config_entry: AudioHookConfigEntry
+    config_entry: AdvancedReolinkConfigEntry
 
     def __init__(
-        self, hass: HomeAssistant, entry: AudioHookConfigEntry, nvr: AudioHookNvr
+        self, hass: HomeAssistant, entry: AdvancedReolinkConfigEntry, nvr: AdvancedReolinkNvr
     ) -> None:
         super().__init__(
             hass,

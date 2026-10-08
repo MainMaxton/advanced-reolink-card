@@ -1,6 +1,6 @@
 """Pure helper tests: talk status, selectable channels, merge, labels."""
 
-from custom_components.reolink_camera_audiohook.channels import (
+from custom_components.advanced_reolink_card.channels import (
     channel_label,
     merge_channels,
     selectable_channels,

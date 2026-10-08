@@ -1,11 +1,11 @@
-"""Constants for Reolink Camera AudioHook."""
+"""Constants for Advanced Reolink Card."""
 
 from __future__ import annotations
 
 from datetime import timedelta
 from typing import Final
 
-DOMAIN: Final = "reolink_camera_audiohook"
+DOMAIN: Final = "advanced_reolink_card"
 MANUFACTURER: Final = "Reolink"
 
 DEFAULT_PORT: Final = 9000  # Baichuan service port (configurable in the UI)

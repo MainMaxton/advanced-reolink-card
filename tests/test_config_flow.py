@@ -7,12 +7,12 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 import voluptuous as vol
 
-from custom_components.reolink_camera_audiohook.baichuan_talk import (
+from custom_components.advanced_reolink_card.baichuan_talk import (
     BaichuanAuthError,
     BaichuanConnectionError,
     BaichuanTimeoutError,
 )
-from custom_components.reolink_camera_audiohook.const import CONF_ENABLED_CHANNELS, DOMAIN
+from custom_components.advanced_reolink_card.const import CONF_ENABLED_CHANNELS, DOMAIN
 from homeassistant.config_entries import SOURCE_USER
 from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant

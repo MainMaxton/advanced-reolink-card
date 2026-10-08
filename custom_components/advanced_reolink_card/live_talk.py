@@ -3,7 +3,7 @@
 Websocket commands (all require an authenticated user; admins only unless the
 entry's "Allow non-admin users to use live talk" option is on):
 
-``reolink_camera_audiohook/talk/start``
+``advanced_reolink_card/talk/start``
     Subscription. Target ``entity_id`` (speaker) or ``channel`` (+ optional
     ``config_entry_id``); ``sample_rate`` and ``format`` (``s16le``/``f32le``)
     describe the audio the client will send. Events: ``connecting``,
@@ -11,9 +11,9 @@ entry's "Allow non-admin users to use live talk" option is on):
     Audio goes in as binary websocket frames ``[binary_handler_id, *pcm]``
     (an empty frame stops), or base64 via ``talk/audio``. Unsubscribing or
     closing the websocket stops the session; it always ends with TalkReset.
-``reolink_camera_audiohook/talk/audio``
+``advanced_reolink_card/talk/audio``
     ``subscription`` (the start message id) and ``data`` (base64 PCM).
-``reolink_camera_audiohook/talk/stop``
+``advanced_reolink_card/talk/stop``
     ``subscription``: finish the session (buffered audio is still played).
 """
 
@@ -60,7 +60,7 @@ from .talk_manager import (
 )
 
 if TYPE_CHECKING:
-    from . import AudioHookConfigEntry
+    from . import AdvancedReolinkConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -68,7 +68,7 @@ WS_TALK_START = f"{DOMAIN}/talk/start"
 WS_TALK_AUDIO = f"{DOMAIN}/talk/audio"
 WS_TALK_STOP = f"{DOMAIN}/talk/stop"
 
-CARD_FILENAME = "audiohook-talk-card.js"
+CARD_FILENAME = "advanced-reolink-card.js"
 CARD_URL = f"/{DOMAIN}/{CARD_FILENAME}"
 MAX_AUDIO_CHUNK = 256 * 1024  # bytes per websocket message
 STOP_GRACE_S = 5.0
@@ -150,7 +150,7 @@ async def async_stop_sessions(hass: HomeAssistant, entry_id: str | None, reason:
 # ---------------------------------------------------------------------------
 # Websocket commands
 # ---------------------------------------------------------------------------
-def _allowed(entry: AudioHookConfigEntry, user_is_admin: bool) -> bool:
+def _allowed(entry: AdvancedReolinkConfigEntry, user_is_admin: bool) -> bool:
     return user_is_admin or bool(entry.options.get(CONF_LIVE_TALK_NON_ADMIN, False))
 
 
@@ -254,7 +254,7 @@ async def ws_talk_start(
 
 async def _async_run(
     hass: HomeAssistant,
-    entry: AudioHookConfigEntry,
+    entry: AdvancedReolinkConfigEntry,
     connection: websocket_api.ActiveConnection,
     msg_id: int,
     key: tuple[int, int],

@@ -7,12 +7,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from custom_components.reolink_camera_audiohook.baichuan_talk import (
+from custom_components.advanced_reolink_card.baichuan_talk import (
     ChannelInfo,
     parse_talk_ability,
 )
-from custom_components.reolink_camera_audiohook.const import DOMAIN
-from custom_components.reolink_camera_audiohook.talk_manager import ChannelState, PlayResult
+from custom_components.advanced_reolink_card.const import DOMAIN
+from custom_components.advanced_reolink_card.talk_manager import ChannelState, PlayResult
 from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_PORT, CONF_USERNAME
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -70,9 +70,9 @@ def auto_enable_custom_integrations(enable_custom_integrations):  # noqa: ANN001
 
 @pytest.fixture
 def mock_flow_nvr() -> Generator[MagicMock]:
-    """AudioHookNvr as used by the config flow."""
+    """AdvancedReolinkNvr as used by the config flow."""
     with patch(
-        "custom_components.reolink_camera_audiohook.config_flow.AudioHookNvr", autospec=True
+        "custom_components.advanced_reolink_card.config_flow.AdvancedReolinkNvr", autospec=True
     ) as cls:
         nvr = cls.return_value
         nvr.discover = AsyncMock(return_value=(dict(DEVICE), make_channels()))
@@ -83,15 +83,15 @@ def mock_flow_nvr() -> Generator[MagicMock]:
 @pytest.fixture
 def mock_setup_entry() -> Generator[AsyncMock]:
     with patch(
-        "custom_components.reolink_camera_audiohook.async_setup_entry", return_value=True
+        "custom_components.advanced_reolink_card.async_setup_entry", return_value=True
     ) as mock:
         yield mock
 
 
 @pytest.fixture
 def mock_nvr() -> Generator[MagicMock]:
-    """AudioHookNvr as used by the integration runtime."""
-    with patch("custom_components.reolink_camera_audiohook.AudioHookNvr") as cls:
+    """AdvancedReolinkNvr as used by the integration runtime."""
+    with patch("custom_components.advanced_reolink_card.AdvancedReolinkNvr") as cls:
         nvr = MagicMock()
         nvr.host = HOST
         nvr.abilities = {}

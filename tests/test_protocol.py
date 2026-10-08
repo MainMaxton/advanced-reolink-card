@@ -10,7 +10,7 @@ import struct
 
 import pytest
 
-from custom_components.reolink_camera_audiohook import (
+from custom_components.advanced_reolink_card import (
     audio,
     baichuan_talk as bt,
     talk_manager as tm,
@@ -88,12 +88,12 @@ async def mock_nvr(socket_enabled: None) -> AsyncIterator[tuple[MockNvr, int]]:
         yield mock, port
 
 
-def _nvr(port: int, allowed: set[int] | None = None) -> tm.AudioHookNvr:
+def _nvr(port: int, allowed: set[int] | None = None) -> tm.AdvancedReolinkNvr:
     def guard(channel: int) -> None:
         if allowed is not None and channel not in allowed:
             raise tm.ChannelNotAllowedError(channel)
 
-    return tm.AudioHookNvr("127.0.0.1", port, MOCK_USER, MOCK_PASSWORD, channel_guard=guard)
+    return tm.AdvancedReolinkNvr("127.0.0.1", port, MOCK_USER, MOCK_PASSWORD, channel_guard=guard)
 
 
 @pytest.mark.enable_socket

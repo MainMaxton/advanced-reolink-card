@@ -15,8 +15,8 @@ from homeassistant.components.media_player import (
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from . import AudioHookConfigEntry, async_play_on_channel
-from .entity import AudioHookChannelEntity
+from . import AdvancedReolinkConfigEntry, async_play_on_channel
+from .entity import AdvancedReolinkChannelEntity
 
 # Talk sessions are serialised per NVR by the talk manager itself.
 PARALLEL_UPDATES = 0
@@ -24,14 +24,14 @@ PARALLEL_UPDATES = 0
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: AudioHookConfigEntry,
+    entry: AdvancedReolinkConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     data = entry.runtime_data
-    async_add_entities(AudioHookSpeaker(entry, ch) for ch in sorted(data.enabled_channels))
+    async_add_entities(AdvancedReolinkSpeaker(entry, ch) for ch in sorted(data.enabled_channels))
 
 
-class AudioHookSpeaker(AudioHookChannelEntity, MediaPlayerEntity):
+class AdvancedReolinkSpeaker(AdvancedReolinkChannelEntity, MediaPlayerEntity):
     """Camera speaker driven through two-way talk."""
 
     _attr_media_content_type = MediaType.MUSIC
@@ -42,7 +42,7 @@ class AudioHookSpeaker(AudioHookChannelEntity, MediaPlayerEntity):
         | MediaPlayerEntityFeature.MEDIA_ANNOUNCE
     )
 
-    def __init__(self, entry: AudioHookConfigEntry, channel: int) -> None:
+    def __init__(self, entry: AdvancedReolinkConfigEntry, channel: int) -> None:
         super().__init__(entry, channel, "speaker")
         self._attr_state = MediaPlayerState.IDLE
         # volume_level 1.0 == 100 % software gain (unchanged level)

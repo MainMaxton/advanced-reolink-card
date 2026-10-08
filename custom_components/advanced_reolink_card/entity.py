@@ -1,4 +1,4 @@
-"""Base entity for Reolink Camera AudioHook (one device per camera channel)."""
+"""Base entity for Advanced Reolink Card (one device per camera channel)."""
 
 from __future__ import annotations
 
@@ -9,21 +9,21 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .channels import talk_status
 from .const import DOMAIN, MANUFACTURER
-from .coordinator import AudioHookCoordinator
+from .coordinator import AdvancedReolinkCoordinator
 
 if TYPE_CHECKING:
-    from . import AudioHookConfigEntry
+    from . import AdvancedReolinkConfigEntry
 
 # Newer HA versions replaced DeviceInfo["via_device"] (identifier tuple) by "via_device_id".
 _HAS_VIA_DEVICE_ID = "via_device_id" in getattr(DeviceInfo, "__annotations__", {})
 
 
-class AudioHookChannelEntity(CoordinatorEntity[AudioHookCoordinator]):
+class AdvancedReolinkChannelEntity(CoordinatorEntity[AdvancedReolinkCoordinator]):
     """Entity bound to one channel of an NVR (or the single channel of a camera)."""
 
     _attr_has_entity_name = True
 
-    def __init__(self, entry: AudioHookConfigEntry, channel: int, key: str) -> None:
+    def __init__(self, entry: AdvancedReolinkConfigEntry, channel: int, key: str) -> None:
         data = entry.runtime_data
         super().__init__(data.coordinator)
         self._entry = entry

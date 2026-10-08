@@ -1,14 +1,14 @@
 <p align="center">
-  <img src="custom_components/reolink_camera_audiohook/brand/icon.png" alt="Reolink Camera AudioHook icon" width="112">
+  <img src="custom_components/advanced_reolink_card/brand/icon.png" alt="Advanced Reolink Card icon" width="112">
 </p>
 
-<h1 align="center">Reolink Camera AudioHook</h1>
+<h1 align="center">Advanced Reolink Card</h1>
 
 <p align="center">
   <a href="https://hacs.xyz"><img src="https://img.shields.io/badge/HACS-Custom-41BDF5.svg" alt="HACS Custom"></a>
   <img src="https://img.shields.io/badge/Home%20Assistant-2025.2%2B-18BCF2.svg?logo=homeassistant&logoColor=white" alt="Home Assistant 2025.2+">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
-  <a href="https://github.com/MainMaxton/reolink-camera-audiohook/actions/workflows/validate.yml"><img src="https://github.com/MainMaxton/reolink-camera-audiohook/actions/workflows/validate.yml/badge.svg" alt="Validate"></a>
+  <a href="https://github.com/MainMaxton/advanced-reolink-card/actions/workflows/validate.yml"><img src="https://github.com/MainMaxton/advanced-reolink-card/actions/workflows/validate.yml/badge.svg" alt="Validate"></a>
 </p>
 
 A Home Assistant custom integration that makes **Reolink camera speakers talk**.
@@ -16,12 +16,19 @@ It sends text-to-speech (or any audio file) through the camera's **two-way talk*
 channel using Reolink's native **Baichuan** protocol (TCP port 9000 by default). It
 works through an NVR with any number of channels, or directly with a standalone camera.
 
+> **Renamed from "Reolink Camera AudioHook".** The integration domain changed from
+> `reolink_camera_audiohook` to `advanced_reolink_card`, so Home Assistant treats it
+> as a new integration: remove the old integration (and its HACS repository), install
+> this one, add it again and update automations (`advanced_reolink_card.say`,
+> `advanced_reolink_card.play_file`) and dashboards (`custom:advanced-reolink-card`).
+> See the [CHANGELOG](CHANGELOG.md).
+
 ## Features
 
-- **Text-to-speech on any Reolink camera speaker**: `reolink_camera_audiohook.say`
+- **Text-to-speech on any Reolink camera speaker**: `advanced_reolink_card.say`
   with built-in [`edge-tts`](https://github.com/rany2/edge-tts) neural voices
   (default `en-US-JennyNeural`).
-- **Play any audio**: `reolink_camera_audiohook.play_file` takes media-source IDs
+- **Play any audio**: `advanced_reolink_card.play_file` takes media-source IDs
   (local media, TTS results), `http(s)://` URLs or allow-listed local files.
 - **Works with every Home Assistant TTS engine**: each camera gets a
   `media_player` speaker entity, so `tts.speak` (Piper, Google, Nabu Casa, ...)
@@ -31,7 +38,7 @@ works through an NVR with any number of channels, or directly with a standalone 
   two-way talk support are read from the device you enter. NVRs with any number of
   channels and standalone cameras are supported.
 - **Live push-to-talk card**: hold a button on your dashboard and speak through
-  the camera (`custom:audiohook-talk-card`, loaded automatically).
+  the camera (`custom:advanced-reolink-card`, loaded automatically).
 - **Battery cameras and doorbells**: asleep cameras stay selectable and are
   **woken up** automatically before they speak.
 - **Local and lightweight**: pure Python, no Node.js, no `go2rtc`, no cloud relay.
@@ -62,7 +69,7 @@ works through an NVR with any number of channels, or directly with a standalone 
 
 ### HACS default store (coming soon)
 
-Reolink Camera AudioHook is **not yet in the HACS default store**, so searching
+Advanced Reolink Card is **not yet in the HACS default store**, so searching
 in HACS will not find it until you add it as a custom repository (below). A
 submission to the default store is planned.
 
@@ -73,22 +80,22 @@ submission to the default store is planned.
 > **public**. No HACS review is needed for this.
 
 1. In HACS open the **⋮** menu and choose **Custom repositories**.
-2. Add `https://github.com/MainMaxton/reolink-camera-audiohook` with
+2. Add `https://github.com/MainMaxton/advanced-reolink-card` with
    category **Integration**.
-3. Search for **Reolink Camera AudioHook**, then **Download**.
+3. Search for **Advanced Reolink Card**, then **Download**.
 
-   [![Open in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=MainMaxton&repository=reolink-camera-audiohook&category=integration)
+   [![Open in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=MainMaxton&repository=advanced-reolink-card&category=integration)
 4. Restart Home Assistant.
 
 ### Manual
 
-1. Copy `custom_components/reolink_camera_audiohook/` into your HA config directory
-   so that you have `<config>/custom_components/reolink_camera_audiohook/manifest.json`.
+1. Copy `custom_components/advanced_reolink_card/` into your HA config directory
+   so that you have `<config>/custom_components/advanced_reolink_card/manifest.json`.
 2. Restart Home Assistant.
 
 ## Setup
 
-*Settings → Devices & services → Add integration → **Reolink Camera AudioHook***
+*Settings → Devices & services → Add integration → **Advanced Reolink Card***
 
 | Find the integration | Enter the device |
 |---|---|
@@ -157,7 +164,7 @@ attribute shows the state.
 
 ## Actions
 
-### `reolink_camera_audiohook.say`
+### `advanced_reolink_card.say`
 
 | Field | Required | Description |
 |-------|----------|-------------|
@@ -169,7 +176,7 @@ attribute shows the state.
 | `volume` | no | 0–200 % software gain |
 
 ```yaml
-action: reolink_camera_audiohook.say
+action: advanced_reolink_card.say
 data:
   camera: media_player.porch_camera_speaker
   message: "Hi! Please leave the parcel by the door."
@@ -177,7 +184,7 @@ data:
 ```
 
 ```yaml
-action: reolink_camera_audiohook.say
+action: advanced_reolink_card.say
 data:
   channel: 0
   message: "This is a test"
@@ -186,13 +193,13 @@ response_variable: talk   # optional: sample rate, blocks sent, wake-up, timings
 
 ![Say action in Developer tools](docs/images/06_dev_tools_say_ui_mode.png)
 
-### `reolink_camera_audiohook.play_file`
+### `advanced_reolink_card.play_file`
 
 `media_content_id` can be a `media-source://` ID (local media or a TTS result), an
 `http(s)://` URL, or a local path inside `allowlist_external_dirs`.
 
 ```yaml
-action: reolink_camera_audiohook.play_file
+action: advanced_reolink_card.play_file
 data:
   camera: media_player.porch_camera_speaker
   media_content_id: media-source://media_source/local/chime.mp3
@@ -224,7 +231,7 @@ conditions:
     after: "08:00:00"
     before: "20:00:00"
 actions:
-  - action: reolink_camera_audiohook.say
+  - action: advanced_reolink_card.say
     data:
       camera: media_player.porch_camera_speaker
       message: "Hello! Someone will be with you shortly."
@@ -264,7 +271,7 @@ actions:
         - media_player.porch_camera_speaker
         - media_player.driveway_camera_speaker
       sequence:
-        - action: reolink_camera_audiohook.play_file
+        - action: advanced_reolink_card.play_file
           data:
             camera: "{{ repeat.item }}"
             media_content_id: media-source://media_source/local/chime.mp3
@@ -286,10 +293,10 @@ one talk session open on the camera and forwards the audio in real time.
 | ![Talk card, idle](docs/images/08a_talk_card_idle.png) | ![Talk card, live](docs/images/08c_talk_card_live.png) |
 
 The card is served by the integration and loaded on every dashboard
-automatically. Add it from the card picker ("AudioHook talk") or in YAML:
+automatically. Add it from the card picker ("Advanced Reolink Card") or in YAML:
 
 ```yaml
-type: custom:audiohook-talk-card
+type: custom:advanced-reolink-card
 entity: media_player.porch_camera_speaker   # the camera's speaker entity
 name: Porch
 mode: hold          # hold = push-to-talk, toggle = tap to start / tap to stop
@@ -299,6 +306,10 @@ icon: mdi:microphone
 
 Instead of `entity` you can use `channel: 0` (plus `config_entry_id` when you
 have several NVRs/cameras). The card editor offers the same options.
+
+The old card type `custom:audiohook-talk-card` still works as a deprecated alias
+(it logs a warning in the browser console); switch dashboards to
+`custom:advanced-reolink-card`.
 
 **Requirements and behaviour**
 
@@ -324,21 +335,21 @@ have several NVRs/cameras). The card editor offers the same options.
 
 If the card does not appear (for example a strict reverse proxy), add it as a
 dashboard resource by hand: *Settings → Dashboards → ⋮ → Resources → Add*,
-URL `/reolink_camera_audiohook/audiohook-talk-card.js`, type *JavaScript module*.
+URL `/advanced_reolink_card/advanced-reolink-card.js`, type *JavaScript module*.
 
 <details>
 <summary>Websocket API (for developers)</summary>
 
-- `reolink_camera_audiohook/talk/start` (subscription): `entity_id` or `channel`
+- `advanced_reolink_card/talk/start` (subscription): `entity_id` or `channel`
   (+ `config_entry_id`), `sample_rate` (8000–96000, default 16000), `format`
   (`s16le` or `f32le`). Events: `connecting`, `live` (with `binary_handler_id`,
   camera `sample_rate`), then `ended` (reason, blocks sent, timings) or `error`
   (`code`: `busy`, `channel_offline`, `talk_not_supported`, `invalid_auth`,
   `timeout`, `talk_failed`).
 - Audio: binary websocket frames `[binary_handler_id, ...pcm]` (an empty payload
-  stops), or `reolink_camera_audiohook/talk/audio` with `subscription` and base64
+  stops), or `advanced_reolink_card/talk/audio` with `subscription` and base64
   `data`.
-- `reolink_camera_audiohook/talk/stop` with `subscription`, or unsubscribe.
+- `advanced_reolink_card/talk/stop` with `subscription`, or unsubscribe.
 
 </details>
 
@@ -384,12 +395,12 @@ support.
 | Talk card: *Microphone permission was denied* | Allow the microphone for the Home Assistant site in the browser (or for the app in the phone settings). |
 | Talk card: *busy* | A message is playing on that NVR; try again when it has finished. |
 | *Text-to-speech failed* | Home Assistant needs internet for edge-tts; or use `tts.speak` with a local engine. |
-| Something else | Enable debug logging for `custom_components.reolink_camera_audiohook` and attach **Download diagnostics** to an issue (secrets are redacted). |
+| Something else | Enable debug logging for `custom_components.advanced_reolink_card` and attach **Download diagnostics** to an issue (secrets are redacted). |
 
 ```yaml
 logger:
   logs:
-    custom_components.reolink_camera_audiohook: debug
+    custom_components.advanced_reolink_card: debug
 ```
 
 ## Privacy and security
@@ -433,7 +444,7 @@ pip install -r requirements_test.txt
 pytest    # flows, actions, entities and protocol tests against a mock NVR (no network)
 ```
 
-To try a change on real hardware, copy `custom_components/reolink_camera_audiohook/`
+To try a change on real hardware, copy `custom_components/advanced_reolink_card/`
 into a test Home Assistant instance and use the actions from *Developer tools*.
 See [CONTRIBUTING.md](CONTRIBUTING.md).
 
@@ -448,7 +459,7 @@ diagnostics already redact them.
 ## Brand images
 
 The icon and logo are original artwork (a camera with sound waves), not Reolink's
-logo. They ship in `custom_components/reolink_camera_audiohook/brand/`, which Home
+logo. They ship in `custom_components/advanced_reolink_card/brand/`, which Home
 Assistant 2026.3+ serves directly; older versions (and HACS listings)
 show a placeholder, because the
 [home-assistant/brands](https://github.com/home-assistant/brands) repository no

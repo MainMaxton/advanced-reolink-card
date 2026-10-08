@@ -7,22 +7,22 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from custom_components.reolink_camera_audiohook.baichuan_talk import (
+from custom_components.advanced_reolink_card.baichuan_talk import (
     BaichuanAuthError,
     BaichuanConnectionError,
     BaichuanError,
     BaichuanTimeoutError,
     TalkNotSupported,
 )
-from custom_components.reolink_camera_audiohook.const import CONF_ENABLED_CHANNELS, DOMAIN
-from custom_components.reolink_camera_audiohook.diagnostics import (
+from custom_components.advanced_reolink_card.const import CONF_ENABLED_CHANNELS, DOMAIN
+from custom_components.advanced_reolink_card.diagnostics import (
     async_get_config_entry_diagnostics,
 )
-from custom_components.reolink_camera_audiohook.talk_manager import (
+from custom_components.advanced_reolink_card.talk_manager import (
     ChannelOfflineError,
     ChannelState,
 )
-from custom_components.reolink_camera_audiohook.tts_edge import TtsError
+from custom_components.advanced_reolink_card.tts_edge import TtsError
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant

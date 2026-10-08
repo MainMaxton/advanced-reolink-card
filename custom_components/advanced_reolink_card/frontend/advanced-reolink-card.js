@@ -1,22 +1,24 @@
 /*
- * AudioHook talk card: live push-to-talk to a Reolink camera speaker.
- * Part of the Reolink Camera AudioHook integration (served and loaded by it).
+ * Advanced Reolink Card: live push-to-talk to a Reolink camera speaker.
+ * Part of the Advanced Reolink Card integration (served and loaded by it).
+ * Element: custom:advanced-reolink-card (custom:audiohook-talk-card is a
+ * deprecated alias kept for dashboards created before the rename).
  * No build step, no dependencies.
  */
 const CARD_VERSION = "0.3.0";
-const DOMAIN = "reolink_camera_audiohook";
+const DOMAIN = "advanced_reolink_card";
 const TARGET_RATE = 16000; // what we send: 16 kHz mono s16le
 const SEND_MS = 40; // send a frame every ~40 ms
 
 const WORKLET_SOURCE = `
-class AudioHookCapture extends AudioWorkletProcessor {
+class AdvancedReolinkCapture extends AudioWorkletProcessor {
   process(inputs) {
     const input = inputs[0];
     if (input && input[0]) this.port.postMessage(input[0].slice(0));
     return true;
   }
 }
-registerProcessor("audiohook-capture", AudioHookCapture);
+registerProcessor("advanced-reolink-capture", AdvancedReolinkCapture);
 `;
 
 /* Stateful downsampler: Float32 at the browser rate -> Int16 at 16 kHz.
@@ -84,7 +86,7 @@ const STATUS_TEXT = {
   error: "Error",
 };
 
-class AudioHookTalkCard extends HTMLElement {
+class AdvancedReolinkCard extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: "open" });
@@ -97,7 +99,7 @@ class AudioHookTalkCard extends HTMLElement {
   }
 
   static getConfigElement() {
-    return document.createElement("audiohook-talk-card-editor");
+    return document.createElement("advanced-reolink-card-editor");
   }
 
   static getStubConfig(hass) {
@@ -109,7 +111,7 @@ class AudioHookTalkCard extends HTMLElement {
 
   setConfig(config) {
     if (!config || (!config.entity && (config.channel === undefined || config.channel === ""))) {
-      throw new Error("Set 'entity' (an AudioHook speaker media_player) or 'channel'");
+      throw new Error("Set 'entity' (an Advanced Reolink Card speaker media_player) or 'channel'");
     }
     if (config.mode && !["hold", "toggle"].includes(config.mode)) {
       throw new Error("'mode' must be 'hold' or 'toggle'");
@@ -288,7 +290,7 @@ class AudioHookTalkCard extends HTMLElement {
         const url = URL.createObjectURL(new Blob([WORKLET_SOURCE], { type: "application/javascript" }));
         await ctx.audioWorklet.addModule(url);
         URL.revokeObjectURL(url);
-        node = new AudioWorkletNode(ctx, "audiohook-capture");
+        node = new AudioWorkletNode(ctx, "advanced-reolink-capture");
         node.port.onmessage = (ev) => this._onAudio(ev.data);
       } catch (_err) {
         node = undefined;
@@ -421,7 +423,7 @@ const EDITOR_LABELS = {
   show_level: "Show microphone level",
 };
 
-class AudioHookTalkCardEditor extends HTMLElement {
+class AdvancedReolinkCardEditor extends HTMLElement {
   setConfig(config) {
     this._config = { mode: "hold", show_level: true, ...config };
     this._render();
@@ -452,24 +454,36 @@ class AudioHookTalkCardEditor extends HTMLElement {
   }
 }
 
+/* Deprecated alias: dashboards created before the rename keep working. */
+class AudioHookTalkCardAlias extends AdvancedReolinkCard {
+  setConfig(config) {
+    if (!this._warned) {
+      this._warned = true;
+      console.warn("custom:audiohook-talk-card is deprecated; use custom:advanced-reolink-card instead.");
+    }
+    super.setConfig(config);
+  }
+}
+
 function registerCard() {
   // Look the registry up at call time: the HA frontend may install a scoped
   // custom-element registry after this module has been loaded.
   const registry = window.customElements;
-  if (registry.get("audiohook-talk-card")) return;
-  registry.define("audiohook-talk-card", AudioHookTalkCard);
-  registry.define("audiohook-talk-card-editor", AudioHookTalkCardEditor);
+  if (registry.get("advanced-reolink-card")) return;
+  registry.define("advanced-reolink-card", AdvancedReolinkCard);
+  registry.define("advanced-reolink-card-editor", AdvancedReolinkCardEditor);
+  if (!registry.get("audiohook-talk-card")) registry.define("audiohook-talk-card", AudioHookTalkCardAlias);
   window.customCards = window.customCards || [];
-  if (!window.customCards.some((c) => c.type === "audiohook-talk-card")) {
+  if (!window.customCards.some((c) => c.type === "advanced-reolink-card")) {
     window.customCards.push({
-      type: "audiohook-talk-card",
-      name: "AudioHook talk",
-      description: "Live push-to-talk to a Reolink camera speaker (Reolink Camera AudioHook).",
+      type: "advanced-reolink-card",
+      name: "Advanced Reolink Card",
+      description: "Live push-to-talk to a Reolink camera speaker (Advanced Reolink Card).",
       preview: false,
-      documentationURL: "https://github.com/MainMaxton/reolink-camera-audiohook#live-talk",
+      documentationURL: "https://github.com/MainMaxton/advanced-reolink-card#live-talk",
     });
   }
-  console.info(`%c AUDIOHOOK-TALK-CARD %c ${CARD_VERSION} `, "background:#0b7285;color:#fff", "");
+  console.info(`%c ADVANCED-REOLINK-CARD %c ${CARD_VERSION} `, "background:#0b7285;color:#fff", "");
 }
 
 // Loaded early by the integration (extra module URL) or later as a dashboard

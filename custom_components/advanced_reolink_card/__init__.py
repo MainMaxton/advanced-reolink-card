@@ -1,4 +1,4 @@
-"""Reolink Camera AudioHook: make Reolink cameras speak via Baichuan two-way talk."""
+"""Advanced Reolink Card: make Reolink cameras speak via Baichuan two-way talk."""
 
 from __future__ import annotations
 
@@ -58,11 +58,11 @@ from .const import (
     SERVICE_SAY,
     TALK_SUPPORTED,
 )
-from .coordinator import AudioHookCoordinator
+from .coordinator import AdvancedReolinkCoordinator
 from .helpers import resolve_target, translated
 from .live_talk import async_setup_live_talk, async_stop_sessions
 from .talk_manager import (
-    AudioHookNvr,
+    AdvancedReolinkNvr,
     ChannelNotAllowedError,
     ChannelOfflineError,
     PlayResult,
@@ -93,11 +93,11 @@ PLAY_FILE_SCHEMA = vol.Schema(
 
 
 @dataclass
-class AudioHookData:
+class AdvancedReolinkData:
     """Runtime data of one config entry (one NVR or standalone camera)."""
 
-    nvr: AudioHookNvr
-    coordinator: AudioHookCoordinator
+    nvr: AdvancedReolinkNvr
+    coordinator: AdvancedReolinkCoordinator
     channels: dict[int, dict[str, Any]]
     enabled_channels: set[int]
     voice: str
@@ -111,7 +111,7 @@ class AudioHookData:
         return (self.channels.get(channel) or {}).get("name") or f"Channel {channel}"
 
 
-type AudioHookConfigEntry = ConfigEntry[AudioHookData]
+type AdvancedReolinkConfigEntry = ConfigEntry[AdvancedReolinkData]
 
 
 def resolve_enabled_channels(
@@ -124,7 +124,7 @@ def resolve_enabled_channels(
     return selectable
 
 
-def _seed_abilities(nvr: AudioHookNvr, channels: dict[int, dict[str, Any]]) -> None:
+def _seed_abilities(nvr: AdvancedReolinkNvr, channels: dict[int, dict[str, Any]]) -> None:
     """Seed the TalkAbility cache from discovery (saves a round trip per message)."""
     for ch, info in channels.items():
         if talk_status(info) == TALK_SUPPORTED and info.get("sample_rate"):
@@ -150,7 +150,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     return True
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: AudioHookConfigEntry) -> bool:
+async def async_setup_entry(hass: HomeAssistant, entry: AdvancedReolinkConfigEntry) -> bool:
     """Set up one NVR or camera."""
     stored: list[dict[str, Any]] = list(entry.data.get(CONF_CHANNELS, []))
     channels = {int(c["channel"]): dict(c) for c in stored}
@@ -165,7 +165,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: AudioHookConfigEntry) ->
     async def _run_blocking(func, *args):  # noqa: ANN001, ANN202
         return await hass.async_add_executor_job(func, *args)
 
-    nvr = AudioHookNvr(
+    nvr = AdvancedReolinkNvr(
         entry.data[CONF_HOST],
         entry.data[CONF_PORT],
         entry.data[CONF_USERNAME],
@@ -176,7 +176,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: AudioHookConfigEntry) ->
     )
     _seed_abilities(nvr, channels)
 
-    coordinator = AudioHookCoordinator(hass, entry, nvr)
+    coordinator = AdvancedReolinkCoordinator(hass, entry, nvr)
     # Raises ConfigEntryNotReady / ConfigEntryAuthFailed (-> reauth) on failure.
     await coordinator.async_config_entry_first_refresh()
 
@@ -193,7 +193,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: AudioHookConfigEntry) ->
         hw_version=device.get("hardware"),
     )
 
-    entry.runtime_data = AudioHookData(
+    entry.runtime_data = AdvancedReolinkData(
         nvr=nvr,
         coordinator=coordinator,
         channels=channels,
@@ -222,7 +222,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: AudioHookConfigEntry) ->
     return True
 
 
-async def _async_rediscover(hass: HomeAssistant, entry: AudioHookConfigEntry) -> None:
+async def _async_rediscover(hass: HomeAssistant, entry: AdvancedReolinkConfigEntry) -> None:
     """Read-only re-discovery after setup; reload only if the entity set changes."""
     data = entry.runtime_data
     try:
@@ -248,13 +248,13 @@ async def _async_rediscover(hass: HomeAssistant, entry: AudioHookConfigEntry) ->
         hass.config_entries.async_schedule_reload(entry.entry_id)
 
 
-async def _async_update_listener(hass: HomeAssistant, entry: AudioHookConfigEntry) -> None:
+async def _async_update_listener(hass: HomeAssistant, entry: AdvancedReolinkConfigEntry) -> None:
     """Reload when the options change (data-only updates do not need a reload)."""
     if dict(entry.options) != entry.runtime_data.options_snapshot:
         await hass.config_entries.async_reload(entry.entry_id)
 
 
-async def async_unload_entry(hass: HomeAssistant, entry: AudioHookConfigEntry) -> bool:
+async def async_unload_entry(hass: HomeAssistant, entry: AdvancedReolinkConfigEntry) -> bool:
     """Unload a config entry (live talk sessions are stopped with TalkReset first)."""
     await async_stop_sessions(hass, entry.entry_id, "unload")
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
@@ -265,7 +265,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: AudioHookConfigEntry) -
 # ---------------------------------------------------------------------------
 async def async_play_on_channel(
     hass: HomeAssistant,
-    entry: AudioHookConfigEntry,
+    entry: AdvancedReolinkConfigEntry,
     channel: int,
     *,
     message: str | None = None,
@@ -320,7 +320,7 @@ async def async_play_on_channel(
 
 @callback
 def _async_remember_ability(
-    hass: HomeAssistant, entry: AudioHookConfigEntry, channel: int
+    hass: HomeAssistant, entry: AdvancedReolinkConfigEntry, channel: int
 ) -> None:
     """After a successful session, store the (now known) talk ability of the channel."""
     data = entry.runtime_data

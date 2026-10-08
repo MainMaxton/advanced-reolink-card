@@ -1,4 +1,4 @@
-"""Config flow for Reolink Camera AudioHook."""
+"""Config flow for Advanced Reolink Card."""
 
 from __future__ import annotations
 
@@ -33,7 +33,7 @@ from .const import (
     DOMAIN,
     TALK_UNSUPPORTED,
 )
-from .talk_manager import AudioHookNvr
+from .talk_manager import AdvancedReolinkNvr
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -46,7 +46,7 @@ async def _async_discover(
     data: Mapping[str, Any],
 ) -> tuple[dict[str, str], list[dict[str, Any]]]:
     """Log in and run read-only discovery (device, channels, talk ability)."""
-    nvr = AudioHookNvr(
+    nvr = AdvancedReolinkNvr(
         data[CONF_HOST], data[CONF_PORT], data[CONF_USERNAME], data[CONF_PASSWORD]
     )
     device, channels = await nvr.discover()
@@ -100,7 +100,7 @@ def _entry_title(device: Mapping[str, str], host: str) -> str:
     return device.get("name") or device.get("model") or host
 
 
-class AudioHookConfigFlow(ConfigFlow, domain=DOMAIN):
+class AdvancedReolinkConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle the UI setup."""
 
     VERSION = 1
@@ -108,7 +108,7 @@ class AudioHookConfigFlow(ConfigFlow, domain=DOMAIN):
     @staticmethod
     @callback
     def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
-        return AudioHookOptionsFlow()
+        return AdvancedReolinkOptionsFlow()
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -147,7 +147,7 @@ class AudioHookConfigFlow(ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             data = {**entry.data, **user_input}
             try:
-                await AudioHookNvr(
+                await AdvancedReolinkNvr(
                     data[CONF_HOST], data[CONF_PORT], data[CONF_USERNAME], data[CONF_PASSWORD]
                 ).check_login()
             except BaichuanAuthError:
@@ -205,7 +205,7 @@ class AudioHookConfigFlow(ConfigFlow, domain=DOMAIN):
         )
 
 
-class AudioHookOptionsFlow(OptionsFlow):
+class AdvancedReolinkOptionsFlow(OptionsFlow):
     """Default voice/volume, which channels may talk, and a channel re-scan."""
 
     async def async_step_init(
