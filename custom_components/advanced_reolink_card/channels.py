@@ -40,19 +40,33 @@ def selectable_channels(channels: Iterable[Mapping[str, Any]]) -> list[int]:
     )
 
 
+def known_channels(channels: Iterable[Mapping[str, Any]]) -> set[int]:
+    """Channel numbers that have (or had) a real camera, not empty NVR slots."""
+    return {int(c["channel"]) for c in channels if not is_empty_slot(c)}
+
+
 def merge_channels(
     old: Iterable[Mapping[str, Any]], new: Iterable[Mapping[str, Any]]
 ) -> list[dict[str, Any]]:
     """Merge a fresh discovery into the stored channel list.
 
-    A fresh "unknown" (e.g. the camera is asleep right now) must not erase a
-    talk ability that was read earlier, and a missing name keeps the old one.
+    - Channels present in ``new`` are updated (new names/models/uids win when
+      set; a fresh "unknown" talk status must not erase a previously known
+      ability; missing name/model/uid keep the old values).
+    - Channels only in ``new`` are added.
+    - Previously known cameras (non-empty) missing from ``new`` are **kept**
+      and marked offline so a partial or empty rescan cannot drop them.
+      Empty NVR slots that vanish from the scan are not preserved.
+    - A sleeping / talk-unknown battery camera is never dropped.
     """
     previous = {int(c["channel"]): dict(c) for c in old}
     merged: list[dict[str, Any]] = []
+    seen: set[int] = set()
     for item in new:
         cur = dict(item)
-        prev = previous.get(int(cur["channel"]))
+        ch = int(cur["channel"])
+        seen.add(ch)
+        prev = previous.get(ch)
         if prev is not None:
             if talk_status(cur) == TALK_UNKNOWN and talk_status(prev) != TALK_UNKNOWN:
                 for key in ("talk_status", "talk_supported", "sample_rate", "length_per_encoder"):
@@ -63,6 +77,13 @@ def merge_channels(
                     cur[key] = prev[key]
         cur["talk_status"] = talk_status(cur)
         merged.append(cur)
+    for ch, prev in previous.items():
+        if ch in seen or is_empty_slot(prev):
+            continue
+        kept = dict(prev)
+        kept["online"] = False
+        kept["talk_status"] = talk_status(kept)
+        merged.append(kept)
     return sorted(merged, key=lambda c: int(c["channel"]))
 
 

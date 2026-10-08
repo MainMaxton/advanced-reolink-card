@@ -36,7 +36,7 @@ from .baichuan_talk import (
     TalkAbility,
     TalkNotSupported,
 )
-from .channels import merge_channels, selectable_channels, talk_status
+from .channels import known_channels, merge_channels, selectable_channels, talk_status
 from .const import (
     ATTR_CAMERA,
     ATTR_CHANNEL,
@@ -118,11 +118,17 @@ type AdvancedReolinkConfigEntry = ConfigEntry[AdvancedReolinkData]
 def resolve_enabled_channels(
     channels: list[dict[str, Any]], options: dict[str, Any]
 ) -> set[int]:
-    """Channels allowed to talk: the user's choice, or every selectable channel."""
-    selectable = set(selectable_channels(channels))
+    """Channels allowed to talk: the user's choice, or every selectable channel.
+
+    When the user has set ``enabled_channels`` in options, keep any of those that
+    are still known cameras (not empty slots). Do **not** intersect with the
+    current selectable set: a rescan that temporarily marks talk as unknown or
+    unsupported must not silently disable a camera the user left enabled.
+    """
     if CONF_ENABLED_CHANNELS in options:
-        return {int(c) for c in options[CONF_ENABLED_CHANNELS]} & selectable
-    return selectable
+        requested = {int(c) for c in options[CONF_ENABLED_CHANNELS]}
+        return requested & known_channels(channels)
+    return set(selectable_channels(channels))
 
 
 def _seed_abilities(nvr: AdvancedReolinkNvr, channels: dict[int, dict[str, Any]]) -> None:
@@ -206,14 +212,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: AdvancedReolinkConfigEnt
         options_snapshot=dict(entry.options),
         nvr_device_id=nvr_device.id,
     )
-    # Remove camera devices (and their entities) for channels that are no longer enabled.
-    for dev in dr.async_entries_for_config_entry(dev_reg, entry.entry_id):
-        for dom, ident in dev.identifiers:
-            if dom != DOMAIN or not ident.startswith(f"{identifier}_ch"):
-                continue
-            suffix = ident.removeprefix(f"{identifier}_ch")
-            if suffix.isdigit() and int(suffix) not in enabled:
-                dev_reg.async_remove_device(dev.id)
+    # Remove camera devices only when the user explicitly unchecked them in
+    # Configure (options.enabled_channels). A background rescan must never
+    # delete devices by shrinking the selectable set.
+    if CONF_ENABLED_CHANNELS in entry.options:
+        allowed = {int(c) for c in entry.options[CONF_ENABLED_CHANNELS]}
+        for dev in dr.async_entries_for_config_entry(dev_reg, entry.entry_id):
+            for dom, ident in dev.identifiers:
+                if dom != DOMAIN or not ident.startswith(f"{identifier}_ch"):
+                    continue
+                suffix = ident.removeprefix(f"{identifier}_ch")
+                if suffix.isdigit() and int(suffix) not in allowed:
+                    dev_reg.async_remove_device(dev.id)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
     # Refresh channel names / models / talk abilities in the background so a new
@@ -225,7 +235,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: AdvancedReolinkConfigEnt
 
 
 async def _async_rediscover(hass: HomeAssistant, entry: AdvancedReolinkConfigEntry) -> None:
-    """Read-only re-discovery after setup; reload only if the entity set changes."""
+    """Read-only re-discovery after setup.
+
+    Updates stored channel metadata via :func:`merge_channels` (which never
+    drops known cameras on a partial scan). Reloads only to **add** new
+    cameras or refresh names — never because the enabled set would shrink.
+    A failed or empty discovery leaves the stored list untouched.
+    """
     data = entry.runtime_data
     try:
         device, fresh = await data.nvr.discover()
@@ -236,6 +252,7 @@ async def _async_rediscover(hass: HomeAssistant, entry: AdvancedReolinkConfigEnt
         _LOGGER.debug("Background re-discovery failed (keeping stored channels): %s", err)
         return
     if not fresh:
+        _LOGGER.debug("Background re-discovery returned no channels (keeping stored list)")
         return
     stored = list(entry.data.get(CONF_CHANNELS, []))
     merged = merge_channels(stored, [fresh[ch].as_dict() for ch in sorted(fresh)])
@@ -244,9 +261,14 @@ async def _async_rediscover(hass: HomeAssistant, entry: AdvancedReolinkConfigEnt
     hass.config_entries.async_update_entry(
         entry, data={**entry.data, CONF_CHANNELS: merged, CONF_DEVICE: device}
     )
-    if resolve_enabled_channels(merged, dict(entry.options)) != data.enabled_channels or {
-        c["channel"]: c.get("name") for c in merged
-    } != {c["channel"]: c.get("name") for c in stored}:
+    new_enabled = resolve_enabled_channels(merged, dict(entry.options))
+    added = new_enabled - data.enabled_channels
+    names_changed = {c["channel"]: c.get("name") for c in merged} != {
+        c["channel"]: c.get("name") for c in stored
+    }
+    # Never reload solely because enabled shrank — that would drop entities
+    # after a flaky rescan. Only Configure (options change) removes cameras.
+    if added or names_changed:
         hass.config_entries.async_schedule_reload(entry.entry_id)
 
 

@@ -23,6 +23,12 @@
 - Logger: `custom_components.advanced_reolink_card` (update `logger:` config).
 - New name in the manifest, HACS metadata, translations, brand logos and docs.
 
+### Fixed
+- Channel rediscovery no longer drops known cameras when the NVR returns a
+  partial or empty channel list. Previously stored cameras are kept (marked
+  offline) until you uncheck them in Configure; sleeping/unknown battery
+  cameras are never removed by a rescan.
+
 ### Added: configurable camera card
 - `custom:advanced-reolink-card` now has selectable features in the visual
   editor: **live video**, **PTZ controls**, **listen** and **push-to-talk**
