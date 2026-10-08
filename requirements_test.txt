@@ -1,4 +1,4 @@
 pytest-homeassistant-custom-component
-edge-tts>=7.0.0
+edge-tts>=7.2.8
 # requirements of the ffmpeg integration this one depends on
 ha-ffmpeg
