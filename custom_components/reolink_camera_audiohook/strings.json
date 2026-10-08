@@ -68,12 +68,14 @@
         "data": {
           "voice": "Default voice",
           "volume": "Default volume (software gain)",
-          "enabled_channels": "Cameras allowed to talk"
+          "enabled_channels": "Cameras allowed to talk",
+          "live_talk_non_admin": "Allow non-admin users to use live talk"
         },
         "data_description": {
           "voice": "Any Microsoft Edge neural voice name, for example en-US-JennyNeural or en-GB-RyanNeural.",
           "volume": "100 % plays the audio unchanged; above 100 % amplifies (may clip).",
-          "enabled_channels": "Speaker entities are created only for these cameras, and the actions refuse every other one."
+          "enabled_channels": "Speaker entities are created only for these cameras, and the actions refuse every other one.",
+          "live_talk_non_admin": "Live push-to-talk from the AudioHook talk card is limited to administrators unless this is on."
         }
       }
     }

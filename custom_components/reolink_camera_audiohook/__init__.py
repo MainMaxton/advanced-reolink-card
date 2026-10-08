@@ -9,7 +9,7 @@ from typing import Any
 import voluptuous as vol
 
 from homeassistant.components.ffmpeg import get_ffmpeg_manager
-from homeassistant.config_entries import ConfigEntry, ConfigEntryState
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     CONF_HOST,
     CONF_PASSWORD,
@@ -59,6 +59,8 @@ from .const import (
     TALK_SUPPORTED,
 )
 from .coordinator import AudioHookCoordinator
+from .helpers import resolve_target, translated
+from .live_talk import async_setup_live_talk, async_stop_sessions
 from .talk_manager import (
     AudioHookNvr,
     ChannelNotAllowedError,
@@ -142,8 +144,9 @@ def _seed_abilities(nvr: AudioHookNvr, channels: dict[int, dict[str, Any]]) -> N
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
-    """Register the domain services."""
+    """Register the domain services, the live talk websocket API and the card."""
     _async_register_services(hass)
+    await async_setup_live_talk(hass)
     return True
 
 
@@ -252,53 +255,14 @@ async def _async_update_listener(hass: HomeAssistant, entry: AudioHookConfigEntr
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: AudioHookConfigEntry) -> bool:
-    """Unload a config entry."""
+    """Unload a config entry (live talk sessions are stopped with TalkReset first)."""
+    await async_stop_sessions(hass, entry.entry_id, "unload")
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
 
 # ---------------------------------------------------------------------------
 # Services
 # ---------------------------------------------------------------------------
-def _loaded_entries(hass: HomeAssistant) -> list[AudioHookConfigEntry]:
-    return [
-        e
-        for e in hass.config_entries.async_entries(DOMAIN)
-        if e.state is ConfigEntryState.LOADED
-    ]
-
-
-def _err(key: str, **placeholders: Any) -> dict[str, Any]:
-    return {
-        "translation_domain": DOMAIN,
-        "translation_key": key,
-        "translation_placeholders": {k: str(v) for k, v in placeholders.items()},
-    }
-
-
-def _resolve_target(
-    hass: HomeAssistant, data: dict[str, Any]
-) -> tuple[AudioHookConfigEntry, int]:
-    entries = _loaded_entries(hass)
-    if camera := data.get(ATTR_CAMERA):
-        for entry in entries:
-            if camera in entry.runtime_data.speakers:
-                return entry, entry.runtime_data.speakers[camera]
-        raise ServiceValidationError(**_err("not_a_speaker", entity_id=camera))
-    if ATTR_CHANNEL not in data:
-        raise ServiceValidationError(**_err("target_required"))
-    channel = data[ATTR_CHANNEL]
-    if entry_id := data.get(ATTR_CONFIG_ENTRY_ID):
-        matches = [e for e in entries if e.entry_id == entry_id]
-        if not matches:
-            raise ServiceValidationError(**_err("entry_not_loaded", entry_id=entry_id))
-        return matches[0], channel
-    if len(entries) == 1:
-        return entries[0], channel
-    if not entries:
-        raise ServiceValidationError(**_err("no_entry_loaded"))
-    raise ServiceValidationError(**_err("multiple_entries"))
-
-
 async def async_play_on_channel(
     hass: HomeAssistant,
     entry: AudioHookConfigEntry,
@@ -314,7 +278,7 @@ async def async_play_on_channel(
     data = entry.runtime_data
     name = data.channel_name(channel)
     if channel not in data.enabled_channels:
-        raise ServiceValidationError(**_err("channel_not_enabled", channel=channel, name=name))
+        raise ServiceValidationError(**translated("channel_not_enabled", channel=channel, name=name))
     gain = (data.volume if volume is None else volume) / 100.0
     try:
         if message is not None:
@@ -323,32 +287,32 @@ async def async_play_on_channel(
             source = await _async_resolve_source(hass, media_content_id, target_entity_id)
             result = await data.nvr.play_source(channel, source, gain=gain)
         else:
-            raise ServiceValidationError(**_err("nothing_to_play"))
+            raise ServiceValidationError(**translated("nothing_to_play"))
     except ChannelNotAllowedError as err:
         raise ServiceValidationError(
-            **_err("channel_not_enabled", channel=channel, name=name)
+            **translated("channel_not_enabled", channel=channel, name=name)
         ) from err
     except ChannelOfflineError as err:
-        raise HomeAssistantError(**_err("channel_offline", channel=channel, name=name)) from err
+        raise HomeAssistantError(**translated("channel_offline", channel=channel, name=name)) from err
     except TalkNotSupported as err:
         raise HomeAssistantError(
-            **_err("talk_not_supported", channel=channel, name=name)
+            **translated("talk_not_supported", channel=channel, name=name)
         ) from err
     except BaichuanAuthError as err:
         entry.async_start_reauth(hass)
-        raise HomeAssistantError(**_err("invalid_auth")) from err
+        raise HomeAssistantError(**translated("invalid_auth")) from err
     except BaichuanTimeoutError as err:
         raise HomeAssistantError(
-            **_err("talk_timeout", channel=channel, name=name, error=err)
+            **translated("talk_timeout", channel=channel, name=name, error=err)
         ) from err
     except BaichuanError as err:
         raise HomeAssistantError(
-            **_err("talk_failed", channel=channel, name=name, error=err)
+            **translated("talk_failed", channel=channel, name=name, error=err)
         ) from err
     except TtsError as err:
-        raise HomeAssistantError(**_err("tts_failed", error=err)) from err
+        raise HomeAssistantError(**translated("tts_failed", error=err)) from err
     except (OSError, RuntimeError, ValueError) as err:
-        raise HomeAssistantError(**_err("playback_failed", error=err)) from err
+        raise HomeAssistantError(**translated("playback_failed", error=err)) from err
     _LOGGER.debug("Played on channel %s: %s", channel, result.as_dict())
     _async_remember_ability(hass, entry, channel)
     return result
@@ -399,7 +363,7 @@ async def _async_resolve_source(
         return media_content_id
     if media_content_id.startswith("/") and not media_content_id.startswith("/api/"):
         if not hass.config.is_allowed_path(media_content_id):
-            raise ServiceValidationError(**_err("path_not_allowed", path=media_content_id))
+            raise ServiceValidationError(**translated("path_not_allowed", path=media_content_id))
         return media_content_id
     # relative HA url such as /api/tts_proxy/...
     return async_process_play_media_url(hass, media_content_id)
@@ -408,7 +372,7 @@ async def _async_resolve_source(
 @callback
 def _async_register_services(hass: HomeAssistant) -> None:
     async def _say(call: ServiceCall) -> ServiceResponse:
-        entry, channel = _resolve_target(hass, call.data)
+        entry, channel = resolve_target(hass, call.data)
         result = await async_play_on_channel(
             hass,
             entry,
@@ -420,7 +384,7 @@ def _async_register_services(hass: HomeAssistant) -> None:
         return result.as_dict() if call.return_response else None
 
     async def _play_file(call: ServiceCall) -> ServiceResponse:
-        entry, channel = _resolve_target(hass, call.data)
+        entry, channel = resolve_target(hass, call.data)
         result = await async_play_on_channel(
             hass,
             entry,

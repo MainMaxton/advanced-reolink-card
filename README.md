@@ -30,6 +30,8 @@ works through an NVR with any number of channels, or directly with a standalone 
 - **Automatic discovery**: channels, names, models, online/asleep state and
   two-way talk support are read from the device you enter. NVRs with any number of
   channels and standalone cameras are supported.
+- **Live push-to-talk card**: hold a button on your dashboard and speak through
+  the camera (`custom:audiohook-talk-card`, loaded automatically).
 - **Battery cameras and doorbells**: asleep cameras stay selectable and are
   **woken up** automatically before they speak.
 - **Local and lightweight**: pure Python, no Node.js, no `go2rtc`, no cloud relay.
@@ -38,7 +40,7 @@ works through an NVR with any number of channels, or directly with a standalone 
   `TalkReset`, even after errors; translated errors, reauth, reconfigure and
   diagnostics are included.
 
-> **Status:** 0.2.0. Tested on a Reolink NVR with TrackMix PoE, CX820 and Video
+> **Status:** 0.3.0. Tested on a Reolink NVR with TrackMix PoE, CX820 and Video
 > Doorbell cameras (16 kHz ADPCM talk). Not affiliated with or endorsed by Reolink.
 
 ## Requirements
@@ -129,6 +131,8 @@ are picked up.
   *or might* (asleep/offline/not yet confirmed). Only channels that positively
   report "no talk ability" (and empty NVR slots) are left out. Speaker entities are created only for
   the selected cameras, and the actions refuse every other channel.
+- **Allow non-admin users to use live talk**: off by default, so only
+  administrators can use the live talk card.
 
 **Reconfigure** (⋮ → *Reconfigure*) changes the address, port or credentials
 without removing the entry. If the device rejects the stored password, Home
@@ -271,6 +275,73 @@ This integration works alongside the official Reolink integration. It opens its
 own short-lived Baichuan connection for each message: login, talk, `TalkReset`,
 logout.
 
+## Live talk
+
+The integration ships a Lovelace card for **live push-to-talk**: hold the button,
+speak, release. Your browser streams the microphone to Home Assistant, which keeps
+one talk session open on the camera and forwards the audio in real time.
+
+| Idle | Live |
+|---|---|
+| ![Talk card, idle](docs/images/08a_talk_card_idle.png) | ![Talk card, live](docs/images/08c_talk_card_live.png) |
+
+The card is served by the integration and loaded on every dashboard
+automatically. Add it from the card picker ("AudioHook talk") or in YAML:
+
+```yaml
+type: custom:audiohook-talk-card
+entity: media_player.porch_camera_speaker   # the camera's speaker entity
+name: Porch
+mode: hold          # hold = push-to-talk, toggle = tap to start / tap to stop
+show_level: true    # microphone level meter
+icon: mdi:microphone
+```
+
+Instead of `entity` you can use `channel: 0` (plus `config_entry_id` when you
+have several NVRs/cameras). The card editor offers the same options.
+
+**Requirements and behaviour**
+
+- **HTTPS or the Home Assistant app.** Browsers only allow the microphone in a
+  secure context: open Home Assistant over `https://` (for example Nabu Casa or
+  your own certificate) or use the companion app. Plain `http://` (except
+  `localhost`) shows an error on the card. Allow microphone access when asked.
+- **Administrators only by default.** Turn on *Allow non-admin users to use live
+  talk* in the options to let other users talk. The allowed-cameras option applies
+  as well.
+- **Latency.** Starting a session takes about 1.5 to 2 s (login and TalkConfig;
+  the card shows *Connecting…*). A sleeping battery camera is woken first, which
+  can add 5 to 20 s. While live, Home Assistant buffers about 0.1 to 0.15 s, so
+  expect roughly 0.3 to 0.5 s from your mouth to the camera speaker on a LAN.
+- **Automatic stop.** A session ends when you release the button, after 2 s
+  without audio (for example the tab went to the background), after 60 s, when
+  the websocket disconnects, or when Home Assistant stops. It always ends with a
+  `TalkReset`.
+- **One talk session per NVR.** If a `say`/`play_file` message is playing, live
+  talk waits up to 3 s and then reports that the camera is busy. Messages sent
+  while you are live wait until you finish.
+- The microphone is released as soon as you stop.
+
+If the card does not appear (for example a strict reverse proxy), add it as a
+dashboard resource by hand: *Settings → Dashboards → ⋮ → Resources → Add*,
+URL `/reolink_camera_audiohook/audiohook-talk-card.js`, type *JavaScript module*.
+
+<details>
+<summary>Websocket API (for developers)</summary>
+
+- `reolink_camera_audiohook/talk/start` (subscription): `entity_id` or `channel`
+  (+ `config_entry_id`), `sample_rate` (8000–96000, default 16000), `format`
+  (`s16le` or `f32le`). Events: `connecting`, `live` (with `binary_handler_id`,
+  camera `sample_rate`), then `ended` (reason, blocks sent, timings) or `error`
+  (`code`: `busy`, `channel_offline`, `talk_not_supported`, `invalid_auth`,
+  `timeout`, `talk_failed`).
+- Audio: binary websocket frames `[binary_handler_id, ...pcm]` (an empty payload
+  stops), or `reolink_camera_audiohook/talk/audio` with `subscription` and base64
+  `data`.
+- `reolink_camera_audiohook/talk/stop` with `subscription`, or unsubscribe.
+
+</details>
+
 ## Battery cameras and doorbells
 
 Before each talk session the integration reads the channel state from the NVR.
@@ -309,6 +380,9 @@ support.
 | A camera is missing from the options | It reported "no talk ability", or it is an empty NVR slot. Cameras that are asleep or offline are still listed. |
 | *... does not support two-way talk* | The camera has no speaker or two-way talk is disabled. |
 | No sound but the action succeeds | The camera's speaker volume in the Reolink app; try `volume: 150`; another client (Reolink app) may hold the talk session. |
+| Talk card: *needs a secure connection* | Open Home Assistant over HTTPS or use the companion app (see [Live talk](#live-talk)). |
+| Talk card: *Microphone permission was denied* | Allow the microphone for the Home Assistant site in the browser (or for the app in the phone settings). |
+| Talk card: *busy* | A message is playing on that NVR; try again when it has finished. |
 | *Text-to-speech failed* | Home Assistant needs internet for edge-tts; or use `tts.speak` with a local engine. |
 | Something else | Enable debug logging for `custom_components.reolink_camera_audiohook` and attach **Download diagnostics** to an issue (secrets are redacted). |
 
@@ -328,6 +402,9 @@ logger:
   logged; diagnostics redact the password, username, address and device IDs.
 - Use a dedicated Reolink user with talk permission rather than the administrator
   account. The actions only play on the cameras you allowed in the options.
+- Live talk audio goes from the browser to Home Assistant over the existing
+  authenticated websocket, then to the camera. It is not recorded or stored.
+  Only administrators can use it unless you allow other users in the options.
 
 ## Limitations
 
@@ -340,7 +417,10 @@ logger:
   (login + TalkConfig) before the audio starts, more if a camera has to wake up.
   The action returns after playback has finished.
 - `volume` is a software gain. The camera's own speaker volume is not changed.
-- One talk session per NVR at a time; concurrent calls queue up.
+- One talk session per NVR at a time; concurrent calls queue up (live talk
+  reports "busy" after 3 s instead).
+- Live talk: 60 s per session, 2 s idle timeout; the browser sends 16 kHz mono
+  audio. Downsampling for 8 kHz cameras uses a simple filter (fine for speech).
 - edge-tts uses Microsoft's online Edge read-aloud service: it needs internet and
   is not an official API. For fully local TTS use `tts.speak` with Piper and the
   speaker entity.
