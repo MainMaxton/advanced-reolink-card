@@ -361,8 +361,10 @@ package.
 
 ## Contributing
 
-Issues and pull requests are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md) and
-[CHANGELOG.md](CHANGELOG.md). Please never post passwords, real IP addresses or
+Issues and pull requests are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md),
+[CHANGELOG.md](CHANGELOG.md) and the [Code of Conduct](CODE_OF_CONDUCT.md).
+Report security problems privately as described in [SECURITY.md](SECURITY.md).
+Please never post passwords, real IP addresses or
 other private details; diagnostics already redact them.
 
 ## Brand images

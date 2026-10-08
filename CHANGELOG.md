@@ -3,6 +3,8 @@
 ## 0.2.0 - 2026-10-08
 
 ### Added
+- Contribution guidelines, security policy, code of conduct, issue and PR
+  templates, Dependabot, and repository rulesets (`.github/rulesets/`).
 - Own icon and logo (light and dark), shipped in
   `custom_components/reolink_camera_audiohook/brand/` so Home Assistant 2026.3+
   shows them without the brands repository.
