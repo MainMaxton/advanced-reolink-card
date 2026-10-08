@@ -37,17 +37,21 @@ works through an NVR with any number of channels, or directly with a standalone 
 - **Automatic discovery**: channels, names, models, online/asleep state and
   two-way talk support are read from the device you enter. NVRs with any number of
   channels and standalone cameras are supported.
-- **Live push-to-talk card**: hold a button on your dashboard and speak through
-  the camera (`custom:advanced-reolink-card`, loaded automatically).
+- **Camera card** (`custom:advanced-reolink-card`, loaded automatically): pick the
+  features you want in the visual editor: **live video**, **PTZ** (hold-to-move
+  direction pad, zoom, presets), **listen** to the camera microphone and
+  **push-to-talk**, with half-duplex muting so you do not hear yourself. The
+  matching Reolink camera, PTZ buttons and presets are found automatically.
 - **Battery cameras and doorbells**: asleep cameras stay selectable and are
   **woken up** automatically before they speak.
-- **Local and lightweight**: pure Python, no Node.js, no `go2rtc`, no cloud relay.
-  Talk audio stays on your LAN.
+- **Local and lightweight**: talk is pure Python, no Node.js, no cloud relay, and
+  talk audio stays on your LAN. Live video and listening reuse Home Assistant's own
+  camera streaming (built-in go2rtc / WebRTC) for the Reolink core cameras.
 - **Robust**: talk sessions are serialised per NVR and always end with a
   `TalkReset`, even after errors; translated errors, reauth, reconfigure and
   diagnostics are included.
 
-> **Status:** 0.3.0. Tested on a Reolink NVR with TrackMix PoE, CX820 and Video
+> **Status:** 0.4.0. Tested on a Reolink NVR with TrackMix PoE, CX820 and Video
 > Doorbell cameras (16 kHz ADPCM talk). Not affiliated with or endorsed by Reolink.
 
 ## Requirements
@@ -64,6 +68,11 @@ works through an NVR with any number of channels, or directly with a standalone 
   port" / "Basic service").
 - A Reolink user on the device that is allowed to use two-way talk (it does not
   have to be the administrator account).
+- For the card's **live video, PTZ and listen** features: Home Assistant's
+  [Reolink integration](https://www.home-assistant.io/integrations/reolink/) set up
+  for the same NVR/camera (it provides the camera, PTZ button and preset entities).
+  Listening needs WebRTC, which Home Assistant provides through its built-in
+  go2rtc on HA OS and Container installs.
 
 ## Installation
 
@@ -282,36 +291,138 @@ This integration works alongside the official Reolink integration. It opens its
 own short-lived Baichuan connection for each message: login, talk, `TalkReset`,
 logout.
 
-## Live talk
+## Camera card
 
-The integration ships a Lovelace card for **live push-to-talk**: hold the button,
-speak, release. Your browser streams the microphone to Home Assistant, which keeps
-one talk session open on the camera and forwards the audio in real time.
+The integration ships one Lovelace card, `custom:advanced-reolink-card`. In the
+card's visual editor you choose the features you want:
 
-| Idle | Live |
+| Feature | What it does |
 |---|---|
-| ![Talk card, idle](docs/images/08a_talk_card_idle.png) | ![Talk card, live](docs/images/08c_talk_card_live.png) |
+| **Live video** (`video`) | Live view of the matching Reolink core camera entity, over Home Assistant's WebRTC (go2rtc). Falls back to Home Assistant's standard stream (HLS) and then to a refreshed still image. Tap to start; it never starts on its own. |
+| **PTZ controls** (`ptz`) | Direction pad (press and hold moves, release sends *PTZ stop*, exactly like the core PTZ buttons), zoom in/out and a preset list when the camera has them. Only shown for PTZ cameras (for example TrackMix); other cameras stay view-only. |
+| **Listen** (`listen`) | Speaker button that plays the camera microphone, with a volume slider. Uses the video's audio when live video is on, otherwise an audio-only WebRTC session. The card plays the audio itself so it can mute it. |
+| **Push-to-talk** (`talk`) | Hold (or tap) to speak through the camera speaker (see [Live talk](#live-talk)). Half-duplex by default: listening is muted while you talk and for about 1.5 s after you release, so you do not hear your own voice coming back from the camera. |
 
 The card is served by the integration and loaded on every dashboard
-automatically. Add it from the card picker ("Advanced Reolink Card") or in YAML:
+automatically. Add it from the card picker ("Advanced Reolink Card") or in YAML.
+
+**PTZ camera with everything** (for example a TrackMix):
 
 ```yaml
 type: custom:advanced-reolink-card
-entity: media_player.porch_camera_speaker   # the camera's speaker entity
-name: Porch
-mode: hold          # hold = push-to-talk, toggle = tap to start / tap to stop
-show_level: true    # microphone level meter
-icon: mdi:microphone
+entity: media_player.front_yard_speaker   # this integration's speaker (talk target)
+video: true
+ptz: true
+listen: true
+talk: true
+talk_auto_listen: true   # pressing talk also starts listening
+volume: 80
 ```
 
-Instead of `entity` you can use `channel: 0` (plus `config_entry_id` when you
-have several NVRs/cameras). The card editor offers the same options.
+**Battery doorbell, listen and talk without video:**
+
+```yaml
+type: custom:advanced-reolink-card
+entity: media_player.front_door_speaker
+listen: true
+talk: true
+mode: toggle
+```
+
+**View only, no talk** (any Reolink core camera):
+
+```yaml
+type: custom:advanced-reolink-card
+camera_entity: camera.garage_fluent
+video: true
+talk: false
+```
+
+**Talk only** (what older `audiohook-talk-card` configs do):
+
+```yaml
+type: custom:advanced-reolink-card
+entity: media_player.porch_camera_speaker
+name: Porch
+mode: hold
+```
+
+### Card options
+
+| Option | Default | Description |
+|---|---|---|
+| `entity` | | Speaker `media_player` of this integration: the talk target, also used to find the camera. |
+| `channel` | | Instead of `entity`: the NVR channel number (plus `config_entry_id` with several NVRs/cameras). |
+| `config_entry_id` | | Only needed with `channel` and several entries. |
+| `camera_entity` | auto | Reolink core camera entity for video/listen/PTZ. Leave empty to auto-match (see below). |
+| `name` | camera name | Card title. |
+| `icon` | `mdi:cctv` | Header icon (`mdi:microphone` for talk-only cards). |
+| `video` | `false` | Live video. |
+| `ptz` | `false` | PTZ controls (only shown when the camera supports PTZ). |
+| `listen` | `false` | Listen button and volume slider. |
+| `talk` | `true` | Push-to-talk button. Set `false` for a view-only card. |
+| `talk_auto_listen` | `false` | Pressing talk also starts listening (needs `listen: true`). |
+| `volume` | `80` | Initial listening volume, 0 to 100. |
+| `duplex` | `half` | `half` mutes listening while talking (+1.5 s); `full` keeps it on (may echo). |
+| `mode` | `hold` | Talk button: `hold` (push-to-talk) or `toggle` (tap to start/stop). |
+| `show_level` | `true` | Microphone level meter. |
+
+You need `entity`, `channel` or `camera_entity`. Talk needs `entity` or `channel`.
+
+### How the camera is matched
+
+The card asks the integration (websocket `advanced_reolink_card/card/info`) for
+the Reolink core device of the speaker's camera. It looks in the Reolink core
+config entry for the same host and matches the camera by UID, then by
+`<NVR>_ch<channel>`, then by name. From that device it uses the first enabled
+camera stream in the order Fluent, Balanced, Clear (Fluent is H.264 and plays
+everywhere), the PTZ buttons, the PTZ preset select and the sleep/battery
+sensors. Set `camera_entity` to override the camera (for example the telephoto
+stream of a TrackMix); PTZ then follows that camera's device.
+
+PTZ zoom buttons are **disabled by default** in the Reolink integration. Enable
+*PTZ zoom in* and *PTZ zoom out* on the camera device to get zoom on the card
+(the card says so when they are disabled).
+
+### Behaviour
+
+- **Nothing starts on its own.** Video and listening start from a tap (browsers
+  only allow sound after a tap) and stop when you tap again, leave the dashboard
+  or switch to another app/tab. This matters for battery cameras: an open stream
+  keeps them awake.
+- **Battery cameras** show a battery badge and *Waking the camera…* while they
+  wake up (about 5 to 20 s). Talk shows the same state.
+- **HTTPS.** The microphone (talk) needs `https://`. On plain `http://` the card
+  disables the talk button and explains why; live video, PTZ and listening still
+  work.
+- **Echo.** Half-duplex is the default. With `duplex: full` you may hear your own
+  voice from the camera microphone about a second later; the browser's echo
+  cancellation only removes sound from your own phone/computer speaker.
+- **Latency.** Live video and listening typically run about 1 s behind (WebRTC);
+  the HLS fallback is several seconds behind and is not suitable for an intercom.
+- **Phones.** In the iOS app/Safari, iOS may lower the playback volume or switch it
+  to the earpiece while the microphone is in use; use a headset or the volume
+  buttons if listening gets quiet while talking.
 
 The old card type `custom:audiohook-talk-card` still works as a deprecated alias
 (it logs a warning in the browser console); switch dashboards to
 `custom:advanced-reolink-card`.
 
-**Requirements and behaviour**
+If the card does not appear (for example a strict reverse proxy), add it as a
+dashboard resource by hand: *Settings → Dashboards → ⋮ → Resources → Add*,
+URL `/advanced_reolink_card/advanced-reolink-card.js`, type *JavaScript module*.
+
+## Live talk
+
+Push-to-talk: hold the button, speak, release. Your browser streams the
+microphone to Home Assistant, which keeps one talk session open on the camera and
+forwards the audio in real time.
+
+| Idle | Live |
+|---|---|
+| ![Talk card, idle](docs/images/08a_talk_card_idle.png) | ![Talk card, live](docs/images/08c_talk_card_live.png) |
+
+**Talk requirements and behaviour**
 
 - **HTTPS or the Home Assistant app.** Browsers only allow the microphone in a
   secure context: open Home Assistant over `https://` (for example Nabu Casa or
@@ -333,10 +444,6 @@ The old card type `custom:audiohook-talk-card` still works as a deprecated alias
   while you are live wait until you finish.
 - The microphone is released as soon as you stop.
 
-If the card does not appear (for example a strict reverse proxy), add it as a
-dashboard resource by hand: *Settings → Dashboards → ⋮ → Resources → Add*,
-URL `/advanced_reolink_card/advanced-reolink-card.js`, type *JavaScript module*.
-
 <details>
 <summary>Websocket API (for developers)</summary>
 
@@ -350,6 +457,9 @@ URL `/advanced_reolink_card/advanced-reolink-card.js`, type *JavaScript module*.
   stops), or `advanced_reolink_card/talk/audio` with `subscription` and base64
   `data`.
 - `advanced_reolink_card/talk/stop` with `subscription`, or unsubscribe.
+- `advanced_reolink_card/card/info`: `entity_id` or `channel` (+
+  `config_entry_id`) and/or `camera_entity`. Returns the matched Reolink core
+  camera entities, PTZ button and preset entities, and battery/sleep sensors.
 
 </details>
 
@@ -392,6 +502,10 @@ support.
 | *... does not support two-way talk* | The camera has no speaker or two-way talk is disabled. |
 | No sound but the action succeeds | The camera's speaker volume in the Reolink app; try `volume: 150`; another client (Reolink app) may hold the talk session. |
 | Talk card: *needs a secure connection* | Open Home Assistant over HTTPS or use the companion app (see [Live talk](#live-talk)). |
+| Card: *No Reolink camera entity found* | Set up Home Assistant's Reolink integration for the same NVR/camera and keep its *Fluent* camera entity enabled, or set `camera_entity` in the card editor. |
+| Card: no PTZ pad on a PTZ camera | The card only shows PTZ when the core *PTZ left/right/up/down/stop* buttons are enabled for that camera. Zoom needs *PTZ zoom in/out* enabled (disabled by default). |
+| Card: *Listening needs Home Assistant's WebRTC* | Listening uses WebRTC through Home Assistant's built-in go2rtc (HA OS / Container). On Core installs add a go2rtc server (`go2rtc:` with `url:`). |
+| Card: no sound when listening | Make sure the camera's *Record audio* switch (Reolink integration) is on: without it the camera stream carries no audio. Check the volume slider and the phone's media volume. |
 | Talk card: *Microphone permission was denied* | Allow the microphone for the Home Assistant site in the browser (or for the app in the phone settings). |
 | Talk card: *busy* | A message is playing on that NVR; try again when it has finished. |
 | *Text-to-speech failed* | Home Assistant needs internet for edge-tts; or use `tts.speak` with a local engine. |
@@ -419,8 +533,11 @@ logger:
 
 ## Limitations
 
-- Talk only. The integration does not play to the NVR's own speaker, and it does
-  not use the camera's "quick reply" or siren audio files.
+- Audio output is talk only. The integration does not play to the NVR's own
+  speaker, and it does not use the camera's "quick reply" or siren audio files.
+- The card's video, PTZ and listen features need the Reolink core integration for
+  the same device; listening needs WebRTC (go2rtc). Without WebRTC the card falls
+  back to HLS or a still image for video, and listening is not available.
 - Only ADPCM talk configs are implemented (every device tested reports `adpcm`).
 - Standalone battery cameras that are only reachable over Reolink's UDP protocol
   are not supported (TCP Baichuan only).

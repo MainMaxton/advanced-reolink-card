@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 - 2026-10-08
 
 ### Breaking: renamed to Advanced Reolink Card
 - The project is now **Advanced Reolink Card**: GitHub repository
@@ -22,6 +22,32 @@
   but its `entity` must point at the re-created speaker entity.
 - Logger: `custom_components.advanced_reolink_card` (update `logger:` config).
 - New name in the manifest, HACS metadata, translations, brand logos and docs.
+
+### Added: configurable camera card
+- `custom:advanced-reolink-card` now has selectable features in the visual
+  editor: **live video**, **PTZ controls**, **listen** and **push-to-talk**
+  (talk-only stays the default, so existing configs behave as before).
+- Live video from the matching Reolink core camera entity over Home Assistant's
+  WebRTC (go2rtc), falling back to Home Assistant's standard stream (HLS) and then
+  a refreshed still image.
+- PTZ: hold-to-move direction pad (release sends *PTZ stop*, like the core PTZ
+  buttons), zoom in/out and a preset list, discovered from the camera's core
+  device. Only shown for cameras with PTZ; other cameras are view-only. A note
+  explains when the core PTZ/zoom entities are disabled.
+- Listen: camera microphone with its own playback and volume slider (video's
+  audio when video is on, otherwise audio-only WebRTC), started from a tap.
+- Half-duplex: listening is muted while talking and for 1.5 s after release
+  (`duplex: full` to keep it on); `talk_auto_listen` starts listening when you
+  press talk.
+- Camera matching: the card finds the core camera by host and camera UID, NVR
+  channel or name, with a `camera_entity` override in the editor. New websocket
+  command `advanced_reolink_card/card/info`.
+- Battery cameras show a battery badge and *Waking the camera…*; streams never
+  start on dashboard load and stop when the tab or app is hidden.
+- On plain `http://` the card disables talk with a clear HTTPS message while
+  video, PTZ and listening keep working.
+- New options: `camera_entity`, `video`, `ptz`, `listen`, `talk`,
+  `talk_auto_listen`, `volume`, `duplex`.
 
 ## 0.3.0 - 2026-10-08
 
