@@ -1,0 +1,247 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to your Reolink NVR or camera",
+        "description": "Uses the Reolink Baichuan protocol (port 9000 by default) for two-way talk. Channels, names and talk support are discovered automatically; setup only makes read-only queries.",
+        "data": {
+          "host": "[%key:common::config_flow::data::host%]",
+          "port": "Baichuan port",
+          "username": "[%key:common::config_flow::data::username%]",
+          "password": "[%key:common::config_flow::data::password%]"
+        },
+        "data_description": {
+          "host": "IP address or hostname of the NVR, or of a standalone camera.",
+          "port": "TCP port of the Baichuan service (9000 unless you changed it on the device).",
+          "username": "A Reolink user on the device. It needs permission to use two-way talk.",
+          "password": "Password of that user."
+        }
+      },
+      "reauth_confirm": {
+        "title": "Re-authenticate",
+        "description": "{host} rejected the stored credentials. Enter them again.",
+        "data": {
+          "username": "[%key:common::config_flow::data::username%]",
+          "password": "[%key:common::config_flow::data::password%]"
+        },
+        "data_description": {
+          "username": "A Reolink user on the device.",
+          "password": "Password of that user."
+        }
+      },
+      "reconfigure": {
+        "title": "Reconfigure the connection",
+        "description": "Change the address, port or credentials. Leave the password empty to keep the current one.",
+        "data": {
+          "host": "[%key:common::config_flow::data::host%]",
+          "port": "Baichuan port",
+          "username": "[%key:common::config_flow::data::username%]",
+          "password": "[%key:common::config_flow::data::password%]"
+        },
+        "data_description": {
+          "host": "IP address or hostname of the NVR, or of a standalone camera.",
+          "port": "TCP port of the Baichuan service (9000 unless you changed it on the device).",
+          "username": "A Reolink user on the device.",
+          "password": "Leave empty to keep the stored password."
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "[%key:common::config_flow::error::cannot_connect%]",
+      "invalid_auth": "[%key:common::config_flow::error::invalid_auth%]",
+      "timeout": "[%key:common::config_flow::error::timeout_connect%]",
+      "no_talk_channels": "Connected, but every channel reports that it has no two-way talk support.",
+      "unknown": "[%key:common::config_flow::error::unknown%]"
+    },
+    "abort": {
+      "already_configured": "[%key:common::config_flow::abort::already_configured_device%]",
+      "reauth_successful": "[%key:common::config_flow::abort::reauth_successful%]",
+      "reconfigure_successful": "[%key:common::config_flow::abort::reconfigure_successful%]",
+      "wrong_device": "The address now points to a different Reolink device. Add it as a new device instead."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "AudioHook options",
+        "description": "Channels, their state and talk support were re-scanned (read-only) when this dialog opened. Sleeping battery cameras are listed and are woken up when they need to speak. Channels without talk support: {unsupported}.",
+        "data": {
+          "voice": "Default voice",
+          "volume": "Default volume (software gain)",
+          "enabled_channels": "Cameras allowed to talk"
+        },
+        "data_description": {
+          "voice": "Any Microsoft Edge neural voice name, for example en-US-JennyNeural or en-GB-RyanNeural.",
+          "volume": "100 % plays the audio unchanged; above 100 % amplifies (may clip).",
+          "enabled_channels": "Speaker entities are created only for these cameras, and the actions refuse every other one."
+        }
+      }
+    }
+  },
+  "entity": {
+    "media_player": {
+      "speaker": {
+        "name": "Speaker",
+        "state_attributes": {
+          "channel": {
+            "name": "Channel"
+          },
+          "sleeping": {
+            "name": "Asleep",
+            "state": {
+              "true": "Yes",
+              "false": "No"
+            }
+          },
+          "talk_support": {
+            "name": "Two-way talk",
+            "state": {
+              "supported": "Supported",
+              "unsupported": "Not supported",
+              "unknown": "Not confirmed yet"
+            }
+          },
+          "sample_rate": {
+            "name": "Talk sample rate"
+          }
+        }
+      }
+    },
+    "notify": {
+      "speak": {
+        "name": "Speak",
+        "state_attributes": {
+          "channel": {
+            "name": "Channel"
+          },
+          "sleeping": {
+            "name": "Asleep",
+            "state": {
+              "true": "Yes",
+              "false": "No"
+            }
+          },
+          "talk_support": {
+            "name": "Two-way talk",
+            "state": {
+              "supported": "Supported",
+              "unsupported": "Not supported",
+              "unknown": "Not confirmed yet"
+            }
+          },
+          "sample_rate": {
+            "name": "Talk sample rate"
+          }
+        }
+      }
+    }
+  },
+  "exceptions": {
+    "invalid_auth": {
+      "message": "The device rejected the stored username or password."
+    },
+    "cannot_connect": {
+      "message": "Cannot reach {host}: {error}"
+    },
+    "not_a_speaker": {
+      "message": "{entity_id} is not a Reolink Camera AudioHook speaker."
+    },
+    "target_required": {
+      "message": "Pass either a camera (speaker entity) or a channel."
+    },
+    "entry_not_loaded": {
+      "message": "The NVR/camera entry {entry_id} does not exist or is not loaded."
+    },
+    "no_entry_loaded": {
+      "message": "No Reolink Camera AudioHook device is set up and loaded."
+    },
+    "multiple_entries": {
+      "message": "Several devices are set up: pass a camera or the NVR (config entry) together with the channel."
+    },
+    "channel_not_enabled": {
+      "message": "{name} (channel {channel}) is not allowed to talk. Enable it in the integration options."
+    },
+    "channel_offline": {
+      "message": "{name} (channel {channel}) is reported offline by the NVR."
+    },
+    "talk_not_supported": {
+      "message": "{name} (channel {channel}) does not support two-way talk."
+    },
+    "talk_timeout": {
+      "message": "{name} (channel {channel}) did not answer in time (it may be asleep or out of Wi-Fi range): {error}"
+    },
+    "talk_failed": {
+      "message": "Talk session on {name} (channel {channel}) failed: {error}"
+    },
+    "tts_failed": {
+      "message": "Text-to-speech failed: {error}"
+    },
+    "playback_failed": {
+      "message": "Could not prepare the audio: {error}"
+    },
+    "nothing_to_play": {
+      "message": "Nothing to play: pass a message or a media item."
+    },
+    "path_not_allowed": {
+      "message": "{path} is not inside allowlist_external_dirs."
+    }
+  },
+  "services": {
+    "say": {
+      "name": "Say",
+      "description": "Speak a message on a Reolink camera speaker using edge-tts.",
+      "fields": {
+        "camera": {
+          "name": "Camera",
+          "description": "Speaker entity of the camera. Use this or channel."
+        },
+        "channel": {
+          "name": "Channel",
+          "description": "NVR channel number (0-based). Use this or camera."
+        },
+        "config_entry_id": {
+          "name": "NVR",
+          "description": "Only needed with channel when several NVRs or cameras are set up."
+        },
+        "message": {
+          "name": "Message",
+          "description": "Text to speak."
+        },
+        "voice": {
+          "name": "Voice",
+          "description": "edge-tts voice; overrides the default from the options."
+        },
+        "volume": {
+          "name": "Volume",
+          "description": "Software gain in percent (100 = unchanged)."
+        }
+      }
+    },
+    "play_file": {
+      "name": "Play file",
+      "description": "Play an audio file, URL or media-source item (for example a TTS result) on a camera speaker.",
+      "fields": {
+        "camera": {
+          "name": "[%key:component::reolink_camera_audiohook::services::say::fields::camera::name%]",
+          "description": "[%key:component::reolink_camera_audiohook::services::say::fields::camera::description%]"
+        },
+        "channel": {
+          "name": "[%key:component::reolink_camera_audiohook::services::say::fields::channel::name%]",
+          "description": "[%key:component::reolink_camera_audiohook::services::say::fields::channel::description%]"
+        },
+        "config_entry_id": {
+          "name": "[%key:component::reolink_camera_audiohook::services::say::fields::config_entry_id::name%]",
+          "description": "[%key:component::reolink_camera_audiohook::services::say::fields::config_entry_id::description%]"
+        },
+        "media_content_id": {
+          "name": "Media",
+          "description": "media-source:// ID, http(s) URL, or a local path inside allowlist_external_dirs."
+        },
+        "volume": {
+          "name": "[%key:component::reolink_camera_audiohook::services::say::fields::volume::name%]",
+          "description": "[%key:component::reolink_camera_audiohook::services::say::fields::volume::description%]"
+        }
+      }
+    }
+  }
+}

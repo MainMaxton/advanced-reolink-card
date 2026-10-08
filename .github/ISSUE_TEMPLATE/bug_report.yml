@@ -1,0 +1,81 @@
+name: Bug report
+description: Something does not work as expected.
+title: "fix: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! **Before you post, remove passwords, IP addresses,
+        serial numbers / UIDs and camera names** from everything you paste.
+        Diagnostics downloaded from Home Assistant already redact the password,
+        username, address and device IDs, but please check them anyway.
+        Security problems: please use the private security report instead.
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Integration version
+      placeholder: "0.2.0"
+    validations:
+      required: true
+  - type: input
+    id: ha_version
+    attributes:
+      label: Home Assistant version and installation type
+      placeholder: "2026.10.0, Home Assistant OS"
+    validations:
+      required: true
+  - type: dropdown
+    id: device_type
+    attributes:
+      label: Device
+      options:
+        - Reolink NVR (camera connected to it)
+        - Standalone camera
+        - Home Hub
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: models
+    attributes:
+      label: Device and camera models, firmware
+      description: For example "RLN8-410, firmware v3.x; Video Doorbell PoE". Models only, no names or serial numbers.
+  - type: checkboxes
+    id: battery
+    attributes:
+      label: Camera power
+      options:
+        - label: The affected camera is battery powered / can go to sleep
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: |
+        Settings → Devices & services → Reolink Camera AudioHook → ⋮ → Download diagnostics.
+        Attach the file or paste it here. **Check that nothing private is left in it.**
+      render: json
+  - type: textarea
+    id: logs
+    attributes:
+      label: Debug log
+      description: |
+        Enable debug logging for `custom_components.reolink_camera_audiohook`, reproduce
+        the problem, and paste the relevant lines. **Redact IP addresses and names.**
+      render: text
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I removed passwords, IP addresses, serial numbers and camera names from this report.
+          required: true
+        - label: I searched existing issues and this is not a duplicate.
+          required: true

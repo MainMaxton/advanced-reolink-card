@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/MainMaxton/reolink-camera-audiohook/security/advisories/new
+    about: Please report security problems privately, not as a public issue.
+  - name: Home Assistant community forum
+    url: https://community.home-assistant.io/
+    about: General Home Assistant questions and help with automations.
