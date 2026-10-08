@@ -1,0 +1,49 @@
+# Changelog
+
+## 0.2.0 - 2026-10-08
+
+### Added
+- Own icon and logo (light and dark), shipped in
+  `custom_components/reolink_camera_audiohook/brand/` so Home Assistant 2026.3+
+  shows them without the brands repository.
+- Battery cameras / doorbells: sleeping channels are listed and selectable (marked
+  "asleep"), never woken during discovery, and woken with GetEnc (cmd 56, 20 s
+  timeout, 3 attempts) before a talk session. A channel that does not answer
+  TalkAbility/TalkConfig is woken and retried once.
+- Channels are only excluded when they positively report "no talk ability".
+  The default allowed set is every talk-capable (or not yet confirmed) channel.
+- Background re-discovery on every start/reload and when the options open;
+  a fresh "unknown" never overwrites a known talk ability.
+- Reconfigure flow (address, port, credentials; password optional to keep it).
+- Diagnostics with password, username, host and device IDs redacted.
+- Connectivity / channel state polling (every 2 min, read-only) with entity
+  availability: unavailable when the device is unreachable or the camera is
+  reported offline; asleep cameras stay available.
+- Translated errors for the config flow (`cannot_connect`, `invalid_auth`,
+  `timeout`, `no_talk_channels`, `unknown`) and for every action/entity error.
+- Entity names, icons and state attributes (channel, asleep, two-way talk,
+  talk sample rate) via translation keys.
+- pytest suite (pytest-homeassistant-custom-component) for config/reauth/
+  reconfigure/options flows, actions, entities, availability, diagnostics and a
+  protocol-level mock device; wired into the GitHub workflow.
+
+### Changed
+- No device-specific defaults: no default username, generic examples only.
+- `iot_class` is now `local_polling`.
+- Minimum Home Assistant version 2025.2.
+- Entry title is the device name (without the "AudioHook" suffix).
+- Updating entry data (re-discovery) no longer reloads the entry; only option
+  changes do.
+- `scripts/test_talk.py` takes the host/user from arguments or environment and
+  only talks on a channel passed with `--allow-channel` (no built-in channel).
+
+### Fixed
+- A failed login inside `async with BaichuanClient(...)` could leave the reader
+  task running ("Task was destroyed but it is pending").
+- A timeout waiting for the login nonce now still tries the encryption fallbacks.
+
+## 0.1.0 - 2026-10-08
+
+- First release: Baichuan two-way talk (TalkAbility, TalkConfig, Talk, TalkReset),
+  edge-tts, `say` and `play_file` actions, media_player and notify entities,
+  per-NVR talk lock, options for voice/volume/allowed channels.

@@ -1,0 +1,14 @@
+{
+  "entity": {
+    "media_player": {
+      "speaker": { "default": "mdi:cctv" }
+    },
+    "notify": {
+      "speak": { "default": "mdi:account-voice" }
+    }
+  },
+  "services": {
+    "say": { "service": "mdi:account-voice" },
+    "play_file": { "service": "mdi:file-music" }
+  }
+}
