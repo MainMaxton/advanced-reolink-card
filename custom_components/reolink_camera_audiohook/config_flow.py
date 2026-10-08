@@ -24,6 +24,7 @@ from .const import (
     CONF_CHANNELS,
     CONF_DEVICE,
     CONF_ENABLED_CHANNELS,
+    CONF_LIVE_TALK_NON_ADMIN,
     CONF_VOICE,
     CONF_VOLUME,
     DEFAULT_PORT,
@@ -268,6 +269,10 @@ class AudioHookOptionsFlow(OptionsFlow):
                         options=choices, multiple=True, mode=selector.SelectSelectorMode.LIST
                     )
                 ),
+                vol.Optional(
+                    CONF_LIVE_TALK_NON_ADMIN,
+                    default=entry.options.get(CONF_LIVE_TALK_NON_ADMIN, False),
+                ): selector.BooleanSelector(),
             }
         )
         unsupported = [

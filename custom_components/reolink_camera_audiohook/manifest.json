@@ -1,6 +1,10 @@
 {
   "domain": "reolink_camera_audiohook",
   "name": "Reolink Camera AudioHook",
+  "after_dependencies": [
+    "frontend",
+    "http"
+  ],
   "codeowners": [
     "@MainMaxton"
   ],
@@ -19,5 +23,5 @@
   "requirements": [
     "edge-tts>=7.0.0"
   ],
-  "version": "0.2.0"
+  "version": "0.3.0"
 }

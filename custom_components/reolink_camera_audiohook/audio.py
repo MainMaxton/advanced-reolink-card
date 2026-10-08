@@ -229,3 +229,74 @@ async def decode_to_pcm(
     if not ffmpeg_binary:
         raise RuntimeError("ffmpeg is required to decode this audio (only PCM WAV works without it)")
     return await ffmpeg_to_pcm(ffmpeg_binary, data_or_source, sample_rate)
+
+
+# ---------------------------------------------------------------------------
+# Streaming helpers (live talk)
+# ---------------------------------------------------------------------------
+def float32_to_pcm(data: bytes) -> bytes:
+    """Convert little-endian float32 samples (-1.0..1.0) to s16le PCM."""
+    floats = array("f")
+    floats.frombytes(data[: len(data) - (len(data) % 4)])
+    if sys.byteorder == "big":
+        floats.byteswap()
+    out = array("h", bytes(2 * len(floats)))
+    for i, v in enumerate(floats):
+        if v != v:  # NaN
+            v = 0.0
+        iv = int(v * 32767.0)
+        out[i] = 32767 if iv > 32767 else -32768 if iv < -32768 else iv
+    return _to_bytes(out)
+
+
+class StreamResampler:
+    """Stateful linear-interpolation resampler for s16le mono PCM chunks.
+
+    Produces the same output for a stream fed in arbitrary chunk sizes as for
+    the whole stream at once (no clicks at chunk boundaries). When downsampling
+    by a factor of 2 or more, a short moving-average pre-filter reduces aliasing.
+    """
+
+    def __init__(self, src_rate: int, dst_rate: int) -> None:
+        if src_rate <= 0 or dst_rate <= 0:
+            raise ValueError("sample rates must be positive")
+        self.src_rate = src_rate
+        self.dst_rate = dst_rate
+        step = src_rate / dst_rate
+        self._taps = int(step) if step >= 2 else 1
+        self._history = array("h", bytes(2 * (self._taps - 1)))  # last taps-1 raw samples
+        self._buf = array("h")  # filtered samples not yet fully consumed
+        self._pos = 0  # read position in _buf, in units of 1/dst_rate samples (exact)
+
+    def _prefilter(self, samples: array) -> array:
+        taps = self._taps
+        if taps == 1:
+            return samples
+        data = self._history + samples
+        out = array("h", bytes(2 * len(samples)))
+        acc = sum(data[: taps - 1])
+        for i in range(len(samples)):
+            acc += data[i + taps - 1]
+            out[i] = int(acc / taps)
+            acc -= data[i]
+        self._history = data[len(data) - (taps - 1) :]
+        return out
+
+    def process(self, pcm: bytes) -> bytes:
+        """Resample one chunk; returns the output that is complete so far."""
+        if self.src_rate == self.dst_rate:
+            return pcm
+        samples = self._prefilter(_to_samples(pcm))
+        buf = self._buf + samples
+        out = array("h")
+        pos = self._pos
+        src, dst = self.src_rate, self.dst_rate
+        limit = (len(buf) - 1) * dst
+        while pos < limit:
+            j, rem = divmod(pos, dst)
+            out.append(buf[j] + (buf[j + 1] - buf[j]) * rem // dst)
+            pos += src
+        drop = min(pos // dst, len(buf))
+        self._buf = buf[drop:]
+        self._pos = pos - drop * dst
+        return _to_bytes(out)

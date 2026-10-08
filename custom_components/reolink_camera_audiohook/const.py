@@ -24,6 +24,7 @@ CONF_DEVICE: Final = "device"  # discovered host info (dict)
 CONF_VOICE: Final = "voice"
 CONF_VOLUME: Final = "volume"
 CONF_ENABLED_CHANNELS: Final = "enabled_channels"
+CONF_LIVE_TALK_NON_ADMIN: Final = "live_talk_non_admin"
 
 # channel talk status (see baichuan_talk.ChannelInfo.talk_status)
 TALK_SUPPORTED: Final = "supported"

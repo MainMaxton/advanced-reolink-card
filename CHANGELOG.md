@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.3.0 - 2026-10-08
+
+### Added
+- Live push-to-talk: `custom:audiohook-talk-card` Lovelace card (hold or toggle
+  mode, level meter, card editor), served by the integration and loaded on every
+  dashboard automatically.
+- Websocket API `reolink_camera_audiohook/talk/start` (subscription),
+  `talk/audio` and `talk/stop`, with binary audio frames. One talk session stays
+  open while streaming; audio is resampled to the camera rate, encoded to ADPCM
+  and paced in real time. Sessions stop on release, after 2 s without audio,
+  after 60 s, on websocket disconnect or Home Assistant shutdown, always with
+  TalkReset. Sleeping cameras are woken first.
+- Option "Allow non-admin users to use live talk" (off: administrators only).
+
+### Changed
+- Talk sessions share one code path (`open_talk`), used by messages and live talk.
+
 ## 0.2.0 - 2026-10-08
 
 ### Added
