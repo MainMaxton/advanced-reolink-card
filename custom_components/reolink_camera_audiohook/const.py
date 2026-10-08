@@ -1,0 +1,44 @@
+"""Constants for Reolink Camera AudioHook."""
+
+from __future__ import annotations
+
+from datetime import timedelta
+from typing import Final
+
+DOMAIN: Final = "reolink_camera_audiohook"
+NAME: Final = "Reolink Camera AudioHook"
+MANUFACTURER: Final = "Reolink"
+
+DEFAULT_PORT: Final = 9000  # Baichuan service port (configurable in the UI)
+DEFAULT_VOICE: Final = "en-US-JennyNeural"
+DEFAULT_VOLUME: Final = 100  # percent software gain, 100 = unchanged
+
+# How often the NVR/camera is polled for connectivity and channel online/sleep
+# state (login + ChannelInfo push, read-only, never wakes battery cameras).
+STATUS_INTERVAL: Final = timedelta(minutes=2)
+
+# config entry data
+CONF_CHANNELS: Final = "channels"  # discovered channel info (list of dicts)
+CONF_DEVICE: Final = "device"  # discovered host info (dict)
+
+# options
+CONF_VOICE: Final = "voice"
+CONF_VOLUME: Final = "volume"
+CONF_ENABLED_CHANNELS: Final = "enabled_channels"
+
+# channel talk status (see baichuan_talk.ChannelInfo.talk_status)
+TALK_SUPPORTED: Final = "supported"
+TALK_UNSUPPORTED: Final = "unsupported"
+TALK_UNKNOWN: Final = "unknown"
+
+# services
+SERVICE_SAY: Final = "say"
+SERVICE_PLAY_FILE: Final = "play_file"
+
+ATTR_CAMERA: Final = "camera"
+ATTR_CHANNEL: Final = "channel"
+ATTR_CONFIG_ENTRY_ID: Final = "config_entry_id"
+ATTR_MESSAGE: Final = "message"
+ATTR_VOICE: Final = "voice"
+ATTR_VOLUME: Final = "volume"
+ATTR_MEDIA_CONTENT_ID: Final = "media_content_id"

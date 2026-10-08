@@ -1,0 +1,35 @@
+name: Feature request
+description: Suggest an idea or improvement.
+title: "feat: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: Describe the use case. For example, "I want my doorbell to announce ...".
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: How should it work? Actions, options, entities?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: input
+    id: models
+    attributes:
+      label: Device and camera models (if relevant)
+      description: Models only. No names, IP addresses or serial numbers.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues and this has not been requested yet.
+          required: true
