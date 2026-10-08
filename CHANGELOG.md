@@ -4,7 +4,7 @@
 
 ### Added
 - Contribution guidelines, security policy, code of conduct, issue and PR
-  templates, Dependabot, and repository rulesets (`.github/rulesets/`).
+  templates and Dependabot.
 - Own icon and logo (light and dark), shipped in
   `custom_components/reolink_camera_audiohook/brand/` so Home Assistant 2026.3+
   shows them without the brands repository.
@@ -36,8 +36,9 @@
 - Entry title is the device name (without the "AudioHook" suffix).
 - Updating entry data (re-discovery) no longer reloads the entry; only option
   changes do.
-- `scripts/test_talk.py` takes the host/user from arguments or environment and
-  only talks on a channel passed with `--allow-channel` (no built-in channel).
+- The repository contains only the integration, its tests and documentation
+  (development scripts, the duplicate `brands/` folder and the standalone
+  offline checks were removed; the protocol checks are now pytest tests).
 
 ### Fixed
 - A failed login inside `async with BaichuanClient(...)` could leave the reader

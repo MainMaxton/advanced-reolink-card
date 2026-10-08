@@ -180,12 +180,6 @@ class Frame:
     body: bytes
 
     @property
-    def extension(self) -> bytes:
-        if self.payload_offset:
-            return self.body[: min(self.payload_offset, len(self.body))]
-        return b""
-
-    @property
     def payload(self) -> bytes:
         if self.payload_offset:
             return self.body[min(self.payload_offset, len(self.body)) :]
@@ -375,10 +369,6 @@ class TalkSessionInfo:
     @property
     def full_block_size(self) -> int:
         return self.block_size + 4
-
-    @property
-    def samples_per_block(self) -> int:
-        return self.block_size * 2 + 1
 
     def talk_config_xml(self) -> str:
         a = self.audio_config
@@ -1031,7 +1021,6 @@ class TalkSession:
         self._expected_end = 0.0
         self._configured = False
         self.blocks_sent = 0
-        self.samples_sent = 0
 
     async def __aenter__(self) -> TalkSession:
         await self.start()
@@ -1075,7 +1064,6 @@ class TalkSession:
             await self.client.send_binary_no_reply(CMD_TALK, channel=self.channel, payload=payload)
             samples = (len(block) - 4) * 2 + 1
             self.blocks_sent += 1
-            self.samples_sent += samples
             play_s = samples / info.sample_rate
             now = time.monotonic()
             if now > self._expected_end:
