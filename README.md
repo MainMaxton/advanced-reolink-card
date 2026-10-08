@@ -58,7 +58,17 @@ works through an NVR with any number of channels, or directly with a standalone 
 
 ## Installation
 
+### HACS default store (coming soon)
+
+Reolink Camera AudioHook is **not yet in the HACS default store**, so searching
+in HACS will not find it until you add it as a custom repository (below). A
+submission to the default store is planned.
+
 ### HACS (custom repository)
+
+> [!NOTE]
+> HACS can only add a custom repository when the GitHub repository is
+> **public**. No HACS review is needed for this.
 
 1. In HACS open the **⋮** menu and choose **Custom repositories**.
 2. Add `https://github.com/MainMaxton/reolink-camera-audiohook` with
@@ -359,7 +369,7 @@ diagnostics already redact them.
 
 The icon and logo are original artwork (a camera with sound waves), not Reolink's
 logo. They ship in `custom_components/reolink_camera_audiohook/brand/`, which Home
-Assistant 2026.3+ serves directly; older versions (and the HACS store listing)
+Assistant 2026.3+ serves directly; older versions (and HACS listings)
 show a placeholder, because the
 [home-assistant/brands](https://github.com/home-assistant/brands) repository no
 longer accepts custom integrations. The SVG sources are in `docs/brand/`.
