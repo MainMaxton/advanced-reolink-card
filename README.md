@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/images/icon.png" alt="Reolink Camera AudioHook icon" width="112">
+  <img src="custom_components/reolink_camera_audiohook/brand/icon.png" alt="Reolink Camera AudioHook icon" width="112">
 </p>
 
 <h1 align="center">Reolink Camera AudioHook</h1>
@@ -340,40 +340,29 @@ logger:
 
 ```bash
 pip install -r requirements_test.txt
-pytest                                  # config flow, services, entities, protocol mock (no network)
-python scripts/offline_checks.py        # protocol/ADPCM checks against an in-process mock device
-
-# Real device, read-only:
-export AUDIOHOOK_HOST=192.168.1.50 AUDIOHOOK_USERNAME=myuser AUDIOHOOK_PASSWORD=...
-python scripts/test_talk.py login
-python scripts/test_talk.py discover
-python scripts/test_talk.py ability --channel 0
-
-# Real device, plays audio on ONE explicitly allowed channel:
-python scripts/test_talk.py say --allow-channel 0 --channel 0 --message "This is a test"
+pytest    # flows, actions, entities and protocol tests against a mock NVR (no network)
 ```
 
-`scripts/test_talk.py` reads the password only from the environment and redacts
-it from all output. Its `say` command refuses to run unless the channel is
-allowed with `--allow-channel N` (or `AUDIOHOOK_ALLOW_CHANNEL`), and refuses every
-other channel before connecting. The scripts are not part of the integration
-package.
+To try a change on real hardware, copy `custom_components/reolink_camera_audiohook/`
+into a test Home Assistant instance and use the actions from *Developer tools*.
+See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Contributing
 
 Issues and pull requests are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md),
 [CHANGELOG.md](CHANGELOG.md) and the [Code of Conduct](CODE_OF_CONDUCT.md).
 Report security problems privately as described in [SECURITY.md](SECURITY.md).
-Please never post passwords, real IP addresses or
-other private details; diagnostics already redact them.
+Please never post passwords, real IP addresses or other private details;
+diagnostics already redact them.
 
 ## Brand images
 
 The icon and logo are original artwork (a camera with sound waves), not Reolink's
 logo. They ship in `custom_components/reolink_camera_audiohook/brand/`, which Home
-Assistant 2026.3+ serves directly; older versions show a placeholder. A copy laid
-out for the [home-assistant/brands](https://github.com/home-assistant/brands)
-repository is in `brands/custom_integrations/` (see CONTRIBUTING.md).
+Assistant 2026.3+ serves directly; older versions (and the HACS store listing)
+show a placeholder, because the
+[home-assistant/brands](https://github.com/home-assistant/brands) repository no
+longer accepts custom integrations. The SVG sources are in `docs/brand/`.
 
 ## License
 

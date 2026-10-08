@@ -6,7 +6,6 @@ from datetime import timedelta
 from typing import Final
 
 DOMAIN: Final = "reolink_camera_audiohook"
-NAME: Final = "Reolink Camera AudioHook"
 MANUFACTURER: Final = "Reolink"
 
 DEFAULT_PORT: Final = 9000  # Baichuan service port (configurable in the UI)
