@@ -60,6 +60,7 @@ from .const import (
 )
 from .coordinator import AdvancedReolinkCoordinator
 from .helpers import resolve_target, translated
+from .card_info import async_setup_card_info
 from .live_talk import async_setup_live_talk, async_stop_sessions
 from .talk_manager import (
     AdvancedReolinkNvr,
@@ -144,8 +145,9 @@ def _seed_abilities(nvr: AdvancedReolinkNvr, channels: dict[int, dict[str, Any]]
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
-    """Register the domain services, the live talk websocket API and the card."""
+    """Register the domain services, the card/live talk websocket API and the card."""
     _async_register_services(hass)
+    async_setup_card_info(hass)
     await async_setup_live_talk(hass)
     return True
 
