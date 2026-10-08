@@ -119,10 +119,6 @@ class AudioHookNvr:
             None, functools.partial(func, *args)
         )
 
-    @property
-    def busy(self) -> bool:
-        return self._lock.locked()
-
     # ------------------------------------------------------------------ read-only
     async def check_login(self) -> dict[str, str]:
         async with self._lock, self._client() as client:

@@ -38,13 +38,14 @@ contributors' forks start after a maintainer approves them.
 ```bash
 python -m venv .venv && . .venv/bin/activate
 pip install -r requirements_test.txt
-pytest                              # flows, actions, entities, protocol mock
-python scripts/offline_checks.py    # ADPCM and talk flow against a mock device
+pytest
 ```
 
-The tests mock the device completely; `tests/test_protocol_mock.py` runs the
-Baichuan client against an in-process mock server on 127.0.0.1. No test sends
-audio anywhere and no test needs a real camera.
+The tests mock the device completely. `tests/test_protocol.py` covers crypto,
+framing and ADPCM, and runs full talk sessions (wrong password, discovery,
+channel guard, talk round trip with TalkReset, waking a sleeping camera) against
+the in-process mock NVR in `tests/mock_nvr.py` on 127.0.0.1. No test sends audio
+anywhere and no test needs a real camera.
 
 Hassfest runs in CI. To run it locally, from a Home Assistant core checkout:
 
@@ -52,10 +53,16 @@ Hassfest runs in CI. To run it locally, from a Home Assistant core checkout:
 python -m script.hassfest --integration-path /path/to/custom_components/reolink_camera_audiohook
 ```
 
-Never commit credentials, IP addresses of real devices or camera names. The
-scripts in `scripts/` read the device address, user and password from the
-environment, and `scripts/test_talk.py say` only plays on a channel passed with
-`--allow-channel`.
+### Testing on real hardware
+
+Test real devices through Home Assistant itself: copy
+`custom_components/reolink_camera_audiohook/` into a test instance, set up the
+integration, and call `reolink_camera_audiohook.say` from *Developer tools →
+Actions* on a camera you are allowed to make noise with. Mention the device and
+camera models you tested with in the pull request.
+
+Never commit credentials, IP addresses of real devices, camera names, snapshots
+or recordings.
 
 ## Brand assets (icon and logo)
 
@@ -73,21 +80,9 @@ custom_components/reolink_camera_audiohook/brand/
 ```
 
 All PNGs are transparent, trimmed and optimised (oxipng). The HACS action's
-`brands` check accepts this folder, so it is no longer skipped in the workflow.
-
-`brands/custom_integrations/reolink_camera_audiohook/` holds the same files laid
-out for a pull request to
-[home-assistant/brands](https://github.com/home-assistant/brands), which is what
-Home Assistant older than 2026.3 (and the HACS store listing) use. Note that the
-brands repository has stopped accepting new custom-integration submissions since
-local brand images were introduced, so a PR may be closed; the local `brand/`
-folder is the supported way. If you still try it:
-
-1. Fork home-assistant/brands and copy the folder to
-   `custom_integrations/reolink_camera_audiohook/`.
-2. PR title: `Add Reolink Camera AudioHook custom integration`.
-3. PR body: "Brand images for the custom integration `reolink_camera_audiohook`
-   (<repository URL>). Original artwork, not the Reolink logo."
+`brands` check accepts this folder. The
+[home-assistant/brands](https://github.com/home-assistant/brands) repository no
+longer accepts custom integrations, so this folder is the only place for them.
 
 ## Releases
 

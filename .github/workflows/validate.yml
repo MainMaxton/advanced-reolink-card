@@ -47,6 +47,5 @@ jobs:
         with:
           python-version: "3.14"
       - run: pip install -r requirements_test.txt
-      - run: python -m compileall -q custom_components scripts tests
-      - run: python scripts/offline_checks.py
+      - run: python -m compileall -q custom_components tests
       - run: pytest -q
