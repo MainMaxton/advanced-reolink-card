@@ -27,6 +27,9 @@
 - Actions `advanced_reolink_card.start_patrol` / `stop_patrol`: start a camera's
   built-in PTZ cruise or a software preset loop (dwell, duration, loops,
   return-home / guard), cancellable from automations.
+- `start_patrol` sweep mode: with no presets or native patrol it sweeps the full
+  pan range (Left/Right with Stop between moves; `sweep_time`, `pause`, `speed`,
+  `tilt_levels`, `tilt_step`, `zoom_out_first`, optional `disable_tracking`).
 
 ### Fixed
 - Channel rediscovery no longer drops known cameras when the NVR returns a

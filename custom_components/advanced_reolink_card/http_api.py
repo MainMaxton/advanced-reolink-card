@@ -119,8 +119,8 @@ class ReolinkHttpClient:
         try:
             if self._token is not None:
                 await self._post([{"cmd": "Logout", "param": {}}])
-        except Exception:  # noqa: BLE001
-            pass
+        except (BaichuanError, OSError, TimeoutError) as err:
+            _LOGGER.debug("HTTP API logout on %s failed: %s", self.host, err)
         self._token = None
         if self._owns_session and self._session is not None and not self._session.closed:
             await self._session.close()
@@ -232,7 +232,7 @@ class ReolinkHttpClient:
         channel: int,
         op: str,
         *,
-        id: int | None = None,  # noqa: A002
+        id: int | None = None,
         speed: int | None = None,
     ) -> None:
         """Send PtzCtrl (StartPatrol / StopPatrol / ToPos / …)."""
@@ -260,3 +260,20 @@ class ReolinkHttpClient:
         item = data[0] if data else {}
         if item.get("code") != 0:
             raise BaichuanError(f"SetPtzGuard toPos failed on channel {channel}: {item.get('error') or item}")
+
+    async def get_ai_cfg(self, channel: int) -> dict[str, Any]:
+        """GetAiCfg (auto-tracking settings). Read-only."""
+        data = await self.send([{"cmd": "GetAiCfg", "action": 0, "param": {"channel": channel}}])
+        item = data[0] if data else {}
+        if item.get("code") != 0:
+            raise BaichuanError(f"GetAiCfg failed on channel {channel}: {item.get('error') or item}")
+        return dict(item.get("value") or {})
+
+    async def set_ai_cfg(self, channel: int, values: dict[str, Any]) -> None:
+        """SetAiCfg with only the given keys (used to pause/restore auto-tracking)."""
+        data = await self.send(
+            [{"cmd": "SetAiCfg", "action": 0, "param": {"channel": channel, **values}}]
+        )
+        item = data[0] if data else {}
+        if item.get("code") != 0:
+            raise BaichuanError(f"SetAiCfg failed on channel {channel}: {item.get('error') or item}")

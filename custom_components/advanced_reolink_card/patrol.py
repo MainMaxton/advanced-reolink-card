@@ -1,4 +1,4 @@
-"""Camera PTZ patrol orchestration (native cruise or software preset loop).
+"""Camera PTZ patrol orchestration (native cruise, preset loop or timed sweep).
 
 The HTTP client is injected in tests so no real PtzCtrl ever hits an NVR.
 """
@@ -22,6 +22,15 @@ from .http_api import DEFAULT_HTTP_PORT, PtzInfo, ReolinkHttpClient
 _LOGGER = logging.getLogger(__name__)
 
 DEFAULT_DWELL_S = 10.0
+# Sweep defaults, tuned for a TrackMix (about 355 degree pan). Timing based: the
+# camera has no absolute pan position API here, so the sweep runs each direction
+# for ``sweep_time`` seconds and relies on the mechanical end stops.
+DEFAULT_SWEEP_TIME_S = 25.0
+DEFAULT_SWEEP_PAUSE_S = 2.0
+DEFAULT_SWEEP_SPEED = 32
+DEFAULT_TILT_STEP_S = 2.0
+ZOOM_OUT_TIME_S = 6.0
+MODES = ("auto", "native", "presets", "sweep")
 OnlineCheck = Callable[[int], bool | None]
 ClientFactory = Callable[[], ReolinkHttpClient]
 
@@ -37,11 +46,19 @@ class PatrolRequest:
     duration: float | None = None
     loops: int | None = None
     return_preset: int | str | None = None
+    mode: str = "auto"
+    sweep_time: float = DEFAULT_SWEEP_TIME_S
+    pause: float = DEFAULT_SWEEP_PAUSE_S
+    speed: int = DEFAULT_SWEEP_SPEED
+    tilt_levels: int = 1
+    tilt_step: float = DEFAULT_TILT_STEP_S
+    zoom_out_first: bool = False
+    disable_tracking: bool = False
 
 
 @dataclass
 class PatrolResult:
-    mode: str  # "native" | "software"
+    mode: str  # "native" | "software" | "sweep"
     channel: int
     steps: int = 0
     reason: str = "completed"
@@ -149,7 +166,14 @@ class PatrolManager:
             raise HomeAssistantError(
                 **translated("channel_offline", channel=channel, name=name)
             )
-        if request.presets:
+        mode = request.mode
+        if mode == "sweep":
+            return _Plan(mode="sweep", info=info)
+        if mode == "presets" and not request.presets:
+            raise HomeAssistantError(
+                **translated("patrol_not_configured", channel=channel, name=name)
+            )
+        if request.presets and mode in ("auto", "presets"):
             try:
                 preset_ids = [info.resolve_preset(p) for p in request.presets]
             except LookupError as err:
@@ -159,7 +183,9 @@ class PatrolManager:
                     )
                 ) from err
             return _Plan(mode="software", info=info, preset_ids=preset_ids)
-        if request.patrol_id is not None or info.patrols:
+        if mode == "native" or request.patrol_id is not None or (
+            mode == "auto" and info.patrols
+        ):
             try:
                 pid = info.resolve_patrol(request.patrol_id)
             except LookupError as err:
@@ -169,9 +195,8 @@ class PatrolManager:
                     )
                 ) from err
             return _Plan(mode="native", info=info, patrol_id=pid)
-        raise HomeAssistantError(
-            **translated("patrol_not_configured", channel=channel, name=name)
-        )
+        # No presets and no enabled native patrol: sweep the full pan range.
+        return _Plan(mode="sweep", info=info)
 
     async def async_start(
         self, request: PatrolRequest, *, wait: bool = False
@@ -217,6 +242,8 @@ class PatrolManager:
                 async with self._client() as client:
                     if plan.mode == "native":
                         return await self._native(client, plan, request, cancel)
+                    if plan.mode == "sweep":
+                        return await self._sweep(client, plan, request, cancel)
                     return await self._software(client, plan, request, cancel)
             except asyncio.CancelledError:
                 return PatrolResult(
@@ -354,6 +381,170 @@ class PatrolManager:
             if reason != "offline":
                 await self._return_home(client, plan.info, request)
         return PatrolResult(mode="software", channel=channel, steps=steps, reason=reason)
+
+    async def _wait(
+        self,
+        seconds: float,
+        channel: int,
+        cancel: asyncio.Event,
+        deadline: float | None,
+    ) -> str | None:
+        """Sleep up to ``seconds``; return a stop reason or None when the time is up."""
+        end = time.monotonic() + max(0.0, seconds)
+        while True:
+            if cancel.is_set():
+                return "stopped"
+            now = time.monotonic()
+            if deadline is not None and now >= deadline:
+                return "duration"
+            if self._online_check(channel) is False:
+                return "offline"
+            if now >= end:
+                return None
+            limit = end - now
+            if deadline is not None:
+                limit = min(limit, deadline - now)
+            try:
+                await asyncio.wait_for(cancel.wait(), timeout=min(0.25, max(0.01, limit)))
+            except TimeoutError:
+                continue
+
+    async def _move(
+        self,
+        client: ReolinkHttpClient,
+        channel: int,
+        op: str,
+        seconds: float,
+        speed: int | None,
+        cancel: asyncio.Event,
+        deadline: float | None,
+    ) -> str | None:
+        """Run one continuous PtzCtrl move for ``seconds``, always followed by Stop."""
+        await client.ptz_ctrl(channel, op, speed=speed)
+        try:
+            return await self._wait(seconds, channel, cancel, deadline)
+        finally:
+            await self._safe_stop(client, channel)
+
+    async def _safe_stop(self, client: ReolinkHttpClient, channel: int) -> None:
+        try:
+            await client.ptz_ctrl(channel, "Stop")
+        except (BaichuanError, OSError, TimeoutError) as err:
+            _LOGGER.debug("PTZ Stop on channel %s failed: %s", channel, err)
+
+    async def _sweep(
+        self,
+        client: ReolinkHttpClient,
+        plan: _Plan,
+        request: PatrolRequest,
+        cancel: asyncio.Event,
+    ) -> PatrolResult:
+        """Preset-free sweep: Left to the end stop, then Right/Left passes, repeat."""
+        channel = request.channel
+        sweep_time = max(1.0, float(request.sweep_time))
+        pause = max(0.0, float(request.pause))
+        speed = max(1, min(64, int(request.speed)))
+        levels = max(1, int(request.tilt_levels))
+        tilt_step = max(0.0, float(request.tilt_step))
+        deadline = (
+            time.monotonic() + request.duration if request.duration is not None else None
+        )
+        loops_left = request.loops
+        passes = 0
+        reason: str | None = None
+        tracking_restore: dict[str, Any] | None = None
+        try:
+            if request.disable_tracking:
+                tracking_restore = await self._pause_tracking(client, channel)
+            if request.zoom_out_first:
+                reason = await self._move(
+                    client, channel, "ZoomDec", ZOOM_OUT_TIME_S, None, cancel, deadline
+                )
+            if reason is None:
+                # Home to the left end stop from wherever the camera is.
+                reason = await self._move(
+                    client, channel, "Left", sweep_time, speed, cancel, deadline
+                )
+                reason = reason or await self._wait(pause, channel, cancel, deadline)
+            while reason is None:
+                if loops_left is not None and loops_left <= 0:
+                    reason = "loops"
+                    break
+                for level in range(levels):
+                    if level > 0 and tilt_step > 0:
+                        reason = await self._move(
+                            client, channel, "Down", tilt_step, speed, cancel, deadline
+                        )
+                        if reason:
+                            break
+                    for op in ("Right", "Left"):
+                        reason = await self._move(
+                            client, channel, op, sweep_time, speed, cancel, deadline
+                        )
+                        if reason:
+                            break
+                        passes += 1
+                        reason = await self._wait(pause, channel, cancel, deadline)
+                        if reason:
+                            break
+                    if reason:
+                        break
+                if reason:
+                    break
+                if levels > 1 and tilt_step > 0:
+                    # Tilt back up to the first level before the next loop.
+                    reason = await self._move(
+                        client,
+                        channel,
+                        "Up",
+                        tilt_step * (levels - 1),
+                        speed,
+                        cancel,
+                        deadline,
+                    )
+                    if reason:
+                        break
+                if loops_left is not None:
+                    loops_left -= 1
+                # unbounded: keep sweeping until stop_patrol / duration
+        except BaseException:
+            reason = reason or "error"
+            raise
+        finally:
+            await self._safe_stop(client, channel)
+            if reason != "offline":
+                await self._return_home(client, plan.info, request)
+            if tracking_restore is not None:
+                await self._restore_tracking(client, channel, tracking_restore)
+        return PatrolResult(
+            mode="sweep", channel=channel, steps=passes, reason=reason or "completed"
+        )
+
+    async def _pause_tracking(
+        self, client: ReolinkHttpClient, channel: int
+    ) -> dict[str, Any] | None:
+        """Turn auto-tracking off; return the original values to restore."""
+        try:
+            cfg = await client.get_ai_cfg(channel)
+        except (BaichuanError, OSError, TimeoutError) as err:
+            _LOGGER.debug("GetAiCfg on channel %s failed: %s", channel, err)
+            return None
+        key = "bSmartTrack" if "bSmartTrack" in cfg else "aiTrack" if "aiTrack" in cfg else None
+        if key is None or not cfg.get(key):
+            return None  # nothing to pause
+        original = {key: cfg[key]}
+        await client.set_ai_cfg(channel, {key: 0})
+        return original
+
+    async def _restore_tracking(
+        self, client: ReolinkHttpClient, channel: int, original: dict[str, Any]
+    ) -> None:
+        try:
+            await client.set_ai_cfg(channel, original)
+        except (BaichuanError, OSError, TimeoutError) as err:
+            _LOGGER.warning(
+                "Could not restore auto-tracking on channel %s (%s): %s", channel, original, err
+            )
 
     async def _return_home(
         self,

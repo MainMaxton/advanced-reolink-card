@@ -191,7 +191,7 @@
       "message": "{name} (channel {channel}) does not support PTZ, so it cannot patrol."
     },
     "patrol_not_configured": {
-      "message": "{name} (channel {channel}) has no enabled PTZ patrol and no presets were given. Configure a patrol in the Reolink app, or pass presets: for a software patrol."
+      "message": "{name} (channel {channel}): mode presets needs a presets list."
     },
     "patrol_invalid_target": {
       "message": "{name} (channel {channel}): {error}"
@@ -265,7 +265,7 @@
     },
     "start_patrol": {
       "name": "Start camera patrol",
-      "description": "Start a PTZ patrol: the camera's built-in cruise, or a software loop through presets with dwell/duration/return-home.",
+      "description": "Patrol a PTZ camera: its built-in cruise, a preset tour, or (with no presets) a timed sweep across its full pan range. Returns home or to the guard position at the end.",
       "fields": {
         "camera": {
           "name": "Camera",
@@ -306,6 +306,38 @@
         "return_preset": {
           "name": "Return preset",
           "description": "Preset to go to when finished. If omitted, uses the guard position when configured."
+        },
+        "mode": {
+          "name": "Mode",
+          "description": "auto (default): presets if given, else the camera's enabled patrol, else a sweep. Or force native, presets or sweep."
+        },
+        "sweep_time": {
+          "name": "Sweep time",
+          "description": "Seconds per side-to-side pass (sweep mode). Default 25, about a full TrackMix pan at speed 32."
+        },
+        "pause": {
+          "name": "Pause",
+          "description": "Seconds to hold at each end of a sweep. Default 2."
+        },
+        "speed": {
+          "name": "Speed",
+          "description": "PTZ speed 1-64 for sweep moves. Default 32."
+        },
+        "tilt_levels": {
+          "name": "Tilt levels",
+          "description": "Number of sweep passes at different tilts. Default 1 (no tilt change)."
+        },
+        "tilt_step": {
+          "name": "Tilt step",
+          "description": "Seconds to tilt down between tilt levels. Default 2."
+        },
+        "zoom_out_first": {
+          "name": "Zoom out first",
+          "description": "Zoom fully out before sweeping."
+        },
+        "disable_tracking": {
+          "name": "Pause auto-tracking",
+          "description": "Turn auto-tracking off during the sweep and restore it afterwards. Changes a camera setting temporarily."
         }
       }
     },

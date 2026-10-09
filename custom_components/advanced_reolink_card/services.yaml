@@ -139,6 +139,64 @@ start_patrol:
       example: Home
       selector:
         text:
+    mode:
+      default: auto
+      selector:
+        select:
+          options:
+            - auto
+            - native
+            - presets
+            - sweep
+    sweep_time:
+      default: 25
+      selector:
+        number:
+          min: 1
+          max: 600
+          step: 1
+          unit_of_measurement: seconds
+          mode: box
+    pause:
+      default: 2
+      selector:
+        number:
+          min: 0
+          max: 600
+          step: 0.5
+          unit_of_measurement: seconds
+          mode: box
+    speed:
+      default: 32
+      selector:
+        number:
+          min: 1
+          max: 64
+          mode: slider
+    tilt_levels:
+      default: 1
+      selector:
+        number:
+          min: 1
+          max: 10
+          mode: box
+    tilt_step:
+      default: 2
+      selector:
+        number:
+          min: 0
+          max: 60
+          step: 0.5
+          unit_of_measurement: seconds
+          mode: box
+    zoom_out_first:
+      default: false
+      selector:
+        boolean:
+    disable_tracking:
+      default: false
+      selector:
+        boolean:
 
 stop_patrol:
   fields:

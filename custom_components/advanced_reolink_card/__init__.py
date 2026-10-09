@@ -66,6 +66,14 @@ from .const import (
     ATTR_DURATION,
     ATTR_LOOPS,
     ATTR_RETURN_PRESET,
+    ATTR_MODE,
+    ATTR_SWEEP_TIME,
+    ATTR_PAUSE,
+    ATTR_SPEED,
+    ATTR_TILT_LEVELS,
+    ATTR_TILT_STEP,
+    ATTR_ZOOM_OUT_FIRST,
+    ATTR_DISABLE_TRACKING,
 )
 from .coordinator import AdvancedReolinkCoordinator
 from .helpers import resolve_patrol_target, resolve_target, translated
@@ -472,6 +480,14 @@ def _async_register_services(hass: HomeAssistant) -> None:
             vol.Optional(ATTR_DURATION): vol.All(vol.Coerce(float), vol.Range(min=1, max=86400)),
             vol.Optional(ATTR_LOOPS): vol.All(vol.Coerce(int), vol.Range(min=1, max=1000)),
             vol.Optional(ATTR_RETURN_PRESET): vol.Any(int, cv.string),
+            vol.Optional(ATTR_MODE, default="auto"): vol.In(["auto", "native", "presets", "sweep"]),
+            vol.Optional(ATTR_SWEEP_TIME, default=25): vol.All(vol.Coerce(float), vol.Range(min=1, max=600)),
+            vol.Optional(ATTR_PAUSE, default=2): vol.All(vol.Coerce(float), vol.Range(min=0, max=600)),
+            vol.Optional(ATTR_SPEED, default=32): vol.All(vol.Coerce(int), vol.Range(min=1, max=64)),
+            vol.Optional(ATTR_TILT_LEVELS, default=1): vol.All(vol.Coerce(int), vol.Range(min=1, max=10)),
+            vol.Optional(ATTR_TILT_STEP, default=2): vol.All(vol.Coerce(float), vol.Range(min=0, max=60)),
+            vol.Optional(ATTR_ZOOM_OUT_FIRST, default=False): cv.boolean,
+            vol.Optional(ATTR_DISABLE_TRACKING, default=False): cv.boolean,
         }
     )
     STOP_PATROL_SCHEMA = vol.Schema(
@@ -497,6 +513,14 @@ def _async_register_services(hass: HomeAssistant) -> None:
                 duration=call.data.get(ATTR_DURATION),
                 loops=call.data.get(ATTR_LOOPS),
                 return_preset=call.data.get(ATTR_RETURN_PRESET),
+                mode=call.data[ATTR_MODE],
+                sweep_time=call.data[ATTR_SWEEP_TIME],
+                pause=call.data[ATTR_PAUSE],
+                speed=call.data[ATTR_SPEED],
+                tilt_levels=call.data[ATTR_TILT_LEVELS],
+                tilt_step=call.data[ATTR_TILT_STEP],
+                zoom_out_first=call.data[ATTR_ZOOM_OUT_FIRST],
+                disable_tracking=call.data[ATTR_DISABLE_TRACKING],
             )
         )
         return result.as_dict() if call.return_response else None

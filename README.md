@@ -595,6 +595,55 @@ automation:
 ```
 
 
+### Sweep mode (no presets needed)
+
+When no `presets` are passed and the camera has no enabled native patrol, `start_patrol`
+sweeps the full pan range: Left to the end stop, then Right / Left passes with a
+PTZ **Stop** between every direction change, repeated until `duration`, `loops`
+or `stop_patrol`. At the end it goes to `return_preset`, or the guard position.
+Force it with `mode: sweep`.
+
+| Option | Default | Notes |
+|---|---|---|
+| `mode` | `auto` | `auto`, `native`, `presets`, `sweep` |
+| `sweep_time` | 25 s | Seconds per side-to-side pass (about a full TrackMix pan at speed 32) |
+| `pause` | 2 s | Hold at each end |
+| `speed` | 32 | PTZ speed 1-64 |
+| `tilt_levels` | 1 | Extra passes at lower tilts |
+| `tilt_step` | 2 s | Tilt-down time between levels |
+| `zoom_out_first` | false | Zoom fully out (6 s ZoomDec) first |
+| `disable_tracking` | false | Pause auto-tracking during the sweep, restore it afterwards |
+| `duration`, `loops`, `return_preset` | – | As above |
+
+```yaml
+# Sweep the Front Yard for 10 minutes when everyone leaves, then return to guard.
+automation:
+  - alias: Front Yard sweep while away
+    triggers:
+      - trigger: state
+        entity_id: group.family
+        to: not_home
+    actions:
+      - action: advanced_reolink_card.start_patrol
+        data:
+          channel: 3
+          mode: sweep
+          sweep_time: 25
+          pause: 3
+          duration: 600
+          tilt_levels: 2
+          tilt_step: 2
+          disable_tracking: true
+```
+
+Caveats: the sweep is **timing based**. There is no absolute pan position, so if
+`sweep_time` is too short the camera will not reach the ends, and if it is too
+long it waits at the end stop. Tune `sweep_time` for your speed. **Auto-tracking**
+(on by default on TrackMix) can grab the camera when it sees a person and fight the
+sweep; set `disable_tracking: true` to pause it, at the cost of a temporary
+settings change that is restored when the sweep ends (also on stop, error or unload;
+a hard HA crash mid-sweep would leave it off).
+
 ## Limitations
 
 - Audio output is talk only. The integration does not play to the NVR's own
