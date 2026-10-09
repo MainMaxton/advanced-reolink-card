@@ -531,6 +531,70 @@ logger:
   authenticated websocket, then to the camera. It is not recorded or stored.
   Only administrators can use it unless you allow other users in the options.
 
+
+
+## Camera patrol
+
+Automations can send a PTZ camera on a tour of its area, then bring it home.
+
+**What core Reolink already has:** a `PTZ patrol` switch (start/stop the camera's
+built-in cruise — only after you configure patrol positions in the Reolink app),
+a `PTZ preset` select, guard go-to / return, and auto-tracking. Those appeared
+with the patrol switch in HA **2024.3** (status reporting improved in **2026.2**).
+
+**What these actions add:** one automation-friendly call with optional
+`presets` + `dwell` (software tour via `ToPos`), `duration` / `loops`, and
+`return_preset` (or the configured guard point). Prefer the camera's native
+cruise when `patrol_id` is set or an enabled patrol exists and you did not pass
+`presets`.
+
+Only the TrackMix channels on this NVR are PTZ (Front Yard, Backyard Left,
+Living Room, Kitchen). Fixed cameras raise `ptz_not_supported`. Create presets
+and/or an enabled patrol in the Reolink app first — out of the box this NVR had
+guard points on the TrackMix cameras but **no enabled patrols** and almost no
+named presets.
+
+```yaml
+# When the alarm arms away: software tour for 5 minutes, then guard/home
+automation:
+  - alias: Front Yard patrol while away
+    triggers:
+      - trigger: state
+        entity_id: alarm_control_panel.house
+        to: armed_away
+    actions:
+      - action: advanced_reolink_card.start_patrol
+        data:
+          camera: camera.front_yard_fluent
+          presets: ["Gate", "Driveway", "Door"]
+          dwell: 15
+          duration: 300
+          # return_preset: Home   # optional; otherwise uses the guard point
+
+  - alias: Stop Front Yard patrol when disarming
+    triggers:
+      - trigger: state
+        entity_id: alarm_control_panel.house
+        to: disarmed
+    actions:
+      - action: advanced_reolink_card.stop_patrol
+        data:
+          camera: camera.front_yard_fluent
+
+# Nightly native cruise (requires an enabled patrol in the Reolink app)
+  - alias: Kitchen night patrol
+    triggers:
+      - trigger: time
+        at: "22:30:00"
+    actions:
+      - action: advanced_reolink_card.start_patrol
+        data:
+          channel: 7
+          patrol_id: 0
+          duration: 600
+```
+
+
 ## Limitations
 
 - Audio output is talk only. The integration does not play to the NVR's own

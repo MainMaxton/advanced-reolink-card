@@ -72,3 +72,99 @@ play_file:
           step: 5
           unit_of_measurement: "%"
           mode: slider
+
+start_patrol:
+  fields:
+    camera:
+      example: camera.front_yard_fluent
+      selector:
+        entity:
+          filter:
+            - integration: advanced_reolink_card
+              domain: media_player
+            - integration: reolink
+              domain: camera
+    device_id:
+      selector:
+        device:
+          filter:
+            - integration: advanced_reolink_card
+            - integration: reolink
+    channel:
+      example: 3
+      selector:
+        number:
+          min: 0
+          max: 255
+          mode: box
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: advanced_reolink_card
+    patrol_id:
+      example: 0
+      selector:
+        text:
+    presets:
+      example: '["Gate", "Driveway", "Door"]'
+      selector:
+        object:
+    dwell:
+      default: 10
+      example: 15
+      selector:
+        number:
+          min: 0.5
+          max: 3600
+          step: 0.5
+          unit_of_measurement: seconds
+          mode: box
+    duration:
+      example: 300
+      selector:
+        number:
+          min: 1
+          max: 86400
+          step: 1
+          unit_of_measurement: seconds
+          mode: box
+    loops:
+      example: 2
+      selector:
+        number:
+          min: 1
+          max: 1000
+          mode: box
+    return_preset:
+      example: Home
+      selector:
+        text:
+
+stop_patrol:
+  fields:
+    camera:
+      example: camera.front_yard_fluent
+      selector:
+        entity:
+          filter:
+            - integration: advanced_reolink_card
+              domain: media_player
+            - integration: reolink
+              domain: camera
+    device_id:
+      selector:
+        device:
+          filter:
+            - integration: advanced_reolink_card
+            - integration: reolink
+    channel:
+      example: 3
+      selector:
+        number:
+          min: 0
+          max: 255
+          mode: box
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: advanced_reolink_card

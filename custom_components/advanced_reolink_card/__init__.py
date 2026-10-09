@@ -56,11 +56,21 @@ from .const import (
     MANUFACTURER,
     SERVICE_PLAY_FILE,
     SERVICE_SAY,
+    SERVICE_START_PATROL,
+    SERVICE_STOP_PATROL,
     TALK_SUPPORTED,
+    ATTR_DEVICE_ID,
+    ATTR_PATROL_ID,
+    ATTR_PRESETS,
+    ATTR_DWELL,
+    ATTR_DURATION,
+    ATTR_LOOPS,
+    ATTR_RETURN_PRESET,
 )
 from .coordinator import AdvancedReolinkCoordinator
-from .helpers import resolve_target, translated
+from .helpers import resolve_patrol_target, resolve_target, translated
 from .card_info import async_setup_card_info
+from .patrol import PatrolManager, PatrolRequest
 from .live_talk import async_setup_live_talk, async_stop_sessions
 from .talk_manager import (
     AdvancedReolinkNvr,
@@ -107,6 +117,7 @@ class AdvancedReolinkData:
     options_snapshot: dict[str, Any]
     nvr_device_id: str | None = None
     speakers: dict[str, int] = field(default_factory=dict)  # entity_id -> channel
+    patrol_manager: PatrolManager | None = None
 
     def channel_name(self, channel: int) -> str:
         return (self.channels.get(channel) or {}).get("name") or f"Channel {channel}"
@@ -201,6 +212,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: AdvancedReolinkConfigEnt
         hw_version=device.get("hardware"),
     )
 
+    def _online(channel: int) -> bool | None:
+        state = (coordinator.data or {}).get(channel)
+        return None if state is None else state.online
+
+    patrol_manager = PatrolManager(
+        hass,
+        host=entry.data[CONF_HOST],
+        username=entry.data[CONF_USERNAME],
+        password=entry.data[CONF_PASSWORD],
+        online_check=_online,
+        channel_name=lambda ch: (channels.get(ch) or {}).get("name") or f"Channel {ch}",
+    )
     entry.runtime_data = AdvancedReolinkData(
         nvr=nvr,
         coordinator=coordinator,
@@ -211,6 +234,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: AdvancedReolinkConfigEnt
         device_identifier=identifier,
         options_snapshot=dict(entry.options),
         nvr_device_id=nvr_device.id,
+        patrol_manager=patrol_manager,
     )
     # Remove camera devices only when the user explicitly unchecked them in
     # Configure (options.enabled_channels). A background rescan must never
@@ -281,6 +305,8 @@ async def _async_update_listener(hass: HomeAssistant, entry: AdvancedReolinkConf
 async def async_unload_entry(hass: HomeAssistant, entry: AdvancedReolinkConfigEntry) -> bool:
     """Unload a config entry (live talk sessions are stopped with TalkReset first)."""
     await async_stop_sessions(hass, entry.entry_id, "unload")
+    if (mgr := getattr(entry.runtime_data, "patrol_manager", None)) is not None:
+        await mgr.async_stop_all()
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
 
@@ -432,4 +458,65 @@ def _async_register_services(hass: HomeAssistant) -> None:
         _play_file,
         schema=PLAY_FILE_SCHEMA,
         supports_response=SupportsResponse.OPTIONAL,
+    )
+
+    START_PATROL_SCHEMA = vol.Schema(
+        {
+            vol.Optional(ATTR_CAMERA): cv.entity_id,
+            vol.Optional(ATTR_DEVICE_ID): cv.string,
+            vol.Optional(ATTR_CHANNEL): vol.All(vol.Coerce(int), vol.Range(min=0, max=255)),
+            vol.Optional(ATTR_CONFIG_ENTRY_ID): cv.string,
+            vol.Optional(ATTR_PATROL_ID): vol.Any(int, cv.string),
+            vol.Optional(ATTR_PRESETS): vol.All(cv.ensure_list, [vol.Any(int, cv.string)]),
+            vol.Optional(ATTR_DWELL): vol.All(vol.Coerce(float), vol.Range(min=0.5, max=3600)),
+            vol.Optional(ATTR_DURATION): vol.All(vol.Coerce(float), vol.Range(min=1, max=86400)),
+            vol.Optional(ATTR_LOOPS): vol.All(vol.Coerce(int), vol.Range(min=1, max=1000)),
+            vol.Optional(ATTR_RETURN_PRESET): vol.Any(int, cv.string),
+        }
+    )
+    STOP_PATROL_SCHEMA = vol.Schema(
+        {
+            vol.Optional(ATTR_CAMERA): cv.entity_id,
+            vol.Optional(ATTR_DEVICE_ID): cv.string,
+            vol.Optional(ATTR_CHANNEL): vol.All(vol.Coerce(int), vol.Range(min=0, max=255)),
+            vol.Optional(ATTR_CONFIG_ENTRY_ID): cv.string,
+        }
+    )
+
+    async def _start_patrol(call: ServiceCall) -> ServiceResponse:
+        entry, channel = resolve_patrol_target(hass, call.data)
+        mgr = entry.runtime_data.patrol_manager
+        if mgr is None:
+            raise HomeAssistantError(**translated("patrol_failed", channel=channel, name=entry.runtime_data.channel_name(channel), error="patrol manager not ready"))
+        result = await mgr.async_start(
+            PatrolRequest(
+                channel=channel,
+                patrol_id=call.data.get(ATTR_PATROL_ID),
+                presets=call.data.get(ATTR_PRESETS),
+                dwell=float(call.data.get(ATTR_DWELL, 10)),
+                duration=call.data.get(ATTR_DURATION),
+                loops=call.data.get(ATTR_LOOPS),
+                return_preset=call.data.get(ATTR_RETURN_PRESET),
+            )
+        )
+        return result.as_dict() if call.return_response else None
+
+    async def _stop_patrol(call: ServiceCall) -> None:
+        entry, channel = resolve_patrol_target(hass, call.data)
+        mgr = entry.runtime_data.patrol_manager
+        if mgr is not None:
+            await mgr.async_stop(channel)
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_START_PATROL,
+        _start_patrol,
+        schema=START_PATROL_SCHEMA,
+        supports_response=SupportsResponse.OPTIONAL,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_STOP_PATROL,
+        _stop_patrol,
+        schema=STOP_PATROL_SCHEMA,
     )

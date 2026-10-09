@@ -23,6 +23,11 @@
 - Logger: `custom_components.advanced_reolink_card` (update `logger:` config).
 - New name in the manifest, HACS metadata, translations, brand logos and docs.
 
+### Added
+- Actions `advanced_reolink_card.start_patrol` / `stop_patrol`: start a camera's
+  built-in PTZ cruise or a software preset loop (dwell, duration, loops,
+  return-home / guard), cancellable from automations.
+
 ### Fixed
 - Channel rediscovery no longer drops known cameras when the NVR returns a
   partial or empty channel list. Previously stored cameras are kept (marked

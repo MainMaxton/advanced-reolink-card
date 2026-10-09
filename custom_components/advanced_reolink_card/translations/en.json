@@ -186,6 +186,24 @@
     },
     "path_not_allowed": {
       "message": "{path} is not inside allowlist_external_dirs."
+    },
+    "ptz_not_supported": {
+      "message": "{name} (channel {channel}) does not support PTZ, so it cannot patrol."
+    },
+    "patrol_not_configured": {
+      "message": "{name} (channel {channel}) has no enabled PTZ patrol and no presets were given. Configure a patrol in the Reolink app, or pass presets: for a software patrol."
+    },
+    "patrol_invalid_target": {
+      "message": "{name} (channel {channel}): {error}"
+    },
+    "patrol_failed": {
+      "message": "Patrol on {name} (channel {channel}) failed: {error}"
+    },
+    "patrol_target_required": {
+      "message": "Pass a camera entity, a device, or a channel."
+    },
+    "patrol_target_unknown": {
+      "message": "Could not match {target} to an Advanced Reolink Card camera channel."
     }
   },
   "services": {
@@ -242,6 +260,74 @@
         "volume": {
           "name": "Volume",
           "description": "Software gain in percent (100 = unchanged)."
+        }
+      }
+    },
+    "start_patrol": {
+      "name": "Start camera patrol",
+      "description": "Start a PTZ patrol: the camera's built-in cruise, or a software loop through presets with dwell/duration/return-home.",
+      "fields": {
+        "camera": {
+          "name": "Camera",
+          "description": "Our speaker or a core Reolink camera entity."
+        },
+        "device_id": {
+          "name": "Device",
+          "description": "Our camera device or a core Reolink camera device."
+        },
+        "channel": {
+          "name": "Channel",
+          "description": "NVR channel number (0-based)."
+        },
+        "config_entry_id": {
+          "name": "NVR",
+          "description": "Only needed with channel when several NVRs are set up."
+        },
+        "patrol_id": {
+          "name": "Patrol id",
+          "description": "Built-in Reolink patrol id or name. Used when presets is not set."
+        },
+        "presets": {
+          "name": "Presets",
+          "description": "List of preset names or ids for a software patrol (ToPos)."
+        },
+        "dwell": {
+          "name": "Dwell",
+          "description": "Seconds to wait at each preset (software patrol). Default 10."
+        },
+        "duration": {
+          "name": "Duration",
+          "description": "Stop after this many seconds, then return home."
+        },
+        "loops": {
+          "name": "Loops",
+          "description": "How many full preset cycles (software patrol)."
+        },
+        "return_preset": {
+          "name": "Return preset",
+          "description": "Preset to go to when finished. If omitted, uses the guard position when configured."
+        }
+      }
+    },
+    "stop_patrol": {
+      "name": "Stop camera patrol",
+      "description": "Cancel a software patrol and/or send StopPatrol to the camera.",
+      "fields": {
+        "camera": {
+          "name": "Camera",
+          "description": "Our speaker or a core Reolink camera entity."
+        },
+        "device_id": {
+          "name": "Device",
+          "description": "Our camera device or a core Reolink camera device."
+        },
+        "channel": {
+          "name": "Channel",
+          "description": "NVR channel number (0-based)."
+        },
+        "config_entry_id": {
+          "name": "NVR",
+          "description": "Only needed with channel when several NVRs are set up."
         }
       }
     }
