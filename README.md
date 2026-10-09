@@ -149,6 +149,9 @@ are picked up.
   the selected cameras, and the actions refuse every other channel.
 - **Allow non-admin users to use live talk**: off by default, so only
   administrators can use the live talk card.
+- **Configure camera patrol limits**: tick it to continue to a PTZ camera picker and
+  that camera's patrol settings (sweep arc from guard, speed, pause, tilt, settle time,
+  auto-tracking, enabled). See [Per-camera limits](#per-camera-limits-arc-sweep).
 
 **Reconfigure** (⋮ → *Reconfigure*) changes the address, port or credentials
 without removing the entry. If the device rejects the stored password, Home
@@ -606,7 +609,10 @@ Force it with `mode: sweep`.
 | Option | Default | Notes |
 |---|---|---|
 | `mode` | `auto` | `auto`, `native`, `presets`, `sweep` |
-| `sweep_time` | 25 s | Seconds per side-to-side pass (about a full TrackMix pan at speed 32) |
+| `left_time`, `right_time` | camera setting, else 0 | Arc limits from guard in seconds of pan (see below). Both 0: full range |
+| `arc` | – | Shorthand: `arc: [left_time, right_time]` |
+| `settle_time` | camera setting, else 3 s | Wait after going to guard before an arc sweep |
+| `sweep_time` | 25 s | Seconds per side-to-side pass (about a full TrackMix pan at speed 32). Full-range sweeps only |
 | `pause` | 2 s | Hold at each end |
 | `speed` | 32 | PTZ speed 1-64 |
 | `tilt_levels` | 1 | Extra passes at lower tilts |
@@ -614,6 +620,10 @@ Force it with `mode: sweep`.
 | `zoom_out_first` | false | Zoom fully out (6 s ZoomDec) first |
 | `disable_tracking` | false | Pause auto-tracking during the sweep, restore it afterwards |
 | `duration`, `loops`, `return_preset` | – | As above |
+
+`pause`, `speed`, `tilt_levels`, `tilt_step` and `disable_tracking` also fall back
+to the camera's saved setting before the built-in default shown. Precedence is
+always **action option → camera setting → built-in default**.
 
 ```yaml
 # Sweep the Front Yard for 10 minutes when everyone leaves, then return to guard.
@@ -643,6 +653,107 @@ long it waits at the end stop. Tune `sweep_time` for your speed. **Auto-tracking
 sweep; set `disable_tracking: true` to pause it, at the cost of a temporary
 settings change that is restored when the sweep ends (also on stop, error or unload;
 a hard HA crash mid-sweep would leave it off).
+
+### Per-camera limits (arc sweep)
+
+Each PTZ camera can store its own patrol settings. Open **Settings → Devices &
+services → Advanced Reolink Card → Configure**, tick **Configure camera patrol
+limits**, pick the camera (only PTZ cameras are listed) and set:
+
+| Setting | Default | Range | Meaning |
+|---|---|---|---|
+| Patrol enabled | on | – | When off, `start_patrol` refuses this camera |
+| Sweep left of guard (`left_time`) | 0 | 0–300 s | Seconds of left pan from the guard position to the left limit |
+| Sweep right of guard (`right_time`) | 0 | 0–300 s | Seconds of right pan from guard to the right limit |
+| Pan speed (`speed`) | 32 | 1–64 | Speed for every move. The arc times are measured at this speed |
+| Pause at each end (`pause`) | 2 s | 0–600 s | Hold at each limit |
+| Tilt levels (`tilt_levels`) | 1 | 1–10 | Rows of passes; 1 keeps the current tilt |
+| Tilt step (`tilt_step`) | 2 s | 0–60 s | Down-tilt time between rows |
+| Settle time (`settle_time`) | 3 s | 0–60 s | Wait after going to guard before the first move |
+| Pause auto-tracking (`disable_tracking`) | off | – | Pause and restore auto-tracking around the sweep |
+
+Left and right must both be set (an **arc**) or both 0 (a **full-range** sweep).
+Saving these settings does not reload the integration or interrupt a running patrol.
+
+With an arc the sweep is:
+
+1. Go to the guard position (`SetPtzGuard` toPos) and wait `settle_time`.
+2. Pan **Left** for `left_time` to the left limit, then pause.
+3. Pan **Right** for `left_time + right_time` (to the right limit), pause, then
+   **Left** for the same time, repeating until `duration`, `loops` or `stop_patrol`.
+4. Stop and return to guard (or `return_preset`).
+
+The arc is measured from guard, so the camera never pans past guard−left or
+guard+right (within timing accuracy). An arc needs a guard position: set one in the
+Reolink app first, otherwise the action fails with a clear error. To find the times,
+time how long the camera takes to pan from guard to each edge you want at your
+chosen speed.
+
+You can also save the same settings from an automation or script with
+`advanced_reolink_card.set_patrol_limits`. Only the fields you pass change;
+`clear: true` removes the camera's saved settings.
+
+```yaml
+# Save Front Yard limits: 12 s left of guard, 10 s right, speed 24.
+action: advanced_reolink_card.set_patrol_limits
+data:
+  camera: camera.front_yard_fluent
+  left_time: 12
+  right_time: 10
+  speed: 24
+  pause: 3
+  disable_tracking: true
+```
+
+```yaml
+# Uses the saved Front Yard limits; only the duration is given.
+automation:
+  - alias: Front Yard arc sweep when the gate opens
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.gate
+        to: "on"
+    actions:
+      - action: advanced_reolink_card.start_patrol
+        data:
+          camera: camera.front_yard_fluent
+          mode: sweep
+          duration: 300
+```
+
+```yaml
+# Per-call override: a narrower, faster arc at night, two loops, then guard.
+automation:
+  - alias: Backyard quick arc at night
+    triggers:
+      - trigger: time
+        at: "23:00:00"
+    actions:
+      - action: advanced_reolink_card.start_patrol
+        data:
+          channel: 4
+          arc: [6, 6]
+          speed: 40
+          loops: 2
+```
+
+```yaml
+# Disable patrol for the Kitchen camera (start_patrol will refuse it).
+action: advanced_reolink_card.set_patrol_limits
+data:
+  channel: 7
+  enabled: false
+```
+
+### `advanced_reolink_card.set_patrol_limits`
+
+| Field | Notes |
+|---|---|
+| `camera` / `device_id` / `channel` (+ `config_entry_id`) | Target, as for `start_patrol` |
+| `left_time`, `right_time`, `arc` | Arc limits (both > 0, or both 0 to clear the arc) |
+| `speed`, `pause`, `tilt_levels`, `tilt_step`, `settle_time`, `disable_tracking` | Camera defaults |
+| `enabled` | Allow `start_patrol` on this camera |
+| `clear` | Remove all saved settings for this camera |
 
 ## Limitations
 

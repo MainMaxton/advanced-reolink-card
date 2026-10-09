@@ -19,6 +19,7 @@ STATUS_INTERVAL: Final = timedelta(minutes=2)
 # config entry data
 CONF_CHANNELS: Final = "channels"  # discovered channel info (list of dicts)
 CONF_DEVICE: Final = "device"  # discovered host info (dict)
+CONF_PTZ_CHANNELS: Final = "ptz_channels"  # PTZ channels read via HTTP (list[int])
 
 # options
 CONF_VOICE: Final = "voice"
@@ -36,6 +37,7 @@ SERVICE_SAY: Final = "say"
 SERVICE_PLAY_FILE: Final = "play_file"
 SERVICE_START_PATROL: Final = "start_patrol"
 SERVICE_STOP_PATROL: Final = "stop_patrol"
+SERVICE_SET_PATROL_LIMITS: Final = "set_patrol_limits"
 
 ATTR_CAMERA: Final = "camera"
 ATTR_CHANNEL: Final = "channel"
@@ -59,3 +61,9 @@ ATTR_TILT_LEVELS: Final = "tilt_levels"
 ATTR_TILT_STEP: Final = "tilt_step"
 ATTR_ZOOM_OUT_FIRST: Final = "zoom_out_first"
 ATTR_DISABLE_TRACKING: Final = "disable_tracking"
+ATTR_LEFT_TIME: Final = "left_time"
+ATTR_RIGHT_TIME: Final = "right_time"
+ATTR_ARC: Final = "arc"
+ATTR_SETTLE_TIME: Final = "settle_time"
+ATTR_ENABLED: Final = "enabled"
+ATTR_CLEAR: Final = "clear"

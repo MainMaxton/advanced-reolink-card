@@ -24,6 +24,16 @@
 - New name in the manifest, HACS metadata, translations, brand logos and docs.
 
 ### Added
+- Per-camera PTZ patrol settings in **Configure** (PTZ cameras only): sweep arc
+  (`left_time` / `right_time` from the guard position), speed, pause, tilt levels and
+  step, settle time, pause-auto-tracking default and an enabled flag. Saving them does
+  not reload the integration.
+- Arc sweep: go to guard, settle, pan left to the left limit, then full-arc
+  Right / Left passes; finally back to guard. Needs a guard position.
+- `start_patrol` options `left_time`, `right_time`, `arc`, `settle_time`. Unset
+  options now use the camera's settings: call option → camera setting → default.
+- New action `advanced_reolink_card.set_patrol_limits` to save a camera's patrol
+  settings from automations (`clear: true` resets them).
 - Actions `advanced_reolink_card.start_patrol` / `stop_patrol`: start a camera's
   built-in PTZ cruise or a software preset loop (dwell, duration, loops,
   return-home / guard), cancellable from automations.
@@ -32,6 +42,9 @@
   `tilt_levels`, `tilt_step`, `zoom_out_first`, optional `disable_tracking`).
 
 ### Fixed
+
+- HTTP API requests now carry `?cmd=<Cmd>` (and the token) in the query string;
+  the NVR rejected Login without it, so patrol actions could not log in.
 - Channel rediscovery no longer drops known cameras when the NVR returns a
   partial or empty channel list. Previously stored cameras are kept (marked
   offline) until you uncheck them in Configure; sleeping/unknown battery

@@ -54,6 +54,15 @@ class PatrolRequest:
     tilt_step: float = DEFAULT_TILT_STEP_S
     zoom_out_first: bool = False
     disable_tracking: bool = False
+    # Arc limits measured from the guard position (seconds of pan at ``speed``).
+    # Both > 0: arc sweep guard-left .. guard+right; both 0: full-range sweep.
+    left_time: float = 0.0
+    right_time: float = 0.0
+    settle_time: float = 3.0
+
+    @property
+    def arc(self) -> bool:
+        return self.left_time > 0 and self.right_time > 0
 
 
 @dataclass
@@ -168,7 +177,7 @@ class PatrolManager:
             )
         mode = request.mode
         if mode == "sweep":
-            return _Plan(mode="sweep", info=info)
+            return self._sweep_plan(info, request)
         if mode == "presets" and not request.presets:
             raise HomeAssistantError(
                 **translated("patrol_not_configured", channel=channel, name=name)
@@ -195,7 +204,18 @@ class PatrolManager:
                     )
                 ) from err
             return _Plan(mode="native", info=info, patrol_id=pid)
-        # No presets and no enabled native patrol: sweep the full pan range.
+        # No presets and no enabled native patrol: sweep (arc or full range).
+        return self._sweep_plan(info, request)
+
+    def _sweep_plan(self, info: PtzInfo, request: PatrolRequest) -> _Plan:
+        if request.arc and not info.guard_configured:
+            raise HomeAssistantError(
+                **translated(
+                    "patrol_guard_required",
+                    channel=request.channel,
+                    name=self._name(request.channel),
+                )
+            )
         return _Plan(mode="sweep", info=info)
 
     async def async_start(
@@ -439,9 +459,20 @@ class PatrolManager:
         request: PatrolRequest,
         cancel: asyncio.Event,
     ) -> PatrolResult:
-        """Preset-free sweep: Left to the end stop, then Right/Left passes, repeat."""
+        """Preset-free sweep, Right/Left passes repeated.
+
+        Full range (no limits): Left for ``sweep_time`` to the end stop, then
+        passes of ``sweep_time``. Arc (left_time/right_time): go to the guard
+        position and settle, Left for ``left_time``, then passes of
+        ``left_time + right_time`` so the camera never pans past the arc.
+        """
         channel = request.channel
-        sweep_time = max(1.0, float(request.sweep_time))
+        if request.arc:
+            first_time = float(request.left_time)
+            sweep_time = float(request.left_time) + float(request.right_time)
+        else:
+            sweep_time = max(1.0, float(request.sweep_time))
+            first_time = sweep_time
         pause = max(0.0, float(request.pause))
         speed = max(1, min(64, int(request.speed)))
         levels = max(1, int(request.tilt_levels))
@@ -460,10 +491,16 @@ class PatrolManager:
                 reason = await self._move(
                     client, channel, "ZoomDec", ZOOM_OUT_TIME_S, None, cancel, deadline
                 )
+            if reason is None and request.arc:
+                # Start from the guard position so the arc is measured from it.
+                await client.goto_guard(channel)
+                reason = await self._wait(
+                    max(0.0, float(request.settle_time)), channel, cancel, deadline
+                )
             if reason is None:
-                # Home to the left end stop from wherever the camera is.
+                # Arc: to the left limit. Full range: to the left end stop.
                 reason = await self._move(
-                    client, channel, "Left", sweep_time, speed, cancel, deadline
+                    client, channel, "Left", first_time, speed, cancel, deadline
                 )
                 reason = reason or await self._wait(pause, channel, cancel, deadline)
             while reason is None:

@@ -237,3 +237,90 @@ async def test_options_flow_uses_stored_channels_when_offline(
     schema = result["data_schema"].schema
     key = next(k for k in schema if str(k) == CONF_ENABLED_CHANNELS)
     assert [o["value"] for o in schema[key].config["options"]] == ["0", "1"]
+
+
+async def test_options_flow_patrol_per_ptz_camera(
+    hass: HomeAssistant,
+    mock_flow_nvr: MagicMock,
+    mock_setup_entry: AsyncMock,
+    config_entry: MockConfigEntry,
+) -> None:
+    from unittest.mock import patch
+
+    config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        config_entry, options={"voice": "en-US-JennyNeural", "patrol": {"2": {"speed": 9}}}
+    )
+    with patch(
+        "custom_components.advanced_reolink_card.config_flow.async_ptz_channels",
+        AsyncMock(return_value=[1]),
+    ):
+        result = await hass.config_entries.options.async_init(config_entry.entry_id)
+        assert result["step_id"] == "init"
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], {CONF_ENABLED_CHANNELS: ["0", "1"], "configure_patrol": True}
+        )
+    assert result["step_id"] == "patrol_camera"
+    key = next(iter(result["data_schema"].schema))
+    # only the PTZ channel is offered
+    assert [o["value"] for o in result["data_schema"].schema[key].config["options"]] == ["1"]
+    assert config_entry.data["ptz_channels"] == [1]  # cached for offline use
+
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {"patrol_channel": "1"})
+    assert result["step_id"] == "patrol_settings"
+    fields = [str(k) for k in result["data_schema"].schema]
+    assert fields == [
+        "enabled", "left_time", "right_time", "speed", "pause",
+        "tilt_levels", "tilt_step", "settle_time", "disable_tracking",
+    ]
+    # validation: one-sided arc
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"left_time": 10, "right_time": 0}
+    )
+    assert result["errors"] == {"base": "patrol_arc_incomplete"}
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"left_time": 10, "right_time": 8, "speed": 16, "disable_tracking": True}
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    opts = config_entry.options
+    assert opts["patrol"]["1"]["left_time"] == 10 and opts["patrol"]["1"]["speed"] == 16
+    assert opts["patrol"]["1"]["disable_tracking"] is True
+    assert opts["patrol"]["2"] == {"speed": 9}  # other camera kept
+    assert opts[CONF_ENABLED_CHANNELS] == [0, 1]
+
+
+async def test_options_flow_keeps_patrol_without_patrol_step(
+    hass: HomeAssistant,
+    mock_flow_nvr: MagicMock,
+    mock_setup_entry: AsyncMock,
+    config_entry: MockConfigEntry,
+) -> None:
+    config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(config_entry, options={"patrol": {"1": {"speed": 9}}})
+    result = await hass.config_entries.options.async_init(config_entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {CONF_ENABLED_CHANNELS: ["0"]}
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert config_entry.options["patrol"] == {"1": {"speed": 9}}
+
+
+async def test_options_flow_patrol_offline_uses_cached_and_aborts_without_ptz(
+    hass: HomeAssistant,
+    mock_flow_nvr: MagicMock,
+    mock_setup_entry: AsyncMock,
+    config_entry: MockConfigEntry,
+) -> None:
+    from unittest.mock import patch
+
+    config_entry.add_to_hass(hass)
+    with patch(
+        "custom_components.advanced_reolink_card.config_flow.async_ptz_channels",
+        AsyncMock(side_effect=OSError("down")),
+    ):
+        result = await hass.config_entries.options.async_init(config_entry.entry_id)
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], {CONF_ENABLED_CHANNELS: ["0"], "configure_patrol": True}
+        )
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "no_ptz_channels"

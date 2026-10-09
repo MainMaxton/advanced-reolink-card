@@ -401,3 +401,72 @@ async def test_mode_presets_without_list_raises(
     with pytest.raises(HomeAssistantError) as err:
         await mgr.async_start(PatrolRequest(channel=3, mode="presets"), wait=True)
     assert err.value.translation_key == "patrol_not_configured"
+
+
+async def test_arc_sweep_sequence_from_guard(
+    hass: HomeAssistant, online_flag: dict[str, bool | None]
+) -> None:
+    """Arc: guard -> settle -> Left(left) -> Right(L+R) -> Left(L+R) -> guard."""
+    client = FakeClient({3: _ptz(presets={}, patrols={})})
+    mgr = _manager(hass, client, online_flag)
+    loop = asyncio.get_running_loop()
+    stamps: list[tuple[str, float]] = []
+    orig = client.ptz_ctrl
+
+    async def _rec(channel: int, op: str, **kw: Any) -> None:
+        stamps.append((op, loop.time()))
+        await orig(channel, op, **kw)
+
+    client.ptz_ctrl = _rec  # type: ignore[method-assign]
+    t0 = loop.time()
+    result = await mgr.async_start(
+        PatrolRequest(
+            channel=3, mode="sweep", left_time=0.4, right_time=0.6,
+            settle_time=0.3, pause=0.1, speed=12, loops=1, sweep_time=99,
+        ),
+        wait=True,
+    )
+    assert result.reason == "loops"
+    assert client.calls[0][0] == "goto_guard"  # start at guard
+    assert _ops(client) == ["Left", "Stop", "Right", "Stop", "Left", "Stop", "Stop"]
+    assert client.calls[-1][0] == "goto_guard"  # finish at guard
+    times = {}
+    for i in range(0, 6, 2):
+        op, start = stamps[i]
+        times.setdefault(op, []).append(stamps[i + 1][1] - start)
+    assert 0.35 <= times["Left"][0] < 0.55  # left_time, not sweep_time
+    assert 0.95 <= times["Right"][0] < 1.2  # full arc
+    assert 0.95 <= times["Left"][1] < 1.2
+    assert stamps[0][1] - t0 >= 0.3  # settle wait before first move
+    assert all(c[2]["speed"] == 12 for c in client.calls if c[0] == "ptz_ctrl" and c[2]["op"] != "Stop")
+
+
+async def test_arc_requires_guard(
+    hass: HomeAssistant, online_flag: dict[str, bool | None]
+) -> None:
+    client = FakeClient({3: _ptz(presets={}, patrols={}, guard=False)})
+    mgr = _manager(hass, client, online_flag)
+    with pytest.raises(HomeAssistantError) as err:
+        await mgr.async_start(
+            PatrolRequest(channel=3, mode="sweep", left_time=5, right_time=5), wait=True
+        )
+    assert err.value.translation_key == "patrol_guard_required"
+    assert _ops(client) == []
+
+
+async def test_arc_stop_returns_to_guard(
+    hass: HomeAssistant, online_flag: dict[str, bool | None]
+) -> None:
+    client = FakeClient({3: _ptz(presets={}, patrols={})})
+    mgr = _manager(hass, client, online_flag)
+    task = asyncio.create_task(
+        mgr.async_start(
+            PatrolRequest(channel=3, mode="sweep", left_time=20, right_time=20, settle_time=0),
+            wait=True,
+        )
+    )
+    await asyncio.sleep(0.3)
+    await mgr.async_stop(3, native_stop=False)
+    assert (await task).reason == "stopped"
+    assert _ops(client)[-1] == "Stop"
+    assert client.calls[-1][0] == "goto_guard"

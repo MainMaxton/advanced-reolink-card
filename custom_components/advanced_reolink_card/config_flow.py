@@ -25,6 +25,7 @@ from .const import (
     CONF_DEVICE,
     CONF_ENABLED_CHANNELS,
     CONF_LIVE_TALK_NON_ADMIN,
+    CONF_PTZ_CHANNELS,
     CONF_VOICE,
     CONF_VOLUME,
     DEFAULT_PORT,
@@ -33,7 +34,35 @@ from .const import (
     DOMAIN,
     TALK_UNSUPPORTED,
 )
+from .http_api import ReolinkHttpClient
+from .patrol_settings import (
+    CONF_PATROL,
+    DEFAULTS as PATROL_DEFAULTS,
+    PatrolSettingsError,
+    S_DISABLE_TRACKING,
+    S_ENABLED,
+    S_LEFT_TIME,
+    S_PAUSE,
+    S_RIGHT_TIME,
+    S_SETTLE_TIME,
+    S_SPEED,
+    S_TILT_LEVELS,
+    S_TILT_STEP,
+    camera_settings,
+    with_camera_settings,
+)
 from .talk_manager import AdvancedReolinkNvr
+
+CONF_CONFIGURE_PATROL = "configure_patrol"
+CONF_PATROL_CHANNEL = "patrol_channel"
+
+
+async def async_ptz_channels(data: Mapping[str, Any]) -> list[int]:
+    """PTZ channels from the HTTP API (GetAbility, read-only)."""
+    async with ReolinkHttpClient(
+        data[CONF_HOST], data[CONF_USERNAME], data[CONF_PASSWORD]
+    ) as client:
+        return await client.ptz_channels()
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -213,10 +242,17 @@ class AdvancedReolinkOptionsFlow(OptionsFlow):
     ) -> ConfigFlowResult:
         entry = self.config_entry
         if user_input is not None:
+            configure_patrol = user_input.pop(CONF_CONFIGURE_PATROL, False)
             user_input[CONF_ENABLED_CHANNELS] = sorted(
                 int(c) for c in user_input.get(CONF_ENABLED_CHANNELS, [])
             )
-            return self.async_create_entry(data=user_input)
+            # Keep saved per-camera patrol settings (not part of this form).
+            if CONF_PATROL in entry.options:
+                user_input[CONF_PATROL] = entry.options[CONF_PATROL]
+            self._options = user_input
+            if configure_patrol:
+                return await self.async_step_patrol_camera()
+            return self.async_create_entry(data=self._options)
 
         channels: list[dict[str, Any]] = list(entry.data.get(CONF_CHANNELS, []))
         # Re-scan names / online / sleep state / talk ability (read-only, never wakes
@@ -273,6 +309,7 @@ class AdvancedReolinkOptionsFlow(OptionsFlow):
                     CONF_LIVE_TALK_NON_ADMIN,
                     default=entry.options.get(CONF_LIVE_TALK_NON_ADMIN, False),
                 ): selector.BooleanSelector(),
+                vol.Optional(CONF_CONFIGURE_PATROL, default=False): selector.BooleanSelector(),
             }
         )
         unsupported = [
@@ -285,5 +322,97 @@ class AdvancedReolinkOptionsFlow(OptionsFlow):
             data_schema=schema,
             description_placeholders={
                 "unsupported": ", ".join(unsupported) if unsupported else "none"
+            },
+        )
+
+    async def _ptz_channels(self) -> list[int]:
+        entry = self.config_entry
+        try:
+            found = await async_ptz_channels(entry.data)
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.debug("PTZ channel lookup failed, using stored list: %s", err)
+            return list(entry.data.get(CONF_PTZ_CHANNELS) or [])
+        if found != entry.data.get(CONF_PTZ_CHANNELS):
+            self.hass.config_entries.async_update_entry(
+                entry, data={**entry.data, CONF_PTZ_CHANNELS: found}
+            )
+        return found
+
+    async def async_step_patrol_camera(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Pick the PTZ camera whose patrol settings to edit."""
+        entry = self.config_entry
+        if user_input is not None:
+            self._patrol_channel = int(user_input[CONF_PATROL_CHANNEL])
+            return await self.async_step_patrol_settings()
+        ptz = await self._ptz_channels()
+        if not ptz:
+            return self.async_abort(reason="no_ptz_channels")
+        channels = {int(c["channel"]): c for c in entry.data.get(CONF_CHANNELS, [])}
+        choices = [
+            selector.SelectOptionDict(
+                value=str(ch),
+                label=f"{(channels.get(ch) or {}).get('name') or f'Channel {ch}'} (ch {ch})",
+            )
+            for ch in ptz
+        ]
+        return self.async_show_form(
+            step_id="patrol_camera",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_PATROL_CHANNEL, default=choices[0]["value"]): selector.SelectSelector(
+                        selector.SelectSelectorConfig(options=choices, mode=selector.SelectSelectorMode.LIST)
+                    )
+                }
+            ),
+        )
+
+    async def async_step_patrol_settings(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Per-camera sweep limits and defaults."""
+        channel = self._patrol_channel
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            try:
+                self._options = with_camera_settings(self._options, channel, user_input)
+            except PatrolSettingsError as err:
+                errors["base"] = err.key
+            else:
+                return self.async_create_entry(data=self._options)
+        current = camera_settings(self._options, channel)
+        if user_input:
+            current.update(user_input)
+
+        def num(key: str, lo: float, hi: float, step: float, unit: str | None = None) -> Any:
+            config = selector.NumberSelectorConfig(
+                min=lo, max=hi, step=step, mode=selector.NumberSelectorMode.BOX
+            )
+            if unit:
+                config["unit_of_measurement"] = unit
+            return selector.NumberSelector(config)
+
+        schema = vol.Schema(
+            {
+                vol.Optional(S_ENABLED, default=current[S_ENABLED]): selector.BooleanSelector(),
+                vol.Optional(S_LEFT_TIME, default=current[S_LEFT_TIME]): num(S_LEFT_TIME, 0, 300, 0.5, "s"),
+                vol.Optional(S_RIGHT_TIME, default=current[S_RIGHT_TIME]): num(S_RIGHT_TIME, 0, 300, 0.5, "s"),
+                vol.Optional(S_SPEED, default=current[S_SPEED]): num(S_SPEED, 1, 64, 1),
+                vol.Optional(S_PAUSE, default=current[S_PAUSE]): num(S_PAUSE, 0, 600, 0.5, "s"),
+                vol.Optional(S_TILT_LEVELS, default=current[S_TILT_LEVELS]): num(S_TILT_LEVELS, 1, 10, 1),
+                vol.Optional(S_TILT_STEP, default=current[S_TILT_STEP]): num(S_TILT_STEP, 0, 60, 0.5, "s"),
+                vol.Optional(S_SETTLE_TIME, default=current.get(S_SETTLE_TIME, PATROL_DEFAULTS[S_SETTLE_TIME])): num(S_SETTLE_TIME, 0, 60, 0.5, "s"),
+                vol.Optional(S_DISABLE_TRACKING, default=current[S_DISABLE_TRACKING]): selector.BooleanSelector(),
+            }
+        )
+        channels = {int(c["channel"]): c for c in self.config_entry.data.get(CONF_CHANNELS, [])}
+        return self.async_show_form(
+            step_id="patrol_settings",
+            data_schema=schema,
+            errors=errors,
+            description_placeholders={
+                "camera": (channels.get(channel) or {}).get("name") or f"Channel {channel}",
+                "channel": str(channel),
             },
         )

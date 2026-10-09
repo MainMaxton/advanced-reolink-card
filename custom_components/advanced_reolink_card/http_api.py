@@ -283,3 +283,9 @@ class ReolinkHttpClient:
         item = data[0] if data else {}
         if item.get("code") != 0:
             raise BaichuanError(f"SetAiCfg failed on channel {channel}: {item.get('error') or item}")
+
+    async def ptz_channels(self) -> list[int]:
+        """Channels whose GetAbility reports a PTZ type (read-only)."""
+        abilities = await self.get_abilities()
+        chans = abilities.get("abilityChn") or []
+        return [ch for ch in range(len(chans)) if self._ptz_type(abilities, ch) != 0]

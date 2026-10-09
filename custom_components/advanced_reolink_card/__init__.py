@@ -74,11 +74,27 @@ from .const import (
     ATTR_TILT_STEP,
     ATTR_ZOOM_OUT_FIRST,
     ATTR_DISABLE_TRACKING,
+    ATTR_LEFT_TIME,
+    ATTR_RIGHT_TIME,
+    ATTR_ARC,
+    ATTR_SETTLE_TIME,
+    ATTR_ENABLED,
+    ATTR_CLEAR,
+    CONF_PTZ_CHANNELS,
+    SERVICE_SET_PATROL_LIMITS,
 )
 from .coordinator import AdvancedReolinkCoordinator
 from .helpers import resolve_patrol_target, resolve_target, translated
 from .card_info import async_setup_card_info
 from .patrol import PatrolManager, PatrolRequest
+from .patrol_settings import (
+    CONF_PATROL,
+    S_ENABLED,
+    PatrolSettingsError,
+    camera_settings,
+    resolve_sweep_options,
+    with_camera_settings,
+)
 from .live_talk import async_setup_live_talk, async_stop_sessions
 from .talk_manager import (
     AdvancedReolinkNvr,
@@ -108,6 +124,26 @@ SAY_SCHEMA = vol.Schema(
 )
 PLAY_FILE_SCHEMA = vol.Schema(
     {**_TARGET_SCHEMA, vol.Required(ATTR_MEDIA_CONTENT_ID): cv.string}
+)
+_SWEEP_FIELDS = {
+    vol.Optional(ATTR_LEFT_TIME): vol.All(vol.Coerce(float), vol.Range(min=0, max=300)),
+    vol.Optional(ATTR_RIGHT_TIME): vol.All(vol.Coerce(float), vol.Range(min=0, max=300)),
+    vol.Optional(ATTR_SPEED): vol.All(vol.Coerce(int), vol.Range(min=1, max=64)),
+    vol.Optional(ATTR_PAUSE): vol.All(vol.Coerce(float), vol.Range(min=0, max=600)),
+    vol.Optional(ATTR_TILT_LEVELS): vol.All(vol.Coerce(int), vol.Range(min=1, max=10)),
+    vol.Optional(ATTR_TILT_STEP): vol.All(vol.Coerce(float), vol.Range(min=0, max=60)),
+    vol.Optional(ATTR_SETTLE_TIME): vol.All(vol.Coerce(float), vol.Range(min=0, max=60)),
+    vol.Optional(ATTR_DISABLE_TRACKING): cv.boolean,
+}
+_SWEEP_KEYS = (
+    ATTR_LEFT_TIME,
+    ATTR_RIGHT_TIME,
+    ATTR_SPEED,
+    ATTR_PAUSE,
+    ATTR_TILT_LEVELS,
+    ATTR_TILT_STEP,
+    ATTR_SETTLE_TIME,
+    ATTR_DISABLE_TRACKING,
 )
 
 
@@ -304,10 +340,21 @@ async def _async_rediscover(hass: HomeAssistant, entry: AdvancedReolinkConfigEnt
         hass.config_entries.async_schedule_reload(entry.entry_id)
 
 
+def _without_patrol(options: dict[str, Any]) -> dict[str, Any]:
+    return {k: v for k, v in options.items() if k != CONF_PATROL}
+
+
 async def _async_update_listener(hass: HomeAssistant, entry: AdvancedReolinkConfigEntry) -> None:
-    """Reload when the options change (data-only updates do not need a reload)."""
-    if dict(entry.options) != entry.runtime_data.options_snapshot:
+    """Reload when the options change (data-only updates do not need a reload).
+
+    Per-camera patrol settings are read at call time, so saving them (Configure
+    or ``set_patrol_limits``) does not reload the entry or stop a running patrol.
+    """
+    data = entry.runtime_data
+    if _without_patrol(dict(entry.options)) != _without_patrol(data.options_snapshot):
         await hass.config_entries.async_reload(entry.entry_id)
+        return
+    data.options_snapshot = dict(entry.options)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: AdvancedReolinkConfigEntry) -> bool:
@@ -481,13 +528,27 @@ def _async_register_services(hass: HomeAssistant) -> None:
             vol.Optional(ATTR_LOOPS): vol.All(vol.Coerce(int), vol.Range(min=1, max=1000)),
             vol.Optional(ATTR_RETURN_PRESET): vol.Any(int, cv.string),
             vol.Optional(ATTR_MODE, default="auto"): vol.In(["auto", "native", "presets", "sweep"]),
-            vol.Optional(ATTR_SWEEP_TIME, default=25): vol.All(vol.Coerce(float), vol.Range(min=1, max=600)),
-            vol.Optional(ATTR_PAUSE, default=2): vol.All(vol.Coerce(float), vol.Range(min=0, max=600)),
-            vol.Optional(ATTR_SPEED, default=32): vol.All(vol.Coerce(int), vol.Range(min=1, max=64)),
-            vol.Optional(ATTR_TILT_LEVELS, default=1): vol.All(vol.Coerce(int), vol.Range(min=1, max=10)),
-            vol.Optional(ATTR_TILT_STEP, default=2): vol.All(vol.Coerce(float), vol.Range(min=0, max=60)),
+            # No defaults here: call > camera setting > built-in default.
+            **_SWEEP_FIELDS,
+            vol.Optional(ATTR_ARC): vol.All(
+                cv.ensure_list, vol.Length(min=2, max=2), [vol.All(vol.Coerce(float), vol.Range(min=0, max=300))]
+            ),
+            vol.Optional(ATTR_SWEEP_TIME): vol.All(vol.Coerce(float), vol.Range(min=1, max=600)),
             vol.Optional(ATTR_ZOOM_OUT_FIRST, default=False): cv.boolean,
-            vol.Optional(ATTR_DISABLE_TRACKING, default=False): cv.boolean,
+        }
+    )
+    SET_LIMITS_SCHEMA = vol.Schema(
+        {
+            vol.Optional(ATTR_CAMERA): cv.entity_id,
+            vol.Optional(ATTR_DEVICE_ID): cv.string,
+            vol.Optional(ATTR_CHANNEL): vol.All(vol.Coerce(int), vol.Range(min=0, max=255)),
+            vol.Optional(ATTR_CONFIG_ENTRY_ID): cv.string,
+            **_SWEEP_FIELDS,
+            vol.Optional(ATTR_ARC): vol.All(
+                cv.ensure_list, vol.Length(min=2, max=2), [vol.All(vol.Coerce(float), vol.Range(min=0, max=300))]
+            ),
+            vol.Optional(ATTR_ENABLED): cv.boolean,
+            vol.Optional(ATTR_CLEAR, default=False): cv.boolean,
         }
     )
     STOP_PATROL_SCHEMA = vol.Schema(
@@ -501,9 +562,18 @@ def _async_register_services(hass: HomeAssistant) -> None:
 
     async def _start_patrol(call: ServiceCall) -> ServiceResponse:
         entry, channel = resolve_patrol_target(hass, call.data)
-        mgr = entry.runtime_data.patrol_manager
+        data = entry.runtime_data
+        name = data.channel_name(channel)
+        mgr = data.patrol_manager
         if mgr is None:
-            raise HomeAssistantError(**translated("patrol_failed", channel=channel, name=entry.runtime_data.channel_name(channel), error="patrol manager not ready"))
+            raise HomeAssistantError(**translated("patrol_failed", channel=channel, name=name, error="patrol manager not ready"))
+        camera = camera_settings(entry.options, channel)
+        if not camera[S_ENABLED]:
+            raise ServiceValidationError(**translated("patrol_disabled", channel=channel, name=name))
+        try:
+            sweep = resolve_sweep_options(call.data, camera)
+        except PatrolSettingsError as err:
+            raise ServiceValidationError(**translated(err.key, **err.placeholders)) from err
         result = await mgr.async_start(
             PatrolRequest(
                 channel=channel,
@@ -514,16 +584,38 @@ def _async_register_services(hass: HomeAssistant) -> None:
                 loops=call.data.get(ATTR_LOOPS),
                 return_preset=call.data.get(ATTR_RETURN_PRESET),
                 mode=call.data[ATTR_MODE],
-                sweep_time=call.data[ATTR_SWEEP_TIME],
-                pause=call.data[ATTR_PAUSE],
-                speed=call.data[ATTR_SPEED],
-                tilt_levels=call.data[ATTR_TILT_LEVELS],
-                tilt_step=call.data[ATTR_TILT_STEP],
                 zoom_out_first=call.data[ATTR_ZOOM_OUT_FIRST],
-                disable_tracking=call.data[ATTR_DISABLE_TRACKING],
+                **sweep,
             )
         )
         return result.as_dict() if call.return_response else None
+
+    async def _set_patrol_limits(call: ServiceCall) -> None:
+        entry, channel = resolve_patrol_target(hass, call.data)
+        ptz = entry.data.get(CONF_PTZ_CHANNELS)
+        if ptz is not None and channel not in ptz:
+            raise ServiceValidationError(
+                **translated("ptz_not_supported", channel=channel, name=entry.runtime_data.channel_name(channel))
+            )
+        options = dict(entry.options)
+        if call.data[ATTR_CLEAR]:
+            patrol = dict(options.get(CONF_PATROL) or {})
+            patrol.pop(str(channel), None)
+            options[CONF_PATROL] = patrol
+        else:
+            updates = {
+                k: call.data[k]
+                for k in (*_SWEEP_KEYS, ATTR_ENABLED)
+                if k in call.data and k != ATTR_SWEEP_TIME
+            }
+            if arc := call.data.get(ATTR_ARC):
+                updates.setdefault(ATTR_LEFT_TIME, arc[0])
+                updates.setdefault(ATTR_RIGHT_TIME, arc[1])
+            try:
+                options = with_camera_settings(options, channel, updates)
+            except PatrolSettingsError as err:
+                raise ServiceValidationError(**translated(err.key, **err.placeholders)) from err
+        hass.config_entries.async_update_entry(entry, options=options)
 
     async def _stop_patrol(call: ServiceCall) -> None:
         entry, channel = resolve_patrol_target(hass, call.data)
@@ -543,4 +635,10 @@ def _async_register_services(hass: HomeAssistant) -> None:
         SERVICE_STOP_PATROL,
         _stop_patrol,
         schema=STOP_PATROL_SCHEMA,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_SET_PATROL_LIMITS,
+        _set_patrol_limits,
+        schema=SET_LIMITS_SCHEMA,
     )

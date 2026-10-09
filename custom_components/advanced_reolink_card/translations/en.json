@@ -69,15 +69,54 @@
           "voice": "Default voice",
           "volume": "Default volume (software gain)",
           "enabled_channels": "Cameras allowed to talk",
-          "live_talk_non_admin": "Allow non-admin users to use live talk"
+          "live_talk_non_admin": "Allow non-admin users to use live talk",
+          "configure_patrol": "Configure camera patrol limits"
         },
         "data_description": {
           "voice": "Any Microsoft Edge neural voice name, for example en-US-JennyNeural or en-GB-RyanNeural.",
           "volume": "100 % plays the audio unchanged; above 100 % amplifies (may clip).",
           "enabled_channels": "Speaker entities are created only for these cameras, and the actions refuse every other one.",
-          "live_talk_non_admin": "Live push-to-talk from the Advanced Reolink Card is limited to administrators unless this is on."
+          "live_talk_non_admin": "Live push-to-talk from the Advanced Reolink Card is limited to administrators unless this is on.",
+          "configure_patrol": "Next, pick a PTZ camera and set its sweep arc and patrol defaults."
+        }
+      },
+      "patrol_camera": {
+        "title": "Camera patrol",
+        "description": "Only PTZ cameras are listed. Pick the camera to configure.",
+        "data": {
+          "patrol_channel": "Camera"
+        }
+      },
+      "patrol_settings": {
+        "title": "Patrol settings: {camera}",
+        "description": "Defaults for start_patrol on {camera} (channel {channel}). Values given in an action call override these. Arc times are seconds of panning at the speed below, measured from the guard (home) position. Set both left and right to 0 for a full-range sweep.",
+        "data": {
+          "enabled": "Patrol enabled",
+          "left_time": "Sweep left of guard",
+          "right_time": "Sweep right of guard",
+          "speed": "Pan speed",
+          "pause": "Pause at each end",
+          "tilt_levels": "Tilt levels",
+          "tilt_step": "Tilt step",
+          "settle_time": "Settle time after going to guard",
+          "disable_tracking": "Pause auto-tracking while sweeping"
+        },
+        "data_description": {
+          "enabled": "When off, start_patrol refuses this camera.",
+          "left_time": "Seconds of left pan from guard to the left limit. The camera never pans past it.",
+          "right_time": "Seconds of right pan from guard to the right limit.",
+          "speed": "1-64. The arc times are measured at this speed; changing it changes the arc.",
+          "tilt_levels": "Number of tilt rows. 1 keeps the current tilt.",
+          "tilt_step": "Seconds of Down tilt between rows."
         }
       }
+    },
+    "error": {
+      "patrol_value_range": "A value is outside its allowed range.",
+      "patrol_arc_incomplete": "Set both left and right sweep times, or set both to 0 for a full-range sweep."
+    },
+    "abort": {
+      "no_ptz_channels": "This NVR has no PTZ cameras."
     }
   },
   "entity": {
@@ -204,6 +243,18 @@
     },
     "patrol_target_unknown": {
       "message": "Could not match {target} to an Advanced Reolink Card camera channel."
+    },
+    "patrol_disabled": {
+      "message": "Patrol is disabled for {name} (channel {channel}) in the integration options."
+    },
+    "patrol_guard_required": {
+      "message": "{name} (channel {channel}) has sweep limits but no guard (home) position set. Set a guard position in the Reolink app first."
+    },
+    "patrol_value_range": {
+      "message": "{field} must be between {min} and {max} (got {value})."
+    },
+    "patrol_arc_incomplete": {
+      "message": "Set both left_time and right_time (got {left_time} and {right_time}), or both 0 for a full-range sweep."
     }
   },
   "services": {
@@ -265,7 +316,7 @@
     },
     "start_patrol": {
       "name": "Start camera patrol",
-      "description": "Patrol a PTZ camera: its built-in cruise, a preset tour, or (with no presets) a timed sweep across its full pan range. Returns home or to the guard position at the end.",
+      "description": "Patrol a PTZ camera: its built-in cruise, a preset tour, or (with no presets) a timed sweep, either across an arc around the guard position (left/right times) or the full pan range. Unset options use the camera's patrol settings, then the built-in defaults. Returns home or to the guard position at the end.",
       "fields": {
         "camera": {
           "name": "Camera",
@@ -313,7 +364,7 @@
         },
         "sweep_time": {
           "name": "Sweep time",
-          "description": "Seconds per side-to-side pass (sweep mode). Default 25, about a full TrackMix pan at speed 32."
+          "description": "Seconds per full-range pass. Used only when the camera has no arc limits."
         },
         "pause": {
           "name": "Pause",
@@ -338,6 +389,22 @@
         "disable_tracking": {
           "name": "Pause auto-tracking",
           "description": "Turn auto-tracking off during the sweep and restore it afterwards. Changes a camera setting temporarily."
+        },
+        "left_time": {
+          "name": "Left time",
+          "description": "Seconds of left pan from guard (arc sweep). Overrides the camera setting."
+        },
+        "right_time": {
+          "name": "Right time",
+          "description": "Seconds of right pan from guard (arc sweep). Overrides the camera setting."
+        },
+        "arc": {
+          "name": "Arc",
+          "description": "Shorthand for [left_time, right_time]."
+        },
+        "settle_time": {
+          "name": "Settle time",
+          "description": "Seconds to wait after going to guard before an arc sweep."
         }
       }
     },
@@ -360,6 +427,72 @@
         "config_entry_id": {
           "name": "NVR",
           "description": "Only needed with channel when several NVRs are set up."
+        }
+      }
+    },
+    "set_patrol_limits": {
+      "name": "Set camera patrol limits",
+      "description": "Save a PTZ camera's patrol settings (the same as Configure). Only the fields given change. Times of 0 for both left and right clear the arc.",
+      "fields": {
+        "camera": {
+          "name": "Camera",
+          "description": "Our speaker or a core Reolink camera entity."
+        },
+        "device_id": {
+          "name": "Device",
+          "description": "Our camera device or a core Reolink camera device."
+        },
+        "channel": {
+          "name": "Channel",
+          "description": "NVR channel number (0-based)."
+        },
+        "config_entry_id": {
+          "name": "NVR",
+          "description": "Only needed with channel when several NVRs are set up."
+        },
+        "left_time": {
+          "name": "Left time",
+          "description": "Seconds of left pan from guard (arc sweep)."
+        },
+        "right_time": {
+          "name": "Right time",
+          "description": "Seconds of right pan from guard (arc sweep)."
+        },
+        "arc": {
+          "name": "Arc",
+          "description": "Shorthand for [left_time, right_time]."
+        },
+        "settle_time": {
+          "name": "Settle time",
+          "description": "Seconds to wait after going to guard before an arc sweep."
+        },
+        "speed": {
+          "name": "Speed",
+          "description": "PTZ speed 1-64 for sweep moves. Default 32."
+        },
+        "pause": {
+          "name": "Pause",
+          "description": "Seconds to hold at each end of a sweep. Default 2."
+        },
+        "tilt_levels": {
+          "name": "Tilt levels",
+          "description": "Number of sweep passes at different tilts. Default 1 (no tilt change)."
+        },
+        "tilt_step": {
+          "name": "Tilt step",
+          "description": "Seconds to tilt down between tilt levels. Default 2."
+        },
+        "disable_tracking": {
+          "name": "Pause auto-tracking",
+          "description": "Turn auto-tracking off during the sweep and restore it afterwards. Changes a camera setting temporarily."
+        },
+        "enabled": {
+          "name": "Patrol enabled",
+          "description": "Allow start_patrol on this camera."
+        },
+        "clear": {
+          "name": "Clear",
+          "description": "Remove all saved settings for this camera (built-in defaults apply)."
         }
       }
     }
