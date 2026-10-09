@@ -128,9 +128,15 @@ class ReolinkHttpClient:
 
     async def _post(self, body: list[dict[str, Any]]) -> list[dict[str, Any]]:
         session = await self._ensure_session()
-        params = {"token": self._token} if self._token else None
+        # The Reolink CGI routes on the ``cmd`` query parameter; without it the
+        # NVR answers "please login first" even for a valid Login body.
+        params: dict[str, str] = {}
+        if body and body[0].get("cmd"):
+            params["cmd"] = body[0]["cmd"]
+        if self._token:
+            params["token"] = self._token
         try:
-            async with session.post(self._base, params=params, json=body) as resp:
+            async with session.post(self._base, params=params or None, json=body) as resp:
                 resp.raise_for_status()
                 data = await resp.json(content_type=None)
         except (aiohttp.ClientError, TimeoutError, OSError) as err:
