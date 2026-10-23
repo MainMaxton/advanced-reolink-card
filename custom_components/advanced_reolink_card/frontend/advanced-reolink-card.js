@@ -2,7 +2,7 @@
  * Live view, pan, listen and talk.
  * custom:audiohook-talk-card stays as an alias for older dashboards.
  */
-const CARD_VERSION = "0.5.0";
+const CARD_VERSION = "0.5.1";
 const DOMAIN = "advanced_reolink_card";
 const WS_PTZ_MOVE = "advanced_reolink_card/ptz/move";
 const WS_PTZ_STOP = "advanced_reolink_card/ptz/stop";
@@ -155,9 +155,14 @@ class WebRtcPipe {
 const STYLE = `
   :host { display: block; }
   ha-card { position: relative; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
-  .header { display: flex; align-items: center; gap: 12px; }
-  .name { font-size: 1.15em; font-weight: 500; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .battery { color: var(--secondary-text-color); --mdc-icon-size: 20px; }
+  .header { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .header .icon { flex: none; }
+  .name { font-size: 1.15em; font-weight: 500; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .battery { flex: none; color: var(--secondary-text-color); --mdc-icon-size: 20px; }
+  button.patrol-open { all: unset; box-sizing: border-box; cursor: pointer; flex: none; display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+    height: 36px; padding: 0 10px 0 8px; border-radius: 18px; font: inherit; font-size: 14px; font-weight: 500; line-height: 1; white-space: nowrap;
+    background: var(--primary-color); color: var(--text-primary-color, #fff); }
+  button.patrol-open ha-icon { --mdc-icon-size: 18px; width: 18px; height: 18px; }
   .status { font-size: 0.9em; color: var(--secondary-text-color); min-height: 1.2em; }
   .status.error { color: var(--error-color, #db4437); }
   .status.live { color: var(--success-color, #43a047); font-weight: 500; }
@@ -203,9 +208,6 @@ const STYLE = `
   .gridwarn { display: flex; flex-direction: column; gap: 8px; }
   .gridwarn button, .patrol-dialog button.plain { all: unset; box-sizing: border-box; cursor: pointer; align-self: flex-start;
     padding: 6px 12px; border-radius: 8px; background: var(--primary-color); color: var(--text-primary-color, #fff); }
-  .ptz button.patrol-open { all: unset; box-sizing: border-box; cursor: pointer; flex: 1 0 100%; height: 40px; padding: 0 14px;
-    display: flex; align-items: center; justify-content: center; border-radius: 20px; font: inherit; font-weight: 500;
-    background: var(--primary-color); color: var(--text-primary-color, #fff); }
   .patrol-dialog { position: absolute; inset: 0; z-index: 6; overflow-x: hidden; overflow-y: auto; scrollbar-width: none; box-sizing: border-box;
     display: flex; flex-direction: column; gap: 10px; padding: 12px;
     background: var(--card-background-color, #fff); color: var(--primary-text-color);
@@ -263,16 +265,22 @@ const STYLE = `
   .pfoot .act, .pactions .act { flex: 1 1 0; }
   .pstep .n ha-icon { --mdc-icon-size: 14px; width: 14px; height: 14px; }
   .check input { width: 18px; height: 18px; margin: 0; accent-color: var(--primary-color); }
-  .video { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: 12px; overflow: hidden; touch-action: pan-y; }
-  .video video, .video img, .video .slot, .video .slot > * { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
-  .video .overlay { position: absolute; left: 0; right: 0; bottom: 0; padding: 6px 10px; font-size: 0.85em; color: #fff; background: linear-gradient(transparent, rgba(0,0,0,.65)); }
+  .video { position: relative; flex: none; width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: 12px; overflow: hidden; touch-action: pan-y; }
+  .video .stage { position: absolute; inset: 0; }
+  .video video, .video img, .video .slot, .video .slot > *, .video canvas.holdframe { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+  .video canvas.holdframe { z-index: 2; filter: brightness(0.55); pointer-events: none; transition: opacity 200ms ease; }
+  .video canvas.holdframe.fade { opacity: 0; }
+  .video .overlay { position: absolute; left: 0; right: 0; bottom: 0; z-index: 3; padding: 6px 10px; font-size: 0.85em; color: #fff; background: linear-gradient(transparent, rgba(0,0,0,.65)); }
+  @media (prefers-reduced-motion: reduce) {
+    .video canvas.holdframe { transition: none; }
+  }
   .video .overlay:empty { display: none; }
   button { font: inherit; }
   .video button.play { all: unset; position: absolute; inset: 0; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; color: #fff; }
   .video button.play ha-icon { --mdc-icon-size: 56px; }
   .video button.stopvideo { all: unset; position: absolute; top: 8px; right: 8px; cursor: pointer; width: 36px; height: 36px; border-radius: 18px; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.5); color: #fff; }
   .video button:focus-visible, .ptz button:focus-visible, .presets button.chip:focus-visible, button.listen:focus-visible, .tabs button[role="tab"]:focus-visible,
-  .viewtoggle:focus-visible, .tile-open:focus-visible, .gridstart:focus-visible, .patrol-dialog button:focus-visible,
+  .viewtoggle:focus-visible, .tile-open:focus-visible, .gridstart:focus-visible, button.patrol-open:focus-visible, .patrol-dialog button:focus-visible,
   .patrol-dialog .act:focus-visible { outline: 3px solid var(--accent-color, #ff9800); outline-offset: 2px; }
   .ptz { display: flex; align-items: center; justify-content: center; gap: 20px; flex-wrap: wrap; }
   .dpad { display: grid; grid-template-columns: repeat(3, 48px); grid-template-rows: repeat(3, 48px); gap: 4px; }
@@ -615,11 +623,16 @@ class AdvancedReolinkCard extends HTMLElement {
 
   connectedCallback() {
     document.addEventListener("visibilitychange", this._onVisibility);
+    this._watchCardWidth();
+    this._lockCardHeight();
   }
 
   disconnectedCallback() {
     this._rowObserver?.disconnect();
     this._rowObserver = null;
+    this._cardWidthObserver?.disconnect();
+    this._cardWidthObserver = null;
+    clearTimeout(this._holdTimer);
     document.removeEventListener("visibilitychange", this._onVisibility);
     this._stopTalk("card removed");
     this._abandonPatrol();
@@ -796,10 +809,29 @@ class AdvancedReolinkCard extends HTMLElement {
     return !!(this._multi && this._viewMode === "grid");
   }
 
+  _unionFlags() {
+    const flags = { video: false, ptz: false, listen: false, talk: false, meter: false };
+    for (const cam of this._cameras || []) {
+      if (!cam) continue;
+      if (cam.video) flags.video = true;
+      if (cam.ptz) flags.ptz = true;
+      if (cam.listen) flags.listen = true;
+      if (cam.talk) flags.talk = true;
+      if (cam.talk && cam.show_level) flags.meter = true;
+    }
+    return flags;
+  }
+
   _render() {
     if (!this._config) return;
     this._abandonPatrol();
+    this._cardMinHeight = 0;
+    this._seenCardWidth = null;
+    this._holdingFrame = false;
+    clearTimeout(this._holdTimer);
+    if (this._cardWidthObserver) this._cardWidthObserver.disconnect();
     const c = this._config;
+    const union = this._unionFlags();
     const grid = this._inGrid();
     const holdHint = c.mode === "hold" ? "Hold to talk" : "Tap to talk";
     const dir = (role) =>
@@ -822,54 +854,64 @@ class AdvancedReolinkCard extends HTMLElement {
     const warn = grid && this._showGridWarning()
       ? `<div class="note gridwarn"><p>${_esc(GRID_WARN_TEXT)}</p><button type="button">Dismiss</button></div>`
       : "";
+    const showVideo = union.video && !grid;
+    const showPtz = union.ptz && !grid;
+    const showListen = union.listen && !grid;
+    const showTalk = union.talk && !grid;
     this.shadowRoot.innerHTML = `
       <style>${STYLE}</style>
       <ha-card>
         <div class="header">
           <ha-icon class="icon" icon="${_esc(c.icon || "mdi:cctv")}"></ha-icon>
           <div class="name"></div>
+          <button type="button" class="patrol-open" aria-label="Set up patrol" hidden><ha-icon icon="mdi:map-marker-path"></ha-icon><span>Patrol</span></button>
           <ha-icon class="battery" icon="mdi:battery-outline" title="Battery camera" hidden></ha-icon>
         </div>
         ${this._multi ? `<div class="tabrow"><div class="tabs" role="tablist" aria-label="Cameras"></div><button type="button" class="viewtoggle" aria-pressed="${grid ? "true" : "false"}" aria-label="${grid ? "Show one camera" : "Show all cameras"}" title="${grid ? "Show one camera" : "Show all cameras"}"><ha-icon icon="${grid ? "mdi:tab" : "mdi:view-grid"}"></ha-icon></button></div>` : ""}
         ${warn}
         ${grid ? `<div class="gridwrap"><div class="${gridClass}"${gridStyle}>${tiles}</div></div><button type="button" class="gridstart">Stream all cameras</button>` : ""}
-        ${c.video && !grid ? `
+        ${showVideo ? `
         <div class="video">
-          <video muted playsinline autoplay disablepictureinpicture hidden></video>
-          <img class="still" alt="" hidden>
-          <div class="slot" hidden></div>
-          <button type="button" class="play" aria-label="Start live view"><ha-icon icon="mdi:play-circle-outline"></ha-icon><span>Tap to start live view</span></button>
-          <button type="button" class="stopvideo" aria-label="Stop live view" title="Stop live view" hidden><ha-icon icon="mdi:stop"></ha-icon></button>
-          <div class="overlay" aria-live="polite"></div>
+          <div class="stage">
+            <canvas class="holdframe" hidden></canvas>
+            <video muted playsinline autoplay disablepictureinpicture hidden></video>
+            <img class="still" alt="" hidden>
+            <div class="slot" hidden></div>
+            <button type="button" class="play" aria-label="Start live view"><ha-icon icon="mdi:play-circle-outline"></ha-icon><span>Tap to start live view</span></button>
+            <button type="button" class="stopvideo" aria-label="Stop live view" title="Stop live view" hidden><ha-icon icon="mdi:stop"></ha-icon></button>
+            <div class="overlay" aria-live="polite"></div>
+          </div>
         </div>` : ""}
-        ${c.ptz && !grid ? `
+        ${showPtz ? `
         <div class="ptz" hidden>
           <div class="dpad">${dir("up")}${dir("left")}${dir("right")}${dir("down")}</div>
           <div class="zoom" hidden>${dir("zoom_in")}${dir("zoom_out")}</div>
           <div class="presets" role="listbox" aria-label="Presets" hidden></div>
-          <button type="button" class="patrol-open" hidden>Set up patrol</button>
         </div>
         <div class="note ptznote" hidden></div>` : ""}
-        ${c.listen && !grid ? `
+        ${showListen ? `
         <div class="listenrow">
           <button type="button" class="listen" aria-pressed="false"><ha-icon icon="mdi:volume-off"></ha-icon><span class="llabel">Listen</span></button>
           <input class="volume" type="range" min="0" max="100" step="1" value="${Math.round(this._volume * 100)}" aria-label="Listening volume">
         </div>` : ""}
-        ${c.talk && !grid ? `
+        ${showTalk ? `
         <button class="talk" type="button" aria-pressed="false">
           <ha-icon icon="mdi:microphone"></ha-icon><span class="label">${holdHint}</span>
         </button>
-        ${c.show_level ? '<div class="meter" role="meter" aria-label="Microphone level"><div></div></div>' : ""}
+        ${union.meter ? '<div class="meter" role="meter" aria-label="Microphone level"><div></div></div>' : ""}
         <div class="note https" hidden>${HTTPS_NOTE}</div>` : ""}
         <audio class="sink" playsinline hidden></audio>
         <div class="status" role="status" aria-live="polite"></div>
       </ha-card>`;
     const $ = (sel) => this.shadowRoot.querySelector(sel);
+    this._iconEl = $(".header > .icon");
     this._nameEl = $(".name");
     this._nameEl.textContent = this._hass ? this._name() : c.name || "";
     this._batteryEl = $(".battery");
     this._tabsEl = $(".tabs");
     this._videoBox = $(".video");
+    this._videoStage = $(".video .stage");
+    this._holdEl = $("canvas.holdframe");
     this._videoEl = $(".video video");
     this._stillEl = $(".video img.still");
     this._slotEl = $(".video .slot");
@@ -880,12 +922,14 @@ class AdvancedReolinkCard extends HTMLElement {
     this._zoomEl = $(".zoom");
     this._presetEl = $(".presets");
     this._ptzNoteEl = $(".ptznote");
+    this._listenRow = $(".listenrow");
     this._listenBtn = $("button.listen");
     this._volumeEl = $("input.volume");
     this._button = $("button.talk");
     this._label = $(".label");
     this._httpsEl = $(".note.https");
     this._statusEl = $(".status");
+    this._meterWrap = $(".meter");
     this._meterEl = $(".meter > div");
     this._audioEl = $("audio.sink");
     this._viewBtn = $(".viewtoggle");
@@ -912,6 +956,7 @@ class AdvancedReolinkCard extends HTMLElement {
     } else if (adopt?.pipe) {
       adopt.pipe.stop();
     }
+    this._watchCardWidth();
   }
 
   _fillTabs() {
@@ -1034,6 +1079,7 @@ class AdvancedReolinkCard extends HTMLElement {
     const wasLive = this._video.state !== "off" && this._video.state !== "error";
     // Gesture unlock is only for live video. Listen stays stopped after a tab switch.
     if (wasLive) this._ensurePlayCtx();
+    if (wasLive) this._captureHoldFrame();
     this._stopTalk("camera switch");
     clearTimeout(this._duckTimer);
     this._ducked = false;
@@ -1044,9 +1090,15 @@ class AdvancedReolinkCard extends HTMLElement {
     this._listen = { state: "off", message: "" };
     this._listening = false;
     this._status = { text: "", kind: "" };
-    this._render();
-    if (this._hass) this._fetchInfo();
+    this._markActiveTab();
     if (wasLive && this._config.video) this._startVideo();
+    else {
+      if (wasLive) this._releaseHoldFrame();
+      this._update();
+    }
+    if (opts.slide) this._slideVideo(opts.slide);
+    this._updatePresets();
+    if (this._hass) this._fetchInfo();
     this._scrollActiveTab();
     if (opts.focusTab) this._focusActiveTab();
   }
@@ -1054,6 +1106,140 @@ class AdvancedReolinkCard extends HTMLElement {
   _focusActiveTab() {
     const tab = this.shadowRoot.querySelector('[role="tab"][aria-selected="true"]');
     tab?.focus();
+  }
+
+  _markActiveTab() {
+    const tabs = this._tabsEl && this._tabsEl.querySelectorAll('[role="tab"]');
+    if (!tabs) return;
+    tabs.forEach((tab, i) => {
+      const on = i === this._activeIndex;
+      tab.setAttribute("aria-selected", on ? "true" : "false");
+      tab.tabIndex = on ? 0 : -1;
+    });
+    if (this._videoBox && this._multi && !this._inGrid()) {
+      this._videoBox.setAttribute("aria-labelledby", `arc-tab-${this._activeIndex}`);
+    }
+  }
+
+  _reducedMotion() {
+    return !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  }
+
+  _slideVideo(dir) {
+    const stage = this._videoStage;
+    if (!stage || this._reducedMotion() || typeof stage.animate !== "function") return;
+    const from = dir === "left" ? "18%" : "-18%";
+    if (stage.getAnimations) {
+      for (const anim of stage.getAnimations()) anim.cancel();
+    }
+    stage.animate(
+      [
+        { transform: `translateX(${from})`, opacity: 0.4 },
+        { transform: "translateX(0)", opacity: 1 },
+      ],
+      { duration: 200, easing: "ease-out" }
+    );
+  }
+
+  _captureHoldFrame() {
+    const canvas = this._holdEl;
+    if (!canvas) return false;
+    const direct = this._videoEl && this._videoEl.videoWidth ? this._videoEl : null;
+    const nested = !direct && this._slotEl ? this._slotEl.querySelector("video") : null;
+    const moving = direct || (nested && nested.videoWidth ? nested : null);
+    const still = !moving && this._stillEl && this._stillEl.naturalWidth ? this._stillEl : null;
+    const source = moving || still;
+    if (!source) return false;
+    const w = moving ? moving.videoWidth : still.naturalWidth;
+    const h = moving ? moving.videoHeight : still.naturalHeight;
+    if (!w || !h) return false;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return false;
+    canvas.width = w;
+    canvas.height = h;
+    try {
+      ctx.drawImage(source, 0, 0, w, h);
+    } catch (_err) {
+      return false;
+    }
+    clearTimeout(this._holdTimer);
+    canvas.classList.remove("fade");
+    canvas.hidden = false;
+    this._holdingFrame = true;
+    return true;
+  }
+
+  _releaseHoldFrame() {
+    const canvas = this._holdEl;
+    if (!canvas || !this._holdingFrame) return;
+    this._holdingFrame = false;
+    const hide = () => {
+      if (this._holdingFrame) return;
+      canvas.hidden = true;
+      canvas.classList.remove("fade");
+    };
+    if (this._reducedMotion()) {
+      hide();
+      return;
+    }
+    canvas.classList.add("fade");
+    canvas.addEventListener("transitionend", hide, { once: true });
+    clearTimeout(this._holdTimer);
+    this._holdTimer = setTimeout(hide, 280);
+  }
+
+  _naturalCardHeight(card) {
+    const cs = getComputedStyle(card);
+    const pad = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
+    const border = (parseFloat(cs.borderTopWidth) || 0) + (parseFloat(cs.borderBottomWidth) || 0);
+    const gap = parseFloat(cs.rowGap || cs.gap || "0") || 0;
+    let height = pad + border;
+    let visible = 0;
+    for (const child of card.children) {
+      const style = getComputedStyle(child);
+      if (style.display === "none" || style.position === "absolute" || style.position === "fixed") continue;
+      height += child.offsetHeight;
+      visible += 1;
+    }
+    if (visible > 1) height += gap * (visible - 1);
+    return height;
+  }
+
+  _lockCardHeight() {
+    if (!this._config || this._inGrid()) return;
+    const card = this.shadowRoot && this.shadowRoot.querySelector("ha-card");
+    if (!card) return;
+    const natural = this._naturalCardHeight(card);
+    if (natural < 40 || (this._cardMinHeight && natural <= this._cardMinHeight + 1)) return;
+    this._cardMinHeight = natural;
+    const cs = getComputedStyle(card);
+    let min = natural;
+    // min-height applies to the content box unless the card uses border-box.
+    if (cs.boxSizing !== "border-box") {
+      const pad = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
+      const border = (parseFloat(cs.borderTopWidth) || 0) + (parseFloat(cs.borderBottomWidth) || 0);
+      min = natural - pad - border;
+    }
+    card.style.minHeight = `${Math.ceil(Math.max(0, min))}px`;
+  }
+
+  _watchCardWidth() {
+    const card = this.shadowRoot && this.shadowRoot.querySelector("ha-card");
+    if (!card || typeof ResizeObserver === "undefined") return;
+    if (!this._cardWidthObserver) {
+      this._cardWidthObserver = new ResizeObserver((entries) => {
+        const rect = entries[0] && entries[0].contentRect;
+        const w = Math.round((rect && rect.width) || 0);
+        if (!w) return;
+        if (this._seenCardWidth === w) return;
+        const first = this._seenCardWidth == null;
+        this._seenCardWidth = w;
+        if (!first) this._cardMinHeight = 0;
+        this._lockCardHeight();
+      });
+    }
+    this._cardWidthObserver.disconnect();
+    this._cardWidthObserver.observe(card);
   }
 
   _bindSwipe() {
@@ -1081,8 +1267,8 @@ class AdvancedReolinkCard extends HTMLElement {
       if (Math.abs(dx) < SWIPE_MIN_DX) return;
       if (Math.abs(dx) < Math.abs(dy) * 1.2) return;
       this._swipeMoved = true;
-      if (dx < 0) this._selectCamera(this._activeIndex + 1);
-      else this._selectCamera(this._activeIndex - 1);
+      if (dx < 0) this._selectCamera(this._activeIndex + 1, { slide: "left" });
+      else this._selectCamera(this._activeIndex - 1, { slide: "right" });
     }, { passive: true });
   }
 
@@ -1113,8 +1299,8 @@ class AdvancedReolinkCard extends HTMLElement {
     }
     if (this._ptzEl) {
       for (const b of this.shadowRoot.querySelectorAll(".ptz button[data-ptz]")) this._bindPtz(b);
-      if (this._patrolBtn) this._patrolBtn.addEventListener("click", () => this._openPatrol());
     }
+    if (this._patrolBtn) this._patrolBtn.addEventListener("click", () => this._openPatrol());
     if (this._viewBtn) this._viewBtn.addEventListener("click", () => this._toggleView());
     if (this._gridStartBtn) this._gridStartBtn.addEventListener("click", () => this._bootGrid(null));
     const dismiss = this.shadowRoot.querySelector(".gridwarn button");
@@ -1153,12 +1339,11 @@ class AdvancedReolinkCard extends HTMLElement {
   }
 
   _bindPtz(b) {
-    const role = b.dataset.ptz;
     b.addEventListener("pointerdown", (ev) => {
       if (ev.button !== undefined && ev.button !== 0) return;
       ev.preventDefault();
       b.setPointerCapture?.(ev.pointerId);
-      this._ptzStart(role, b);
+      this._ptzStart(b.dataset.ptz, b);
     });
     const release = () => this._ptzStop();
     b.addEventListener("pointerup", release);
@@ -1168,7 +1353,7 @@ class AdvancedReolinkCard extends HTMLElement {
     b.addEventListener("keydown", (ev) => {
       if ((ev.key !== " " && ev.key !== "Enter") || ev.repeat) return;
       ev.preventDefault();
-      this._ptzStart(role, b);
+      this._ptzStart(b.dataset.ptz, b);
     });
     b.addEventListener("keyup", (ev) => {
       if (ev.key !== " " && ev.key !== "Enter") return;
@@ -1186,8 +1371,19 @@ class AdvancedReolinkCard extends HTMLElement {
   _update() {
     if (!this._config || !this._statusEl) return;
     const c = this._config;
+    const icon = c.icon || "mdi:cctv";
+    if (this._iconEl && this._iconEl.getAttribute("icon") !== icon) this._iconEl.setAttribute("icon", icon);
+    if (this._nameEl) {
+      const name = this._hass ? this._name() : c.name || "";
+      if (this._nameEl.textContent !== name) this._nameEl.textContent = name;
+    }
     if (this._batteryEl) this._batteryEl.hidden = !this._battery();
-    if (this._videoBox) {
+    if (this._patrolBtn) this._patrolBtn.hidden = !this._patrolSetupAvailable();
+    if (this._videoBox && this._multi && !this._inGrid()) {
+      this._videoBox.setAttribute("aria-labelledby", `arc-tab-${this._activeIndex}`);
+    }
+    if (this._videoBox && this._playBtn) {
+      this._videoBox.hidden = !c.video || this._inGrid();
       const v = this._video;
       const on = v.state !== "off";
       this._playBtn.hidden = on;
@@ -1206,17 +1402,17 @@ class AdvancedReolinkCard extends HTMLElement {
       const ptz = this._info?.ptz;
       const show = this._ptzAvailable();
       this._ptzEl.hidden = !show;
-      this._zoomEl.hidden = !(show && ptz.zoom);
+      this._zoomEl.hidden = !(show && ptz && ptz.zoom);
       let note = "";
-      if (this._info && !show && ptz && ptz.disabled_entities?.length && !ptz.supported) {
+      if (c.ptz && this._info && !show && ptz && ptz.disabled_entities?.length && !ptz.supported) {
         note = "Pan and tilt are turned off in Home Assistant. Turn them on to move this camera.";
-      } else if (show && !ptz.zoom && ptz.disabled_entities?.some((e) => /zoom/.test(e))) {
+      } else if (show && ptz && !ptz.zoom && ptz.disabled_entities?.some((e) => /zoom/.test(e))) {
         note = "Zoom is turned off in Home Assistant. Turn on zoom to use it.";
       }
       this._ptzNoteEl.textContent = note;
       this._ptzNoteEl.hidden = !note;
-      if (this._patrolBtn) this._patrolBtn.hidden = !this._patrolSetupAvailable();
     }
+    if (this._listenRow) this._listenRow.hidden = !c.listen || this._inGrid();
     if (this._listenBtn) {
       const l = this._listen;
       this._listenBtn.className = `listen ${l.state === "waking" ? "connecting" : l.state}`;
@@ -1226,11 +1422,17 @@ class AdvancedReolinkCard extends HTMLElement {
         l.state === "connecting" ? "Connecting" : l.state === "waking" ? "Waking the camera" :
         this._listening ? (this._ducked && c.duplex !== "full" ? "Muted while talking" : "Listening") : "Listen";
     }
+    if (this._volumeEl && this.shadowRoot.activeElement !== this._volumeEl) {
+      const next = String(Math.round(this._volume * 100));
+      if (this._volumeEl.value !== next) this._volumeEl.value = next;
+    }
     if (this._button) {
+      const showTalk = !!c.talk && !this._inGrid();
+      this._button.hidden = !showTalk;
       const state = this._talk;
       const secure = window.isSecureContext && !!navigator.mediaDevices?.getUserMedia;
       this._button.disabled = !secure;
-      this._httpsEl.hidden = secure;
+      if (this._httpsEl) this._httpsEl.hidden = !showTalk || secure;
       this._button.className = `talk ${state === "waking" ? "connecting" : state}`;
       this._button.setAttribute("aria-pressed", this._talkActive() ? "true" : "false");
       const idleLabel = c.mode === "hold" ? "Hold to talk" : "Tap to talk";
@@ -1239,6 +1441,7 @@ class AdvancedReolinkCard extends HTMLElement {
         state === "connecting" || state === "waking" ? TALK_TEXT[state] : idleLabel;
       if (this._meterEl) this._meterEl.style.width = state === "live" ? `${Math.round(this._level * 100)}%` : "0%";
     }
+    if (this._meterWrap) this._meterWrap.hidden = !(c.talk && c.show_level) || this._inGrid();
     // status line: the most recent message, talk takes precedence while active
     let text = this._status.text;
     let kind = this._status.kind;
@@ -1256,6 +1459,7 @@ class AdvancedReolinkCard extends HTMLElement {
     }
     this._statusEl.className = `status ${kind}`;
     this._statusEl.textContent = text || "";
+    this._lockCardHeight();
   }
 
   _updatePresets() {
@@ -1266,8 +1470,16 @@ class AdvancedReolinkCard extends HTMLElement {
     const options = (st && st.attributes?.options) || [];
     const show = !!(this._ptzAvailable() && options.length);
     box.hidden = !show;
-    if (!show) return;
-    const sig = JSON.stringify(options) + "|" + (this._lastPreset || "");
+    const key = this._targetKey(this._config || {});
+    if (!show) {
+      if (box.dataset.sig) {
+        box.dataset.sig = "";
+        box.replaceChildren();
+      }
+      return;
+    }
+    const chosen = (this._presetByKey && this._presetByKey[key]) || "";
+    const sig = key + "|" + JSON.stringify(options) + "|" + chosen;
     if (box.dataset.sig === sig) return;
     box.dataset.sig = sig;
     box.replaceChildren();
@@ -1276,7 +1488,7 @@ class AdvancedReolinkCard extends HTMLElement {
       b.type = "button";
       b.className = "chip";
       b.setAttribute("role", "option");
-      const on = opt === this._lastPreset;
+      const on = opt === chosen;
       b.setAttribute("aria-selected", on ? "true" : "false");
       b.setAttribute("aria-label", opt);
       const ic = document.createElement("ha-icon");
@@ -1318,7 +1530,8 @@ class AdvancedReolinkCard extends HTMLElement {
   _selectPreset(option) {
     const ent = this._info?.ptz?.preset_entity;
     if (!option || !ent || !this._hass) return;
-    this._lastPreset = option;
+    if (!this._presetByKey) this._presetByKey = {};
+    this._presetByKey[this._targetKey(this._config || {})] = option;
     if (this._presetEl) delete this._presetEl.dataset.sig;
     this._updatePresets();
     const chip = this._presetEl && this._presetEl.querySelector('[aria-selected="true"]');
@@ -1434,7 +1647,10 @@ class AdvancedReolinkCard extends HTMLElement {
   _onPipeError(pipe, message) {
     if (this._pipe !== pipe) return;
     this._closePipe();
-    if (this._video.kind === "webrtc" && this._video.state !== "off") this._video = { state: "error", kind: "webrtc", message };
+    if (this._video.kind === "webrtc" && this._video.state !== "off") {
+      this._video = { state: "error", kind: "webrtc", message };
+      this._releaseHoldFrame();
+    }
     if (this._listening) {
       this._listening = false;
       this._listen = { state: "error", message };
@@ -1508,21 +1724,28 @@ class AdvancedReolinkCard extends HTMLElement {
   }
 
   async _startVideo() {
-    if (!this._hass || this._video.state !== "off" && this._video.state !== "error") return;
+    if (!this._hass || (this._video.state !== "off" && this._video.state !== "error")) return;
     this._ensurePlayCtx();
-    const entity = this._cameraEntity();
-    if (!entity) {
+    this._status = { text: "", kind: "" };
+    this._video = { state: this._pipeConnecting(), kind: null, message: "" };
+    this._update();
+    let cam = this._cameraEntity();
+    if (!cam) {
       if (this._infoPromise && this._info === undefined) await this._infoPromise;
-      if (!this._cameraEntity()) {
+      if (this._video.state === "off") return;
+      cam = this._cameraEntity();
+      if (!cam) {
         this._video = { state: "error", kind: null, message: "No camera found for live view." };
+        this._releaseHoldFrame();
         this._update();
         return;
       }
+      const phase = this._pipeConnecting();
+      if (this._video.state !== phase) {
+        this._video.state = phase;
+        this._update();
+      }
     }
-    const cam = this._cameraEntity();
-    this._setStatus("");
-    this._video = { state: this._pipeConnecting(), kind: null, message: "" };
-    this._update();
     const types = this._snapshotOnly(cam) ? [] : await this._capabilities(cam);
     if (this._video.state === "off") return; // stopped while asking
     if (types.includes("web_rtc") && typeof RTCPeerConnection !== "undefined") {
@@ -1542,6 +1765,7 @@ class AdvancedReolinkCard extends HTMLElement {
       this._video.state = "live";
       this._update();
     }
+    this._releaseHoldFrame();
   }
 
   /* Fallback: Home Assistant's own player (HLS), always muted. */
@@ -1556,6 +1780,7 @@ class AdvancedReolinkCard extends HTMLElement {
     this._streamEl = el;
     this._video.state = "live"; // the element shows its own loading state
     this._update();
+    this._releaseHoldFrame();
   }
 
   _startStill(entity) {
@@ -1566,6 +1791,7 @@ class AdvancedReolinkCard extends HTMLElement {
       const pic = st?.attributes?.entity_picture;
       if (!pic) {
         this._video = { state: "error", kind: "image", message: "No image for this camera." };
+        this._releaseHoldFrame();
         this._update();
         return;
       }
@@ -1577,7 +1803,7 @@ class AdvancedReolinkCard extends HTMLElement {
     this._stillTimer = setInterval(load, STILL_REFRESH_MS);
   }
 
-  _stopVideo(_reason) {
+  _stopVideo(reason) {
     const wasWebRtc = this._video.kind === "webrtc";
     this._video = { state: "off", kind: null, message: "" };
     clearInterval(this._stillTimer);
@@ -1595,6 +1821,7 @@ class AdvancedReolinkCard extends HTMLElement {
         this._closePipe();
       }
     }
+    if (reason !== "camera switch") this._releaseHoldFrame();
     this._update();
   }
 
@@ -3129,7 +3356,11 @@ function registerCard() {
       documentationURL: "https://github.com/MainMaxton/advanced-reolink-card#camera-card",
     });
   }
-  console.info(`%c ADVANCED-REOLINK-CARD %c ${CARD_VERSION} `, "background:#0b7285;color:#fff", "");
+  console.info(
+    "%c ADVANCED-REOLINK-CARD %c " + CARD_VERSION + " ",
+    "color:#fff;background:#0b7285;font-weight:700",
+    "color:#fff;background:#555;font-weight:700"
+  );
 }
 
 // Loaded early by the integration (extra module URL) or later as a dashboard

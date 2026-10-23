@@ -43,8 +43,8 @@ works through an NVR with any number of channels, or directly with a standalone 
   Listening stays quiet while you talk, so you do not hear yourself. The matching
   camera, pan buttons and presets are found automatically. A `cameras` list puts
   several cameras on one card. Tabs stay on one scrolling row, and only the
-  active camera streams. **Set up patrol** measures the left limit and the right
-  limit on the card.
+  active camera streams. The **Patrol** button in the card header measures the
+  left limit and the right limit.
 - **Battery cameras and doorbells**: asleep cameras stay selectable and are
   **woken up** automatically before they speak.
 - **Local and lightweight**: talk is pure Python, no Node.js, no cloud relay, and
@@ -54,7 +54,7 @@ works through an NVR with any number of channels, or directly with a standalone 
   `TalkReset`, even after errors; translated errors, reauth, reconfigure and
   diagnostics are included.
 
-> **Status:** 0.5.0. Tested on a Reolink NVR with TrackMix PoE, CX820 and Video
+> **Status:** 0.5.1. Tested on a Reolink NVR with TrackMix PoE, CX820 and Video
 > Doorbell cameras (16 kHz ADPCM talk). Not affiliated with or endorsed by Reolink.
 
 ## Requirements
@@ -154,7 +154,7 @@ are picked up.
   administrators can use the live talk card.
 - **Set up patrol**: continue to a camera that can pan, then its patrol settings
   (left limit, right limit, sweep speed, pause, tilt, pause at the home position,
-  auto tracking, enabled). The card wizard measures the limits for you. See
+  auto tracking, enabled). The **Patrol** button on the card measures the limits for you. See
   [Patrol on the card](#patrol-on-the-card).
 
 **Reconfigure** (⋮ → *Reconfigure*) changes the address, port or credentials
@@ -306,7 +306,7 @@ card's visual editor you choose the features you want:
 | Feature | What it does |
 |---|---|
 | **Live video** (`video`) | Live view of the matching Reolink core camera entity, over Home Assistant's WebRTC (go2rtc). Falls back to Home Assistant's standard stream (HLS) and then to a refreshed still image. Tap to start; it never starts on its own. |
-| **Pan and tilt** (`ptz`) | Direction pad (press and hold to move, release to stop), zoom in and out, and one row of preset chips when the camera has presets. The last preset you used stays filled. **Set up patrol** opens the wizard for administrators. Shown only when the camera can pan. |
+| **Pan and tilt** (`ptz`) | Direction pad (press and hold to move, release to stop), zoom in and out, and one row of preset chips when the camera has presets. The last preset you used stays filled. Shown only when the camera can pan. The **Patrol** button in the card header opens the wizard for administrators. |
 | **Listen** (`listen`) | Speaker button that plays the camera microphone, with a volume slider. Uses the video's audio when live video is on, otherwise an audio-only WebRTC session. The card plays the audio itself so it can mute it. |
 | **Push-to-talk** (`talk`) | Hold (or tap) to speak through the camera speaker (see [Live talk](#live-talk)). Half-duplex by default: listening is muted while you talk and for about 1.5 s after you release, so you do not hear your own voice coming back from the camera. |
 
@@ -661,7 +661,7 @@ not pass `presets`.
 On the NVR used for testing, only the TrackMix cameras can pan (Front Yard,
 Backyard Left, Living Room, Kitchen). Fixed cameras raise `ptz_not_supported`.
 Create presets on the camera before a preset tour. A sweep between a left limit
-and a right limit does not need presets. **Set up patrol** on the card stores
+and a right limit does not need presets. The **Patrol** button on the card stores
 the home position for you.
 
 ```yaml
@@ -799,12 +799,12 @@ With a right limit above 0 the sweep is:
 4. Stop and return to the home position (or `return_preset`).
 
 The times are measured at the saved sweep speed. A limited sweep needs a home
-position. **Set up patrol** on the card stores it. The number fields on the
+position. The **Patrol** button on the card stores it. The number fields on the
 Configure page stay available if you already know the times.
 
 ### Patrol on the card
 
-Administrators see **Set up patrol** on cameras that can pan, when the card
+Administrators see a **Patrol** button in the card header on cameras that can pan, when the card
 knows which device the camera belongs to. The button is hidden in the grid,
 because pan and tilt are hidden there.
 

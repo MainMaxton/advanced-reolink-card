@@ -282,6 +282,15 @@ const keys = [
 ];
 equal(CAMERA_OPTION_KEYS, keys, "per-camera option keys");
 
+const selectStart = src.indexOf("  _selectCamera(index, opts = {}) {");
+const selectEnd = src.indexOf("  _focusActiveTab()", selectStart);
+assert(selectStart > 0 && selectEnd > selectStart, "_selectCamera is followed by _focusActiveTab");
+const selectBody = src.slice(selectStart, selectEnd);
+assert(!selectBody.includes("_render("), "_selectCamera does not call _render");
+assert(selectBody.includes('_stopTalk("camera switch")'), "camera switch stops talk");
+assert(selectBody.includes("_startVideo()"), "camera switch can restart live view");
+assert(!selectBody.includes("_startListen"), "camera switch does not start listen");
+
 if (failed) {
   console.error(`${failed} assertion(s) failed`);
   process.exit(1);

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.1 - 2026-10-23
+
+### Changed
+- Patrol button in the card header.
+- Camera switches no longer rebuild the card.
+- The card keeps its height and the last frame while the next camera connects.
+- Swipe animates only the video.
+
 ## 0.5.0 - 2026-10-23
 
 ### Changed
