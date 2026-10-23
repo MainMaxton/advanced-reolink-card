@@ -119,7 +119,7 @@ async def test_ptz_ws_rejects_channel_outside_ptz_list(
     msg = await ws.receive_json()
     assert not msg["success"]
     assert msg["error"]["code"] == "not_found"
-    assert "not a PTZ camera" in msg["error"]["message"]
+    assert "cannot pan" in msg["error"]["message"]
     assert client.calls == []
 
 
@@ -140,3 +140,50 @@ async def test_ptz_ws_close_stops_held_move(
         await asyncio.sleep(0.02)
         await hass.async_block_till_done()
     assert ("ptz_ctrl", 0, {"op": "Stop", "id": None, "speed": None}) in client.calls
+
+
+async def test_ptz_ws_set_guard_success(
+    hass: HomeAssistant, hass_ws_client, config_entry: MockConfigEntry, mock_nvr: MagicMock
+) -> None:
+    client = FakeClient({0: _ptz(channel=0)})
+    await _setup(hass, config_entry, client)
+    ws = await hass_ws_client(hass)
+    await ws.send_json_auto_id({"type": f"{DOMAIN}/ptz/set_guard", "channel": 0})
+    msg = await ws.receive_json()
+    assert msg["success"], msg
+    assert msg["result"] == {"guard_configured": True}
+    assert ("set_guard", 0, {}) in client.calls
+
+    await ws.send_json_auto_id({"type": f"{DOMAIN}/card/info", "channel": 0})
+    info = await ws.receive_json()
+    assert info["success"], info
+    assert info["result"]["guard_configured"] is True
+
+
+async def test_ptz_ws_set_guard_unknown_entry(
+    hass: HomeAssistant, hass_ws_client, config_entry: MockConfigEntry, mock_nvr: MagicMock
+) -> None:
+    client = FakeClient({0: _ptz(channel=0)})
+    await _setup(hass, config_entry, client)
+    ws = await hass_ws_client(hass)
+    await ws.send_json_auto_id(
+        {"type": f"{DOMAIN}/ptz/set_guard", "channel": 0, "config_entry_id": "missing"}
+    )
+    msg = await ws.receive_json()
+    assert not msg["success"]
+    assert msg["error"]["code"] == "not_found"
+    assert client.calls == []
+
+
+async def test_ptz_ws_set_guard_device_error(
+    hass: HomeAssistant, hass_ws_client, config_entry: MockConfigEntry, mock_nvr: MagicMock
+) -> None:
+    client = FakeClient({0: _ptz(channel=0)})
+    client.fail_set_guard = True
+    await _setup(hass, config_entry, client)
+    ws = await hass_ws_client(hass)
+    await ws.send_json_auto_id({"type": f"{DOMAIN}/ptz/set_guard", "channel": 0})
+    msg = await ws.receive_json()
+    assert not msg["success"]
+    assert msg["error"]["code"] == "home_assistant_error"
+    assert ("set_guard", 0, {}) in client.calls

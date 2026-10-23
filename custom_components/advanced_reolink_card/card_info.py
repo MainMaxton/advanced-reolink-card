@@ -323,6 +323,11 @@ def build_card_info(hass: HomeAssistant, target: Mapping[str, Any]) -> dict[str,
         result["battery"] = True
     if entry is not None and channel is not None:
         result["patrol"] = camera_settings(entry.options, channel)
+        mgr = entry.runtime_data.patrol_manager
+        if mgr is not None:
+            known = mgr.guard_known(channel)
+            if known is not None:
+                result["guard_configured"] = known
     return result
 
 

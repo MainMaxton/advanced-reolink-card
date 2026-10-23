@@ -165,7 +165,7 @@ class AdvancedReolinkData:
     patrol_manager: PatrolManager | None = None
 
     def channel_name(self, channel: int) -> str:
-        return (self.channels.get(channel) or {}).get("name") or f"Channel {channel}"
+        return (self.channels.get(channel) or {}).get("name") or f"Camera {channel}"
 
 
 type AdvancedReolinkConfigEntry = ConfigEntry[AdvancedReolinkData]
@@ -224,7 +224,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: AdvancedReolinkConfigEnt
     def _guard(channel: int) -> None:
         if channel not in enabled:
             raise ChannelNotAllowedError(
-                f"Channel {channel} is not enabled for talk in the integration options"
+                f"Camera {channel} is not allowed to talk"
             )
 
     async def _run_blocking(func, *args):  # noqa: ANN001, ANN202
@@ -268,7 +268,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: AdvancedReolinkConfigEnt
         username=entry.data[CONF_USERNAME],
         password=entry.data[CONF_PASSWORD],
         online_check=_online,
-        channel_name=lambda ch: (channels.get(ch) or {}).get("name") or f"Channel {ch}",
+        channel_name=lambda ch: (channels.get(ch) or {}).get("name") or f"Camera {ch}",
     )
     entry.runtime_data = AdvancedReolinkData(
         nvr=nvr,

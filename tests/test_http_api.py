@@ -87,6 +87,30 @@ async def test_relogin_sends_login_without_stale_token() -> None:
     assert session.posts[1][1] == {"cmd": "Login"}
 
 
+async def test_set_guard_payload() -> None:
+    session = FakeSession()
+    client = ReolinkHttpClient("198.51.100.10", "admin", "pw", session=session)
+    await client.login()
+    await client.set_guard(3)
+    _url, params, body = session.posts[1]
+    assert params == {"cmd": "SetPtzGuard", "token": "tok123"}
+    assert body == [
+        {
+            "cmd": "SetPtzGuard",
+            "action": 0,
+            "param": {
+                "PtzGuard": {
+                    "channel": 3,
+                    "cmdStr": "setPos",
+                    "benable": 1,
+                    "bSaveCurrentPos": 1,
+                }
+            },
+        }
+    ]
+    await client.close()
+
+
 async def test_ptz_channels_from_ability() -> None:
     session = FakeSession()
     client = ReolinkHttpClient("198.51.100.10", "admin", "pw", session=session)

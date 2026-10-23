@@ -313,7 +313,7 @@ class AdvancedReolinkOptionsFlow(OptionsFlow):
             }
         )
         unsupported = [
-            c.get("name") or f"Channel {c['channel']}"
+            c.get("name") or f"Camera {c['channel']}"
             for c in channels
             if talk_status(c) == TALK_UNSUPPORTED
         ]
@@ -353,7 +353,11 @@ class AdvancedReolinkOptionsFlow(OptionsFlow):
         choices = [
             selector.SelectOptionDict(
                 value=str(ch),
-                label=f"{(channels.get(ch) or {}).get('name') or f'Channel {ch}'} (ch {ch})",
+                label=(
+                    f"{channels[ch]['name']}, number {ch}"
+                    if (channels.get(ch) or {}).get("name")
+                    else f"Camera {ch}"
+                ),
             )
             for ch in ptz
         ]
@@ -412,7 +416,7 @@ class AdvancedReolinkOptionsFlow(OptionsFlow):
             data_schema=schema,
             errors=errors,
             description_placeholders={
-                "camera": (channels.get(channel) or {}).get("name") or f"Channel {channel}",
+                "camera": (channels.get(channel) or {}).get("name") or f"Camera {channel}",
                 "channel": str(channel),
             },
         )

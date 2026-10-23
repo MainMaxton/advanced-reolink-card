@@ -43,6 +43,13 @@ class FakeClient:
     async def set_ai_cfg(self, channel: int, values: dict[str, Any]) -> None:
         self.calls.append(("set_ai_cfg", channel, dict(values)))
 
+    async def set_guard(self, channel: int) -> None:
+        self.calls.append(("set_guard", channel, {}))
+        if getattr(self, "fail_set_guard", False):
+            from custom_components.advanced_reolink_card.baichuan_talk import BaichuanError
+
+            raise BaichuanError("refused")
+
 
 def _ptz(
     channel: int = 3,
@@ -468,6 +475,40 @@ async def test_arc_sweep_sequence_from_guard(
     assert 0.95 <= times["Left"][1] < 1.2
     assert stamps[0][1] - t0 >= 0.3  # settle wait before first move
     assert all(c[2]["speed"] == 12 for c in client.calls if c[0] == "ptz_ctrl" and c[2]["op"] != "Stop")
+
+
+async def test_arc_from_home_when_left_time_is_zero(
+    hass: HomeAssistant, online_flag: dict[str, bool | None]
+) -> None:
+    """left_time 0 and right_time > 0 sweeps from home to the right and back."""
+    client = FakeClient({3: _ptz(presets={}, patrols={})})
+    mgr = _manager(hass, client, online_flag)
+    result = await mgr.async_start(
+        PatrolRequest(
+            channel=3, mode="sweep", left_time=0, right_time=0.4,
+            settle_time=0, pause=0, speed=12, loops=1, sweep_time=99,
+        ),
+        wait=True,
+    )
+    assert result.reason == "loops"
+    assert client.calls[0][0] == "goto_guard"
+    assert _ops(client) == ["Right", "Stop", "Left", "Stop", "Stop"]
+    assert client.calls[-1][0] == "goto_guard"
+    assert PatrolRequest(channel=3, left_time=0, right_time=0).arc is False
+    assert PatrolRequest(channel=3, left_time=4, right_time=0).arc is False
+    assert PatrolRequest(channel=3, left_time=0, right_time=4).arc is True
+    assert PatrolRequest(channel=3, left_time=4, right_time=5).arc is True
+
+
+async def test_set_guard_marks_home_known(
+    hass: HomeAssistant, online_flag: dict[str, bool | None]
+) -> None:
+    client = FakeClient({3: _ptz(guard=False)})
+    mgr = _manager(hass, client, online_flag)
+    assert mgr.guard_known(3) is None
+    await mgr.async_set_guard(3)
+    assert ("set_guard", 3, {}) in client.calls
+    assert mgr.guard_known(3) is True
 
 
 async def test_arc_requires_guard(

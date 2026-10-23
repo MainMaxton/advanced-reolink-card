@@ -45,7 +45,8 @@ def test_card_file_has_multicam_hooks() -> None:
     assert "grid_columns" in src
     assert "hide_grid_warning" in src
     assert "mdi:view-grid" in src
-    assert "Patrol limits" in src
+    assert "Set up patrol" in src
+    assert "advanced_reolink_card/ptz/set_guard" in src
     assert "advanced_reolink_card/ptz/move" in src
     select = src.split("  _selectCamera(index, opts = {}) {", 1)[1].split("  _focusActiveTab()", 1)[0]
     assert "_startListen" not in select

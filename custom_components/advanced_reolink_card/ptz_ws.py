@@ -18,6 +18,7 @@ from .patrol_settings import camera_settings
 WS_PTZ_MOVE = f"{DOMAIN}/ptz/move"
 WS_PTZ_STOP = f"{DOMAIN}/ptz/stop"
 WS_PTZ_GUARD = f"{DOMAIN}/ptz/guard"
+WS_PTZ_SET_GUARD = f"{DOMAIN}/ptz/set_guard"
 WS_PTZ_STATUS = f"{DOMAIN}/ptz/status"
 _CLOSE_KEY = f"{DOMAIN}_ptz_close"
 _DATA_HELD = f"{DOMAIN}_ptz_held"
@@ -39,17 +40,18 @@ def _public_message(err: HomeAssistantError) -> str:
     key = err.translation_key or "error"
     ph = err.translation_placeholders or {}
     if key == "ptz_not_supported":
-        return f"{ph.get('name', 'This camera')} does not support PTZ"
+        return f"{ph.get('name', 'This camera')} cannot pan"
     if key == "invalid_auth":
-        return "Reolink login failed"
+        return "Sign in failed"
     if key == "patrol_failed":
-        return f"PTZ command failed: {ph.get('error', '')}".rstrip(": ").strip() or "PTZ command failed"
+        detail = str(ph.get("error", "")).strip()
+        return f"The camera did not accept the command. {detail}".strip() if detail else "The camera did not accept the command"
     if key == "multiple_entries":
-        return "Pass config_entry_id when more than one Advanced Reolink Card device is set up"
+        return "Choose the device when more than one is set up"
     if key == "no_entry_loaded":
         return "Advanced Reolink Card is not loaded"
     if key == "entry_not_loaded":
-        return "That config entry is not loaded"
+        return "That device is not loaded"
     return key.replace("_", " ")
 
 
@@ -77,14 +79,14 @@ def _resolve(hass: HomeAssistant, msg: dict[str, Any]):
         {ATTR_CHANNEL: msg.get("channel"), ATTR_CONFIG_ENTRY_ID: msg.get("config_entry_id")},
     )
     if channel not in entry.runtime_data.channels:
-        raise ServiceValidationError(f"Channel {channel} is not on this device")
+        raise ServiceValidationError(f"Camera {channel} is not on this device")
     ptz = entry.data.get(CONF_PTZ_CHANNELS)
     if ptz is not None and int(channel) not in {int(c) for c in ptz}:
         name = entry.runtime_data.channel_name(channel)
-        raise ServiceValidationError(f"{name} (channel {channel}) is not a PTZ camera")
+        raise ServiceValidationError(f"{name} cannot pan")
     mgr = entry.runtime_data.patrol_manager
     if mgr is None:
-        raise ServiceValidationError("Patrol control is not ready")
+        raise ServiceValidationError("Patrol is not ready")
     return entry, channel, mgr
 
 
@@ -116,6 +118,7 @@ def async_setup_ptz_ws(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_ptz_move)
     websocket_api.async_register_command(hass, ws_ptz_stop)
     websocket_api.async_register_command(hass, ws_ptz_guard)
+    websocket_api.async_register_command(hass, ws_ptz_set_guard)
     websocket_api.async_register_command(hass, ws_ptz_status)
 
 
@@ -174,6 +177,22 @@ async def ws_ptz_guard(
         _send_failure(connection, msg["id"], err)
         return
     connection.send_result(msg["id"], {"guard_configured": configured})
+
+
+@websocket_api.websocket_command({vol.Required("type"): WS_PTZ_SET_GUARD, **_TARGET})
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_ptz_set_guard(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Store the current aim as the home position."""
+    try:
+        _entry, channel, mgr = _resolve(hass, msg)
+        await mgr.async_set_guard(channel)
+    except HomeAssistantError as err:
+        _send_failure(connection, msg["id"], err)
+        return
+    connection.send_result(msg["id"], {"guard_configured": True})
 
 
 @websocket_api.websocket_command({vol.Required("type"): WS_PTZ_STATUS, **_TARGET})

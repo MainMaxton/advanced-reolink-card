@@ -38,12 +38,13 @@ works through an NVR with any number of channels, or directly with a standalone 
   two-way talk support are read from the device you enter. NVRs with any number of
   channels and standalone cameras are supported.
 - **Camera card** (`custom:advanced-reolink-card`, loaded automatically): pick the
-  features you want in the visual editor: **live video**, **PTZ** (hold-to-move
-  direction pad, zoom, presets), **listen** to the camera microphone and
-  **push-to-talk**, with half-duplex muting so you do not hear yourself. The
-  matching Reolink camera, PTZ buttons and presets are found automatically.
-  A `cameras` list puts several cameras on one card with tabs (and swipe) to
-  switch between them; only the active camera streams.
+  features you want in the visual editor: **live view**, **pan and tilt** (hold
+  to move, zoom, preset chips), **listen** to the camera microphone and **talk**.
+  Listening stays quiet while you talk, so you do not hear yourself. The matching
+  camera, pan buttons and presets are found automatically. A `cameras` list puts
+  several cameras on one card. Tabs stay on one scrolling row, and only the
+  active camera streams. **Set up patrol** measures the left limit and the right
+  limit on the card.
 - **Battery cameras and doorbells**: asleep cameras stay selectable and are
   **woken up** automatically before they speak.
 - **Local and lightweight**: talk is pure Python, no Node.js, no cloud relay, and
@@ -53,7 +54,7 @@ works through an NVR with any number of channels, or directly with a standalone 
   `TalkReset`, even after errors; translated errors, reauth, reconfigure and
   diagnostics are included.
 
-> **Status:** 0.4.0. Tested on a Reolink NVR with TrackMix PoE, CX820 and Video
+> **Status:** 0.5.0. Tested on a Reolink NVR with TrackMix PoE, CX820 and Video
 > Doorbell cameras (16 kHz ADPCM talk). Not affiliated with or endorsed by Reolink.
 
 ## Requirements
@@ -151,9 +152,10 @@ are picked up.
   the selected cameras, and the actions refuse every other channel.
 - **Allow non-admin users to use live talk**: off by default, so only
   administrators can use the live talk card.
-- **Configure camera patrol limits**: tick it to continue to a PTZ camera picker and
-  that camera's patrol settings (sweep arc from guard, speed, pause, tilt, settle time,
-  auto-tracking, enabled). See [Per-camera limits](#per-camera-limits-arc-sweep).
+- **Set up patrol**: continue to a camera that can pan, then its patrol settings
+  (left limit, right limit, sweep speed, pause, tilt, pause at the home position,
+  auto tracking, enabled). The card wizard measures the limits for you. See
+  [Patrol on the card](#patrol-on-the-card).
 
 **Reconfigure** (⋮ → *Reconfigure*) changes the address, port or credentials
 without removing the entry. If the device rejects the stored password, Home
@@ -304,7 +306,7 @@ card's visual editor you choose the features you want:
 | Feature | What it does |
 |---|---|
 | **Live video** (`video`) | Live view of the matching Reolink core camera entity, over Home Assistant's WebRTC (go2rtc). Falls back to Home Assistant's standard stream (HLS) and then to a refreshed still image. Tap to start; it never starts on its own. |
-| **PTZ controls** (`ptz`) | Direction pad (press and hold moves, release sends *PTZ stop*, exactly like the core PTZ buttons), zoom in/out and a preset list when the camera has them. Only shown for PTZ cameras (for example TrackMix); other cameras stay view-only. |
+| **Pan and tilt** (`ptz`) | Direction pad (press and hold to move, release to stop), zoom in and out, and one row of preset chips when the camera has presets. The last preset you used stays filled. **Set up patrol** opens the wizard for administrators. Shown only when the camera can pan. |
 | **Listen** (`listen`) | Speaker button that plays the camera microphone, with a volume slider. Uses the video's audio when live video is on, otherwise an audio-only WebRTC session. The card plays the audio itself so it can mute it. |
 | **Push-to-talk** (`talk`) | Hold (or tap) to speak through the camera speaker (see [Live talk](#live-talk)). Half-duplex by default: listening is muted while you talk and for about 1.5 s after you release, so you do not hear your own voice coming back from the camera. |
 
@@ -413,7 +415,9 @@ With `cameras:` and at least two entries:
 
 - A tab bar sits above the video. Each tab shows the camera `name` (then the
   friendly name or entity id) and optional `icon` (`ha-icon`, for example
-  `mdi:cctv`).
+  `mdi:cctv`). Tabs stay on one row. If they do not fit, the row scrolls
+  sideways and the active tab scrolls into view. The active tab uses the theme
+  primary colour with a 2px underline.
 - Only the **active** camera streams. Switching tabs (click, left/right arrows,
   or a horizontal swipe on the video) tears down that camera's WebRTC/HLS/still
   session and stops listen and talk before the next camera starts. One live
@@ -452,9 +456,9 @@ a normal card. The fields are still checked.
 - In the grid, PTZ, listen and talk are hidden. Entering the grid stops listen
   and talk. Leaving the grid stops every stream except the camera you opened.
 - The first time every camera is set to stream, the card shows: "Streaming every
-  camera at once uses much more network bandwidth, and more CPU for decoding, on
-  both Home Assistant and this device. Prefer the sub or fluent stream for each
-  camera." Dismiss hides it for later visits in this browser
+  camera at once uses more network and more processor time, on Home Assistant and
+  on this device. Prefer a smaller stream for each camera." Dismiss hides it for
+  later visits in this browser
   (`advanced_reolink_card.grid_warning_dismissed`). Set `hide_grid_warning: true`
   to never show it. The visual editor shows the same text when `view` is `grid`.
 - A card that opens already in the grid does not start the streams by itself
@@ -553,7 +557,19 @@ forwards the audio in real time.
 - `advanced_reolink_card/talk/stop` with `subscription`, or unsubscribe.
 - `advanced_reolink_card/card/info`: `entity_id` or `channel` (+
   `config_entry_id`) and/or `camera_entity`. Returns the matched Reolink core
-  camera entities, PTZ button and preset entities, and battery/sleep sensors.
+  camera entities, pan button and preset entities, battery and sleep sensors,
+  saved patrol settings, and `guard_configured` when the home position is known
+  (`null` until this process has learned it).
+- Admin commands for the patrol wizard, each with `channel` and optional
+  `config_entry_id`:
+  - `advanced_reolink_card/ptz/move` with `direction` (`left`, `right`, `up`,
+    `down`, `zoom_in`, `zoom_out`) and `speed` (1 to 64). Keeps moving until stop.
+  - `advanced_reolink_card/ptz/stop` stops that move.
+  - `advanced_reolink_card/ptz/set_guard` stores the current aim as the home
+    position and returns `{"guard_configured": true}`.
+  - `advanced_reolink_card/ptz/guard` moves to the home position.
+  - `advanced_reolink_card/ptz/status` returns the home position state and the
+    saved patrol settings.
 
 </details>
 
@@ -594,11 +610,11 @@ support.
 | *Timeout while establishing a connection* | The device is busy or a battery camera is slow to wake. Try again; check the network path. |
 | A camera is missing from the options | It reported "no talk ability", or it is an empty NVR slot. Cameras that are asleep or offline are still listed. |
 | *... does not support two-way talk* | The camera has no speaker or two-way talk is disabled. |
-| No sound but the action succeeds | The camera's speaker volume in the Reolink app; try `volume: 150`; another client (Reolink app) may hold the talk session. |
+| No sound but the action succeeds | The camera speaker may be turned down. Try `volume: 150`. Another client may already be using talk. |
 | Talk card: *needs a secure connection* | Open Home Assistant over HTTPS or use the companion app (see [Live talk](#live-talk)). |
-| Card: *No Reolink camera entity found* | Set up Home Assistant's Reolink integration for the same NVR/camera and keep its *Fluent* camera entity enabled, or set `camera_entity` in the card editor. |
+| Card: *No camera found for live view.* | Set up Home Assistant's Reolink integration for the same recorder or camera and keep its fluent camera entity enabled, or set `camera_entity` in the card editor. |
 | Card: no PTZ pad on a PTZ camera | The card only shows PTZ when the core *PTZ left/right/up/down/stop* buttons are enabled for that camera. Zoom needs *PTZ zoom in/out* enabled (disabled by default). |
-| Card: *Listening needs Home Assistant's WebRTC* | Listening uses WebRTC through Home Assistant's built-in go2rtc (HA OS / Container). On Core installs add a go2rtc server (`go2rtc:` with `url:`). |
+| Card: *Listening needs a live stream from Home Assistant.* | Listening uses Home Assistant's built in stream (HA OS and Container). On Core installs add a stream server. |
 | Card: no sound when listening | Make sure the camera's *Record audio* switch (Reolink integration) is on: without it the camera stream carries no audio. Check the volume slider and the phone's media volume. |
 | Talk card: *Microphone permission was denied* | Allow the microphone for the Home Assistant site in the browser (or for the app in the phone settings). |
 | Talk card: *busy* | A message is playing on that NVR; try again when it has finished. |
@@ -629,27 +645,27 @@ logger:
 
 ## Camera patrol
 
-Automations can send a PTZ camera on a tour of its area, then bring it home.
+Automations can send a camera that can pan on a tour of its area, then bring it home.
 
-**What core Reolink already has:** a `PTZ patrol` switch (start/stop the camera's
-built-in cruise, only after you configure patrol positions in the Reolink app),
-a `PTZ preset` select, guard go-to / return, and auto-tracking. Those appeared
-with the patrol switch in HA **2024.3** (status reporting improved in **2026.2**).
+**What Home Assistant's Reolink integration already has:** a patrol switch (start
+or stop a cruise saved on the camera), a preset select, a control that returns
+to the home position, and auto tracking. The patrol switch arrived in Home
+Assistant 2024.3. Status reporting improved in 2026.2.
 
-**What these actions add:** one automation-friendly call with optional
-`presets` + `dwell` (software tour via `ToPos`), `duration` / `loops`, and
-`return_preset` (or the configured guard point). Prefer the camera's native
-cruise when `patrol_id` is set or an enabled patrol exists and you did not pass
-`presets`.
+**What these actions add:** one call from an automation, with optional `presets`
+and `dwell` (visit each preset in order), `duration` and `loops`, and
+`return_preset` (or the home position). Prefer a cruise saved on the camera when
+`patrol_id` is set, or when the camera already has a patrol enabled and you did
+not pass `presets`.
 
-Only the TrackMix channels on this NVR are PTZ (Front Yard, Backyard Left,
-Living Room, Kitchen). Fixed cameras raise `ptz_not_supported`. Create presets
-and/or an enabled patrol in the Reolink app first; out of the box this NVR had
-guard points on the TrackMix cameras but **no enabled patrols** and almost no
-named presets.
+On the NVR used for testing, only the TrackMix cameras can pan (Front Yard,
+Backyard Left, Living Room, Kitchen). Fixed cameras raise `ptz_not_supported`.
+Create presets on the camera before a preset tour. A sweep between a left limit
+and a right limit does not need presets. **Set up patrol** on the card stores
+the home position for you.
 
 ```yaml
-# When the alarm arms away: software tour for 5 minutes, then guard/home
+# When the alarm arms away: visit presets for 5 minutes, then the home position
 automation:
   - alias: Front Yard patrol while away
     triggers:
@@ -663,7 +679,7 @@ automation:
           presets: ["Gate", "Driveway", "Door"]
           dwell: 15
           duration: 300
-          # return_preset: Home   # optional; otherwise uses the guard point
+          # return_preset: Home   # optional; otherwise the home position
 
   - alias: Stop Front Yard patrol when disarming
     triggers:
@@ -675,7 +691,7 @@ automation:
         data:
           camera: camera.front_yard_fluent
 
-# Nightly native cruise (requires an enabled patrol in the Reolink app)
+# Nightly cruise (needs a patrol saved on the camera)
   - alias: Kitchen night patrol
     triggers:
       - trigger: time
@@ -691,18 +707,24 @@ automation:
 
 ### Sweep mode (no presets needed)
 
-When no `presets` are passed and the camera has no enabled native patrol, `start_patrol`
-sweeps the full pan range: Left to the end stop, then Right / Left passes with a
-PTZ **Stop** between every direction change, repeated until `duration`, `loops`
-or `stop_patrol`. At the end it goes to `return_preset`, or the guard position.
-Force it with `mode: sweep`.
+When no `presets` are passed and the camera has no enabled patrol of its own,
+`start_patrol` sweeps the full pan range: left to the end stop, then right and
+left, with a stop between every direction change, until `duration`, `loops` or
+`stop_patrol`. At the end it goes to `return_preset`, or the home position.
+Force this with `mode: sweep`.
+
+If `right_time` is above 0 the sweep stays between the limits instead of using
+the full range. `left_time` 0 means the home position is the left limit: the
+camera goes home, pans right for `right_time`, then pans back. When both times
+are above 0 it first pans left for `left_time`, then crosses
+`left_time + right_time` each way. Both 0 keeps the full range.
 
 | Option | Default | Notes |
 |---|---|---|
 | `mode` | `auto` | `auto`, `native`, `presets`, `sweep` |
-| `left_time`, `right_time` | camera setting, else 0 | Arc limits from guard in seconds of pan (see below). Both 0: full range |
-| `arc` | - | Shorthand: `arc: [left_time, right_time]` |
-| `settle_time` | camera setting, else 3 s | Wait after going to guard before an arc sweep |
+| `left_time`, `right_time` | camera setting, else 0 | Seconds of pan at `speed`. Both 0 is the full range. `left_time` 0 with `right_time` above 0 starts at the home position. |
+| `arc` | | Shorthand: `arc: [left_time, right_time]` |
+| `settle_time` | camera setting, else 3 s | Wait at the home position before a limited sweep |
 | `sweep_time` | 25 s | Seconds per side-to-side pass (about a full TrackMix pan at speed 32). Full-range sweeps only |
 | `pause` | 2 s | Hold at each end |
 | `speed` | 32 | PTZ speed 1-64 |
@@ -717,7 +739,7 @@ to the camera's saved setting before the built-in default shown. Precedence is
 always **action option → camera setting → built-in default**.
 
 ```yaml
-# Sweep the Front Yard for 10 minutes when everyone leaves, then return to guard.
+# Sweep the Front Yard for 10 minutes when everyone leaves, then return home.
 automation:
   - alias: Front Yard sweep while away
     triggers:
@@ -745,83 +767,82 @@ sweep; set `disable_tracking: true` to pause it, at the cost of a temporary
 settings change that is restored when the sweep ends (also on stop, error or unload;
 a hard HA crash mid-sweep would leave it off).
 
-### Per-camera limits (arc sweep)
+### Patrol settings
 
-Each PTZ camera can store its own patrol settings. Open **Settings → Devices &
-services → Advanced Reolink Card → Configure**, tick **Configure camera patrol
-limits**, pick the camera (only PTZ cameras are listed) and set:
+Each camera that can pan can store its own patrol settings. Open **Settings →
+Devices & services → Advanced Reolink Card → Configure**, turn on **Set up
+patrol**, pick the camera, and set:
 
 | Setting | Default | Range | Meaning |
 |---|---|---|---|
-| Patrol enabled | on | - | When off, `start_patrol` refuses this camera |
-| Sweep left of guard (`left_time`) | 0 | 0-300 s | Seconds of left pan from the guard position to the left limit |
-| Sweep right of guard (`right_time`) | 0 | 0-300 s | Seconds of right pan from guard to the right limit |
-| Pan speed (`speed`) | 32 | 1-64 | Speed for every move. The arc times are measured at this speed |
-| Pause at each end (`pause`) | 2 s | 0-600 s | Hold at each limit |
-| Tilt levels (`tilt_levels`) | 1 | 1-10 | Rows of passes; 1 keeps the current tilt |
-| Tilt step (`tilt_step`) | 2 s | 0-60 s | Down-tilt time between rows |
-| Settle time (`settle_time`) | 3 s | 0-60 s | Wait after going to guard before the first move |
-| Pause auto-tracking (`disable_tracking`) | off | - | Pause and restore auto-tracking around the sweep |
+| Patrol enabled | on | | When off, `start_patrol` refuses this camera |
+| Left limit (`left_time`) | 0 | 0 to 300 s | Seconds to pan left from the home position. Use 0 when the home position is the left limit. |
+| Right limit (`right_time`) | 0 | 0 to 300 s | Seconds to pan right from the home position to the right limit. |
+| Sweep speed (`speed`) | 32 | 1 to 64 | Speed for every move. The limits were measured at this speed. |
+| Pause at each end (`pause`) | 2 s | 0 to 600 s | Hold at each end |
+| Tilt rows (`tilt_levels`) | 1 | 1 to 10 | Rows of passes. 1 keeps the current tilt. |
+| Tilt step (`tilt_step`) | 2 s | 0 to 60 s | Seconds to tilt down between rows |
+| Pause at the home position (`settle_time`) | 3 s | 0 to 60 s | Wait after arriving home before the first move |
+| Pause auto tracking (`disable_tracking`) | off | | Pause auto tracking for the sweep, then restore it |
 
-Left and right must both be set (an **arc**) or both 0 (a **full-range** sweep).
-Saving these settings does not reload the integration or interrupt a running patrol.
+`left_time` above 0 with `right_time` 0 is rejected. Both 0 sweeps the full
+range. Saving these settings does not reload the integration or interrupt a
+running patrol.
 
-With an arc the sweep is:
+With a right limit above 0 the sweep is:
 
-1. Go to the guard position (`SetPtzGuard` toPos) and wait `settle_time`.
-2. Pan **Left** for `left_time` to the left limit, then pause.
-3. Pan **Right** for `left_time + right_time` (to the right limit), pause, then
-   **Left** for the same time, repeating until `duration`, `loops` or `stop_patrol`.
-4. Stop and return to guard (or `return_preset`).
+1. Go to the home position and wait `settle_time`.
+2. If `left_time` is above 0, pan left for that long, then pause. If it is 0,
+   the camera is already at the left limit.
+3. Pan right for `left_time + right_time`, pause, then pan left for the same
+   time, until `duration`, `loops` or `stop_patrol`.
+4. Stop and return to the home position (or `return_preset`).
 
-The arc is measured from guard, so the camera never pans past guard−left or
-guard+right (within timing accuracy). An arc needs a guard position: set one in the
-Reolink app first, otherwise the action fails with a clear error. To find the times,
-time how long the camera takes to pan from guard to each edge you want at your
-chosen speed. The card can measure those times for you (below). The number fields
-on the Configure page stay available as the manual fallback.
+The times are measured at the saved sweep speed. A limited sweep needs a home
+position. **Set up patrol** on the card stores it. The number fields on the
+Configure page stay available if you already know the times.
 
-### Guided setup on the card
+### Patrol on the card
 
-Administrators see **Patrol limits** on the PTZ controls when the camera belongs
-to this integration (the card knows the channel and config entry) and the camera
-supports PTZ. The button is hidden in grid view, because the PTZ controls are
-hidden there.
+Administrators see **Set up patrol** on cameras that can pan, when the card
+knows which device the camera belongs to. The button is hidden in the grid,
+because pan and tilt are hidden there.
 
-The dialog measures seconds of pan at the patrol speed, starting from the guard
-position. It does not store an angle.
+The wizard does not store an angle. It stores the home position on the camera,
+then the seconds of pan from there.
 
-1. **Guard.** **Go to guard position** moves the camera there. If the camera has
-   no guard stored, set one in the Reolink app first, then try again.
-2. **Left limit.** From guard, press and hold **Pan left** (mouse, touch or
-   keyboard). The card times the pan, shows it to 0.1 s, and keeps the total
-   between 0 and 300 s. **Set left limit** records `left_time`. Use **+0.5 s**
-   and **-0.5 s** to nudge it. **Redo** zeros it and goes back to guard.
-3. **Right limit.** The camera returns to guard. The same hold measures
-   `right_time`.
-4. **Tilt.** Only if the camera can tilt. Set `tilt_levels` and `tilt_step`, or
-   skip. Skip does not send tilt fields, so a saved tilt setting is left as it was.
-5. **Review.** **Test sweep** runs one sweep (`mode: sweep`, `loops: 1`) at the
-   patrol speed, including tilt when you did not skip it. Both times must be
-   greater than 0. **Stop** calls `stop_patrol`. **Save** calls
-   `set_patrol_limits`. **Cancel** closes without saving.
+1. **Left limit.** Live view and a pad. Press and hold to move, release to stop.
+   Zoom shows when the camera can zoom. **Set left limit** stores the current
+   aim as the home position (`advanced_reolink_card/ptz/set_guard`).
+2. **Right limit.** The same view and pad. The card adds up how long you hold
+   right, and subtracts left, at the sweep speed. **Set right limit** stores
+   that span. If the camera can tilt, **Add a tilt pass** shows tilt rows and
+   tilt step.
+3. **Sweep speed.** A slider from slow to fast. The line **About N seconds per
+   pass** scales the measured span by the speed ratio.
+4. **Test sweep.** **Start test sweep** runs one pass from the left limit to the
+   right limit and back (`start_patrol`, `mode: sweep`, `loops: 1`) with the
+   unsaved values. **Stop** calls `stop_patrol`.
+5. **Save.** A summary, then **Save**, which calls `set_patrol_limits` with
+   `left_time` 0 and `right_time` set to the span at the chosen speed. The
+   wizard shows a success line and closes.
 
-The wizard pans at the camera's saved patrol speed, or 32 if none is saved. The
-PTZ pad on the card, outside the dialog, uses the camera button speed and is not
-part of the measurement. The timed hold includes the small delay of the HTTP
-command on start and on stop. Opening the dialog starts video if the card is not
-already streaming, so you can see the camera move.
+Back, Next and Cancel sit under the steps. Next stays off until the left limit
+or the right limit is set. Closing or cancelling stops any move and any test
+sweep. The pad uses the wizard speed (the saved sweep speed, or 32). The pad on
+the card, outside the wizard, uses the camera buttons and is not part of the
+measurement. Opening the wizard starts live view when it is not already on.
 
 You can also save the same settings from an automation or script with
 `advanced_reolink_card.set_patrol_limits`. Only the fields you pass change;
 `clear: true` removes the camera's saved settings.
 
 ```yaml
-# Save Front Yard limits: 12 s left of guard, 10 s right, speed 24.
+# Save Front Yard limits: home is the left limit, 10 s to the right, speed 24.
 action: advanced_reolink_card.set_patrol_limits
 data:
   camera: camera.front_yard_fluent
-  left_time: 12
+  left_time: 0
   right_time: 10
   speed: 24
   pause: 3
@@ -829,9 +850,9 @@ data:
 ```
 
 ```yaml
-# Uses the saved Front Yard limits; only the duration is given.
+# Uses the saved Front Yard limits. Only the duration is given.
 automation:
-  - alias: Front Yard arc sweep when the gate opens
+  - alias: Front Yard sweep when the gate opens
     triggers:
       - trigger: state
         entity_id: binary_sensor.gate
@@ -845,9 +866,9 @@ automation:
 ```
 
 ```yaml
-# Per-call override: a narrower, faster arc at night, two loops, then guard.
+# Per call override: a shorter, faster sweep at night, two loops, then home.
 automation:
-  - alias: Backyard quick arc at night
+  - alias: Backyard quick sweep at night
     triggers:
       - trigger: time
         at: "23:00:00"
@@ -873,7 +894,7 @@ data:
 | Field | Notes |
 |---|---|
 | `camera` / `device_id` / `channel` (+ `config_entry_id`) | Target, as for `start_patrol` |
-| `left_time`, `right_time`, `arc` | Arc limits (both > 0, or both 0 to clear the arc) |
+| `left_time`, `right_time`, `arc` | Left limit and right limit. `left_time` 0 with `right_time` above 0 starts at the home position. Both 0 sweeps the full range. `left_time` above 0 with `right_time` 0 is rejected. |
 | `speed`, `pause`, `tilt_levels`, `tilt_step`, `settle_time`, `disable_tracking` | Camera defaults |
 | `enabled` | Allow `start_patrol` on this camera |
 | `clear` | Remove all saved settings for this camera |

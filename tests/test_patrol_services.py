@@ -89,7 +89,7 @@ async def test_call_arc_overrides_and_disabled_camera(
     ("service", "data", "key"),
     [
         ("start_patrol", {"channel": 0, "left_time": 5}, "patrol_arc_incomplete"),
-        ("set_patrol_limits", {"channel": 0, "right_time": 5}, "patrol_arc_incomplete"),
+        ("set_patrol_limits", {"channel": 0, "left_time": 5}, "patrol_arc_incomplete"),
     ],
 )
 async def test_validation_errors(
@@ -100,6 +100,18 @@ async def test_validation_errors(
     with pytest.raises(ServiceValidationError) as err:
         await hass.services.async_call(DOMAIN, service, data, blocking=True)
     assert err.value.translation_key == key
+
+
+async def test_set_limits_accepts_home_as_left_limit(
+    hass: HomeAssistant, mock_nvr: MagicMock, config_entry: MockConfigEntry
+) -> None:
+    await _setup(hass, config_entry)
+    await hass.services.async_call(
+        DOMAIN, "set_patrol_limits", {"channel": 0, "left_time": 0, "right_time": 5}, blocking=True
+    )
+    saved = config_entry.options["patrol"]["0"]
+    assert saved["left_time"] == 0
+    assert saved["right_time"] == 5
 
 
 async def test_set_limits_rejects_known_non_ptz_channel(

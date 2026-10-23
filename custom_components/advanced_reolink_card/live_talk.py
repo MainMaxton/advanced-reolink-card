@@ -175,7 +175,7 @@ async def ws_talk_start(
     is_admin = connection.user.is_admin
     if not any(_allowed(e, is_admin) for e in loaded_entries(hass)):
         connection.send_error(
-            msg_id, websocket_api.ERR_UNAUTHORIZED, "Live talk is limited to administrators"
+            msg_id, websocket_api.ERR_UNAUTHORIZED, "Live talk is for administrators."
         )
         return
     try:
@@ -199,7 +199,7 @@ async def ws_talk_start(
         return
     if not _allowed(entry, is_admin):
         connection.send_error(
-            msg_id, websocket_api.ERR_UNAUTHORIZED, "Live talk is limited to administrators"
+            msg_id, websocket_api.ERR_UNAUTHORIZED, "Live talk is for administrators."
         )
         return
     data = entry.runtime_data
@@ -208,7 +208,7 @@ async def ws_talk_start(
         connection.send_error(
             msg_id,
             "channel_not_enabled",
-            f"{name} (channel {channel}) is not enabled for talk in the integration options",
+            f"{name} is not allowed to talk. Turn it on in the options.",
         )
         return
 
@@ -270,20 +270,20 @@ async def _async_run(
         _safe_send(connection, msg_id, {"type": "ended", "channel": channel, "reason": "cancelled"})
         raise
     except TalkBusyError:
-        code, message = "busy", f"{name} is busy playing another message; try again shortly"
+        code, message = "busy", f"{name} is busy. Try again in a moment."
     except ChannelNotAllowedError:
-        code, message = "channel_not_enabled", f"{name} (channel {channel}) is not enabled for talk"
+        code, message = "channel_not_enabled", f"{name} is not allowed to talk."
     except ChannelOfflineError:
-        code, message = "channel_offline", f"{name} (channel {channel}) is offline"
+        code, message = "channel_offline", f"{name} is offline."
     except TalkNotSupported:
-        code, message = "talk_not_supported", f"{name} does not support two-way talk"
+        code, message = "talk_not_supported", f"{name} cannot do two way talk."
     except BaichuanAuthError:
         entry.async_start_reauth(hass)
-        code, message = "invalid_auth", "The device rejected the stored credentials"
+        code, message = "invalid_auth", "The device rejected the saved sign in."
     except BaichuanTimeoutError as err:
-        code, message = "timeout", f"{name} did not answer in time (asleep or out of range?): {err}"
+        code, message = "timeout", f"{name} did not answer in time. {err}"
     except (BaichuanError, OSError, ValueError) as err:
-        code, message = "talk_failed", f"Live talk on {name} failed: {err}"
+        code, message = "talk_failed", f"Talk on {name} failed. {err}"
     else:
         _LOGGER.debug("Live talk on channel %s ended: %s", channel, result.as_dict())
         _safe_send(connection, msg_id, {"type": "ended", "name": name, **result.as_dict()})

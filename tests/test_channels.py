@@ -53,11 +53,11 @@ def test_merge_takes_new_definite_answer_and_new_channels() -> None:
 
 def test_labels() -> None:
     chans = channel_dicts()
-    assert channel_label(chans[0], True) == "Camera A (ch 0)"
-    assert channel_label(chans[1], True) == "Camera B (ch 1, asleep)"
-    assert channel_label({**chans[0], "online": False}, False) == "Camera A (offline)"
+    assert channel_label(chans[0], True) == "Camera A, number 0"
+    assert channel_label(chans[1], True) == "Camera B, number 1, asleep"
+    assert channel_label({**chans[0], "online": False}, False) == "Camera A, offline"
     assert channel_label({"channel": 0, "talk_status": "unknown"}, False) == (
-        "Channel 0 (talk support not confirmed yet)"
+        "Camera 0, talk not confirmed yet"
     )
 
 

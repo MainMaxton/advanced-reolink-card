@@ -212,7 +212,7 @@ async def test_options_flow_lists_sleeping_and_defaults_to_all_talk_capable(
     key = next(k for k in schema if str(k) == CONF_ENABLED_CHANNELS)
     options = schema[key].config["options"]
     assert [o["value"] for o in options] == ["0", "1"]  # ch2 has no talk ability
-    assert options[1]["label"] == "Camera B (ch 1, asleep)"
+    assert options[1]["label"] == "Camera B, number 1, asleep"
     assert key.default() == ["0", "1"]
     assert result["description_placeholders"]["unsupported"] == "Camera C"
 

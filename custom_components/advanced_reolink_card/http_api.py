@@ -267,6 +267,28 @@ class ReolinkHttpClient:
         if item.get("code") != 0:
             raise BaichuanError(f"SetPtzGuard toPos failed on channel {channel}: {item.get('error') or item}")
 
+    async def set_guard(self, channel: int) -> None:
+        """Store the current aim as the guard (home) position."""
+        data = await self.send(
+            [
+                {
+                    "cmd": "SetPtzGuard",
+                    "action": 0,
+                    "param": {
+                        "PtzGuard": {
+                            "channel": channel,
+                            "cmdStr": "setPos",
+                            "benable": 1,
+                            "bSaveCurrentPos": 1,
+                        }
+                    },
+                }
+            ]
+        )
+        item = data[0] if data else {}
+        if item.get("code") != 0:
+            raise BaichuanError(f"SetPtzGuard setPos failed on channel {channel}: {item.get('error') or item}")
+
     async def get_ai_cfg(self, channel: int) -> dict[str, Any]:
         """GetAiCfg (auto-tracking settings). Read-only."""
         data = await self.send([{"cmd": "GetAiCfg", "action": 0, "param": {"channel": channel}}])

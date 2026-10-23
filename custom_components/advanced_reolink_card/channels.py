@@ -89,14 +89,14 @@ def merge_channels(
 
 def channel_label(info: Mapping[str, Any], multi_channel: bool) -> str:
     """Human readable label used in the options form."""
-    name = info.get("name") or f"Channel {info['channel']}"
+    name = info.get("name") or f"Camera {info['channel']}"
     notes: list[str] = []
-    if multi_channel:
-        notes.append(f"ch {info['channel']}")
+    if multi_channel and info.get("name"):
+        notes.append(f"number {info['channel']}")
     if info.get("online") is False:
         notes.append("offline")
     elif info.get("sleeping"):
         notes.append("asleep")
     if talk_status(info) == TALK_UNKNOWN and not info.get("sleeping") and info.get("online") is not False:
-        notes.append("talk support not confirmed yet")
-    return f"{name} ({', '.join(notes)})" if notes else name
+        notes.append("talk not confirmed yet")
+    return ", ".join([name, *notes]) if notes else name

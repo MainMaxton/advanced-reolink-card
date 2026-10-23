@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.0 - 2026-10-23
+
+- Patrol setup wizard on the card for cameras that can pan.
+- Set left limit stores the home position on the camera.
+- A patrol can start at the home position and sweep right.
+- Camera tabs stay on one scrolling row.
+- Presets are chips.
+- Clearer wording on the card and in setup.
+
 ## Unreleased
 
 ### Added

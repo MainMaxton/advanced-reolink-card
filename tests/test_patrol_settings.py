@@ -52,7 +52,6 @@ def test_call_can_disable_camera_arc() -> None:
     ("updates", "key"),
     [
         ({"left_time": 10, "right_time": 0}, "patrol_arc_incomplete"),
-        ({"left_time": 0, "right_time": 5}, "patrol_arc_incomplete"),
         ({"speed": 0}, "patrol_value_range"),
         ({"speed": 65}, "patrol_value_range"),
         ({"left_time": 301, "right_time": 5}, "patrol_value_range"),
@@ -64,6 +63,16 @@ def test_validation(updates: dict, key: str) -> None:
     with pytest.raises(PatrolSettingsError) as err:
         with_camera_settings({}, 3, updates)
     assert err.value.key == key
+
+
+def test_home_is_a_valid_left_limit() -> None:
+    saved = with_camera_settings({}, 3, {"left_time": 0, "right_time": 5, "speed": 24})
+    cam = camera_settings(saved, 3)
+    assert (cam["left_time"], cam["right_time"], cam["speed"]) == (0, 5, 24)
+    resolved = resolve_sweep_options({}, cam)
+    assert (resolved["left_time"], resolved["right_time"]) == (0, 5)
+    direct = resolve_sweep_options({"right_time": 8}, camera_settings({}, 1))
+    assert (direct["left_time"], direct["right_time"]) == (0, 8)
 
 
 def test_call_arc_incomplete_rejected() -> None:

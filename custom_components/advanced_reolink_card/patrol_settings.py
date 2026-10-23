@@ -27,7 +27,7 @@ S_SWEEP_TIME: Final = "sweep_time"
 
 DEFAULTS: Final[dict[str, Any]] = {
     S_ENABLED: True,
-    S_LEFT_TIME: 0.0,  # 0 = no arc limit (full-range sweep)
+    S_LEFT_TIME: 0.0,  # 0 with right_time 0: full range. 0 with right_time > 0: home is the left limit.
     S_RIGHT_TIME: 0.0,
     S_SPEED: 32,
     S_PAUSE: 2.0,
@@ -111,8 +111,11 @@ def normalize_camera_settings(raw: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def check_arc(left: float, right: float) -> None:
-    """An arc needs both sides (or neither, for a full-range sweep)."""
-    if (left > 0) != (right > 0):
+    """Both 0 is a full range sweep. right_time alone starts at home.
+
+    A left time still needs a right time.
+    """
+    if left > 0 and right <= 0:
         raise PatrolSettingsError("patrol_arc_incomplete", left_time=left, right_time=right)
 
 

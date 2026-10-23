@@ -28,7 +28,7 @@ DEFAULT_SWEEP_SPEED = 32
 DEFAULT_TILT_STEP_S = 2.0
 ZOOM_OUT_TIME_S = 6.0
 MODES = ("auto", "native", "presets", "sweep")
-# Card "Patrol limits" pans with these ops so the timed arc matches a sweep.
+# The patrol wizard pans with these ops so a measured span matches a sweep.
 PTZ_DIRECTION_OPS: dict[str, str] = {
     "left": "Left",
     "right": "Right",
@@ -58,15 +58,15 @@ class PatrolRequest:
     tilt_step: float = DEFAULT_TILT_STEP_S
     zoom_out_first: bool = False
     disable_tracking: bool = False
-    # Arc limits measured from the guard position (seconds of pan at ``speed``).
-    # Both > 0: arc sweep guard-left .. guard+right; both 0: full-range sweep.
+    # Seconds of pan at ``speed``. Both 0: full range.
+    # right_time > 0 limits the sweep. left_time 0 means home is the left limit.
     left_time: float = 0.0
     right_time: float = 0.0
     settle_time: float = 3.0
 
     @property
     def arc(self) -> bool:
-        return self.left_time > 0 and self.right_time > 0
+        return self.right_time > 0
 
 
 @dataclass
@@ -115,9 +115,14 @@ class PatrolManager:
         self.http_port = http_port
         self._client_factory = client_factory
         self._online_check = online_check or (lambda _ch: True)
-        self._channel_name = channel_name or (lambda ch: f"Channel {ch}")
+        self._channel_name = channel_name or (lambda ch: f"Camera {ch}")
         self._tasks: dict[int, asyncio.Task[PatrolResult]] = {}
         self._cancel_events: dict[int, asyncio.Event] = {}
+        self._guard_known: dict[int, bool] = {}
+
+    def guard_known(self, channel: int) -> bool | None:
+        """Home position, once this process has read or stored it."""
+        return self._guard_known.get(channel)
 
     def _client(self) -> ReolinkHttpClient:
         if self._client_factory is not None:
@@ -497,8 +502,10 @@ class PatrolManager:
                         **translated("ptz_not_supported", channel=channel, name=name)
                     )
                 if not info.guard_configured:
+                    self._guard_known[channel] = False
                     return False
                 await client.goto_guard(channel)
+                self._guard_known[channel] = True
                 return True
         except BaichuanAuthError as err:
             raise HomeAssistantError(**translated("invalid_auth")) from err
@@ -522,12 +529,34 @@ class PatrolManager:
                     "patrol_failed", channel=channel, name=self._name(channel), error=err
                 )
             ) from err
+        self._guard_known[channel] = info.guard_configured
         return {
             "guard_configured": info.guard_configured,
             "ptz_supported": info.ptz_supported,
             "ptz_type": info.ptz_type,
             "tilt": info.ptz_type >= 2,
         }
+
+    async def async_set_guard(self, channel: int) -> None:
+        """Store the current aim as the home position."""
+        name = self._name(channel)
+        try:
+            async with self._client() as client:
+                info = await client.get_ptz_info(channel)
+                if not info.ptz_supported:
+                    raise HomeAssistantError(
+                        **translated("ptz_not_supported", channel=channel, name=name)
+                    )
+                await client.set_guard(channel)
+        except BaichuanAuthError as err:
+            raise HomeAssistantError(**translated("invalid_auth")) from err
+        except HomeAssistantError:
+            raise
+        except (BaichuanError, OSError, TimeoutError) as err:
+            raise HomeAssistantError(
+                **translated("patrol_failed", channel=channel, name=name, error=err)
+            ) from err
+        self._guard_known[channel] = True
 
     async def _sweep(
         self,
@@ -563,13 +592,12 @@ class PatrolManager:
                     client, channel, "ZoomDec", ZOOM_OUT_TIME_S, None, cancel, deadline
                 )
             if reason is None and request.arc:
-                # Start from the guard position so the arc is measured from it.
+                # Home is the reference. left_time 0 means the camera is already there.
                 await client.goto_guard(channel)
                 reason = await self._wait(
                     max(0.0, float(request.settle_time)), channel, cancel, deadline
                 )
-            if reason is None:
-                # Arc: to the left limit. Full range: to the left end stop.
+            if reason is None and (not request.arc or first_time > 0):
                 reason = await self._move(
                     client, channel, "Left", first_time, speed, cancel, deadline
                 )

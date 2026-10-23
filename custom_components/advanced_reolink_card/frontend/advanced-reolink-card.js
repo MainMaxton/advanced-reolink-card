@@ -1,12 +1,13 @@
 /*
- * Live view, PTZ, listen and push-to-talk.
+ * Live view, pan, listen and talk.
  * custom:audiohook-talk-card stays as an alias for older dashboards.
  */
-const CARD_VERSION = "0.4.0";
+const CARD_VERSION = "0.5.0";
 const DOMAIN = "advanced_reolink_card";
 const WS_PTZ_MOVE = "advanced_reolink_card/ptz/move";
 const WS_PTZ_STOP = "advanced_reolink_card/ptz/stop";
 const WS_PTZ_GUARD = "advanced_reolink_card/ptz/guard";
+const WS_PTZ_SET_GUARD = "advanced_reolink_card/ptz/set_guard";
 const WS_PTZ_STATUS = "advanced_reolink_card/ptz/status";
 const TARGET_RATE = 16000; // what we send: 16 kHz mono s16le
 const SEND_MS = 40; // send a frame every ~40 ms
@@ -83,7 +84,7 @@ class WebRtcPipe {
       else this.pending.push(ev.candidate.toJSON());
     };
     pc.oniceconnectionstatechange = () => {
-      if (pc.iceConnectionState === "failed" && !this.closed) this.onError("The WebRTC connection failed");
+      if (pc.iceConnectionState === "failed" && !this.closed) this.onError("The live connection failed");
     };
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
@@ -113,7 +114,7 @@ class WebRtcPipe {
         try {
           await this.pc.setRemoteDescription({ type: "answer", sdp: ev.answer });
         } catch (err) {
-          this.onError(`Invalid WebRTC answer: ${err?.message || err}`);
+          this.onError("The camera sent a bad answer.");
         }
         break;
       case "candidate":
@@ -127,7 +128,7 @@ class WebRtcPipe {
         }
         break;
       case "error":
-        this.onError(ev.message || ev.code || "WebRTC error");
+        this.onError(ev.message || "Live view failed.");
         break;
       default:
         break;
@@ -160,16 +161,22 @@ const STYLE = `
   .status.error { color: var(--error-color, #db4437); }
   .status.live { color: var(--success-color, #43a047); font-weight: 500; }
   .note { font-size: 0.85em; color: var(--secondary-text-color); background: var(--secondary-background-color, rgba(0,0,0,.05)); border-radius: 8px; padding: 8px 10px; }
-  .tabs { display: flex; gap: 4px; overflow-x: auto; margin: 0 -4px; padding: 0 4px; scrollbar-width: thin;
-    border-bottom: 1px solid var(--divider-color, #ccc); }
+  .tabs { display: flex; flex-wrap: nowrap; align-items: stretch; gap: 0; overflow-x: auto; overflow-y: hidden;
+    white-space: nowrap; scrollbar-width: none; height: 48px; max-height: 48px; margin: 0; padding: 0;
+    scroll-padding-inline: 8px; -webkit-overflow-scrolling: touch;
+    --clip-left: 0px; --clip-right: 0px;
+    -webkit-mask-image: linear-gradient(to right, transparent var(--clip-left), #000 var(--clip-left), #000 calc(100% - var(--clip-right)), transparent calc(100% - var(--clip-right)));
+    mask-image: linear-gradient(to right, transparent var(--clip-left), #000 var(--clip-left), #000 calc(100% - var(--clip-right)), transparent calc(100% - var(--clip-right))); }
+  .tabs::-webkit-scrollbar { display: none; height: 0; width: 0; }
   .tabs button[role="tab"] { all: unset; box-sizing: border-box; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
-    padding: 8px 12px; color: var(--secondary-text-color); border-bottom: 2px solid transparent; margin-bottom: -1px;
-    white-space: nowrap; font: inherit; font-weight: 500; }
-  .tabs button[role="tab"] ha-icon { --mdc-icon-size: 20px; }
-  .tabs button[role="tab"][aria-selected="true"] { color: var(--primary-color); border-bottom-color: var(--primary-color); }
-  .tabrow { display: flex; align-items: stretch; gap: 4px; }
+    flex: none; height: 48px; padding: 0 16px; color: var(--secondary-text-color); box-shadow: inset 0 -2px 0 transparent;
+    white-space: nowrap; font: inherit; font-size: 14px; font-weight: 500; text-transform: none; }
+  .tabs button[role="tab"] ha-icon { --mdc-icon-size: 18px; flex: none; }
+  .tabs button[role="tab"]:hover { background: color-mix(in srgb, var(--primary-text-color) 8%, transparent); }
+  .tabs button[role="tab"][aria-selected="true"] { color: var(--primary-color); box-shadow: inset 0 -2px 0 var(--primary-color); }
+  .tabrow { display: flex; align-items: center; height: 48px; max-height: 48px; gap: 0; min-width: 0; overflow: hidden; }
   .tabrow .tabs { flex: 1; min-width: 0; }
-  .viewtoggle { all: unset; box-sizing: border-box; cursor: pointer; width: 40px; height: 36px; flex: none; align-self: center;
+  .viewtoggle { all: unset; box-sizing: border-box; cursor: pointer; width: 40px; height: 40px; flex: none;
     display: flex; align-items: center; justify-content: center; border-radius: 8px;
     color: var(--primary-text-color); background: var(--secondary-background-color, #eee); }
   .viewtoggle[aria-pressed="true"] { background: var(--primary-color); color: var(--text-primary-color, #fff); }
@@ -195,24 +202,66 @@ const STYLE = `
   .gridwarn { display: flex; flex-direction: column; gap: 8px; }
   .gridwarn button, .patrol-dialog button.plain { all: unset; box-sizing: border-box; cursor: pointer; align-self: flex-start;
     padding: 6px 12px; border-radius: 8px; background: var(--primary-color); color: var(--text-primary-color, #fff); }
-  .ptz button.patrol-open { flex: 1 0 100%; height: 40px; padding: 0 14px; }
-  .patrol-dialog { position: absolute; inset: 0; z-index: 6; overflow: auto; display: flex; flex-direction: column; gap: 10px;
-    padding: 12px; background: var(--card-background-color, #fff); color: var(--primary-text-color); }
-  .patrol-dialog h3 { margin: 0; font-size: 1.05em; }
-  .patrol-dialog p { margin: 0; font-size: 0.92em; line-height: 1.4; }
-  .patrol-dialog .prow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-  .patrol-dialog button.act { all: unset; box-sizing: border-box; cursor: pointer; min-height: 40px; padding: 0 14px; border-radius: 10px;
-    background: var(--secondary-background-color, #eee); color: var(--primary-text-color); font: inherit; font-weight: 500; }
-  .patrol-dialog button.act.primary { background: var(--primary-color); color: var(--text-primary-color, #fff); }
-  .patrol-dialog button.act.active { background: var(--primary-color); color: var(--text-primary-color, #fff); }
-  .patrol-dialog button.act:disabled { opacity: 0.55; cursor: not-allowed; }
-  .pmedia { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: 12px; overflow: hidden; }
+  .ptz button.patrol-open { all: unset; box-sizing: border-box; cursor: pointer; flex: 1 0 100%; height: 40px; padding: 0 14px;
+    display: flex; align-items: center; justify-content: center; border-radius: 20px; font: inherit; font-weight: 500;
+    background: var(--primary-color); color: var(--text-primary-color, #fff); }
+  .patrol-dialog { position: absolute; inset: 0; z-index: 6; overflow-x: hidden; overflow-y: auto; scrollbar-width: none; box-sizing: border-box;
+    display: flex; flex-direction: column; gap: 10px; padding: 12px;
+    background: var(--card-background-color, #fff); color: var(--primary-text-color);
+    border-radius: var(--ha-card-border-radius, 12px); }
+  .patrol-dialog::-webkit-scrollbar { display: none; height: 0; width: 0; }
+  .patrol-dialog h2 { margin: 0; font-size: 1.05em; font-weight: 500; }
+  .patrol-dialog p { margin: 0; font-size: 0.92em; line-height: 1.35; color: var(--primary-text-color); }
+  .psteps { display: flex; gap: 4px; margin: 0; padding: 0; list-style: none; }
+  .pstep { flex: 1; min-width: 0; text-align: center; color: var(--secondary-text-color); font-size: 11px; line-height: 1.2; }
+  .pstep .n { display: flex; align-items: center; justify-content: center; width: 22px; height: 22px; margin: 0 auto 2px;
+    border-radius: 11px; border: 2px solid var(--divider-color, #ccc); box-sizing: border-box; font-weight: 500; }
+  .pstep.on { color: var(--primary-color); font-weight: 500; }
+  .pstep.on .n, .pstep.done .n { background: var(--primary-color); color: var(--text-primary-color, #fff); border-color: var(--primary-color); }
+  .pstep .l { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .patrol-dialog p.phint, .patrol-dialog p.pread, .patrol-dialog p.pspan { color: var(--secondary-text-color); }
+  .patrol-dialog p.pspan { color: var(--primary-text-color); font-weight: 500; }
+  .presult:empty { display: none; }
+  .presult { color: var(--secondary-text-color); font-size: 0.9em; }
+  .padrow { display: flex; align-items: center; justify-content: center; gap: 16px; }
+  .patrol-dialog .dpad { display: grid; grid-template-columns: repeat(3, 44px); grid-template-rows: repeat(3, 44px); gap: 4px; }
+  .patrol-dialog .dpad button, .patrol-dialog .zoom button { all: unset; box-sizing: border-box; cursor: pointer; user-select: none;
+    touch-action: none; display: flex; align-items: center; justify-content: center; border-radius: 12px;
+    background: var(--secondary-background-color, #eee); color: var(--primary-text-color); }
+  .patrol-dialog .dpad button[data-dir="up"] { grid-area: 1 / 2; }
+  .patrol-dialog .dpad button[data-dir="left"] { grid-area: 2 / 1; }
+  .patrol-dialog .dpad button[data-dir="right"] { grid-area: 2 / 3; }
+  .patrol-dialog .dpad button[data-dir="down"] { grid-area: 3 / 2; }
+  .patrol-dialog .zoom { display: flex; flex-direction: column; gap: 4px; }
+  .patrol-dialog .zoom button { width: 44px; height: 44px; }
+  .patrol-dialog .dpad button.active, .patrol-dialog .zoom button.active { background: var(--primary-color); color: var(--text-primary-color, #fff); }
+  .patrol-dialog .act { box-sizing: border-box; cursor: pointer; min-height: 40px; padding: 0 12px; border-radius: 20px;
+    border: none; background: var(--secondary-background-color, #eee); color: var(--primary-text-color);
+    font: inherit; font-weight: 500; display: inline-flex; align-items: center; justify-content: center; }
+  .patrol-dialog .act.primary { background: var(--primary-color); color: var(--text-primary-color, #fff); }
+  .patrol-dialog .act[disabled],
+  .patrol-dialog .act.primary[disabled] {
+    background: var(--secondary-background-color, #eee); color: var(--secondary-text-color); opacity: 0.6; cursor: not-allowed;
+  }
+  .pmedia { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: var(--ha-card-border-radius, 12px); overflow: hidden; flex: none; }
   .pmedia video, .pmedia .pslot, .pmedia .pslot > * { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
-  .ptime { font-variant-numeric: tabular-nums; font-weight: 500; }
-  .pfields { display: flex; flex-wrap: wrap; gap: 10px; }
-  .pfields label { display: flex; flex-direction: column; gap: 4px; font-size: 0.85em; }
-  .pfields input { font: inherit; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--divider-color, #ccc);
-    background: var(--card-background-color, #fff); color: var(--primary-text-color); width: 6em; }
+  .pspan { font-variant-numeric: tabular-nums; font-weight: 500; }
+  .speedrow { display: flex; align-items: center; gap: 8px; }
+  .speedrow span { flex: none; color: var(--secondary-text-color); font-size: 0.85em; }
+  .speedrow input[type="range"], .speedrow ha-slider { flex: 1; width: 100%; min-width: 0; accent-color: var(--primary-color); }
+  .psum { margin: 0; padding-left: 1.1em; display: flex; flex-direction: column; gap: 4px; }
+  .tiltbox { display: flex; flex-wrap: wrap; gap: 10px; }
+  .tiltbox label, .check { display: flex; flex-direction: column; gap: 4px; font-size: 0.85em; color: var(--secondary-text-color); }
+  .check { flex-direction: row; align-items: center; gap: 8px; color: var(--primary-text-color); font-size: 0.95em; }
+  .tiltbox input, .check input { font: inherit; }
+  .tiltbox input[type="number"] { padding: 6px 8px; width: 5.5em; border-radius: 8px; border: 1px solid var(--divider-color, #ccc);
+    background: var(--card-background-color, #fff); color: var(--primary-text-color); }
+  .patrol-dialog > * { flex: 0 0 auto; }
+  .pfoot, .prow, .pactions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .pactions { flex-direction: column; align-items: stretch; }
+  .pfoot .act, .pactions .act { flex: 1 1 0; }
+  .pstep .n ha-icon { --mdc-icon-size: 14px; width: 14px; height: 14px; }
+  .check input { width: 18px; height: 18px; margin: 0; accent-color: var(--primary-color); }
   .video { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: 12px; overflow: hidden; touch-action: pan-y; }
   .video video, .video img, .video .slot, .video .slot > * { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
   .video .overlay { position: absolute; left: 0; right: 0; bottom: 0; padding: 6px 10px; font-size: 0.85em; color: #fff; background: linear-gradient(transparent, rgba(0,0,0,.65)); }
@@ -221,17 +270,31 @@ const STYLE = `
   .video button.play { all: unset; position: absolute; inset: 0; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; color: #fff; }
   .video button.play ha-icon { --mdc-icon-size: 56px; }
   .video button.stopvideo { all: unset; position: absolute; top: 8px; right: 8px; cursor: pointer; width: 36px; height: 36px; border-radius: 18px; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.5); color: #fff; }
-  .video button:focus-visible, .ptz button:focus-visible, button.listen:focus-visible, .tabs button[role="tab"]:focus-visible,
-  .viewtoggle:focus-visible, .tile-open:focus-visible, .gridstart:focus-visible, .patrol-dialog button:focus-visible { outline: 3px solid var(--accent-color, #ff9800); outline-offset: 2px; }
+  .video button:focus-visible, .ptz button:focus-visible, .presets button.chip:focus-visible, button.listen:focus-visible, .tabs button[role="tab"]:focus-visible,
+  .viewtoggle:focus-visible, .tile-open:focus-visible, .gridstart:focus-visible, .patrol-dialog button:focus-visible,
+  .patrol-dialog .act:focus-visible { outline: 3px solid var(--accent-color, #ff9800); outline-offset: 2px; }
   .ptz { display: flex; align-items: center; justify-content: center; gap: 20px; flex-wrap: wrap; }
   .dpad { display: grid; grid-template-columns: repeat(3, 48px); grid-template-rows: repeat(3, 48px); gap: 4px; }
-  .ptz button { all: unset; box-sizing: border-box; cursor: pointer; user-select: none; -webkit-user-select: none; touch-action: none; -webkit-touch-callout: none;
+  .ptz button[data-ptz] { all: unset; box-sizing: border-box; cursor: pointer; user-select: none; -webkit-user-select: none; touch-action: none; -webkit-touch-callout: none;
     display: flex; align-items: center; justify-content: center; border-radius: 12px; background: var(--secondary-background-color, #eee); color: var(--primary-text-color); }
-  .ptz button.active { background: var(--primary-color); color: var(--text-primary-color, #fff); }
+  .ptz button[data-ptz].active { background: var(--primary-color); color: var(--text-primary-color, #fff); }
   .ptz button[data-ptz="up"] { grid-area: 1 / 2; } .ptz button[data-ptz="left"] { grid-area: 2 / 1; }
   .ptz button[data-ptz="right"] { grid-area: 2 / 3; } .ptz button[data-ptz="down"] { grid-area: 3 / 2; }
   .zoom { display: flex; flex-direction: column; gap: 4px; } .zoom button { width: 48px; height: 48px; }
-  select.preset { font: inherit; padding: 8px; border-radius: 8px; border: 1px solid var(--divider-color, #ccc); background: var(--card-background-color, #fff); color: var(--primary-text-color); max-width: 100%; }
+  .presets { display: flex; flex: 1 0 100%; flex-wrap: nowrap; align-items: center; gap: 8px; overflow-x: auto; overflow-y: hidden;
+    white-space: nowrap; scrollbar-width: none; height: 40px; max-height: 40px; margin: 0; padding: 0 2px; box-sizing: border-box;
+    --clip-left: 0px; --clip-right: 0px;
+    -webkit-mask-image: linear-gradient(to right, transparent var(--clip-left), #000 var(--clip-left), #000 calc(100% - var(--clip-right)), transparent calc(100% - var(--clip-right)));
+    mask-image: linear-gradient(to right, transparent var(--clip-left), #000 var(--clip-left), #000 calc(100% - var(--clip-right)), transparent calc(100% - var(--clip-right))); }
+  .presets::-webkit-scrollbar { display: none; height: 0; width: 0; }
+  .presets button.chip { all: unset; box-sizing: border-box; cursor: pointer; flex: none; display: inline-flex; align-items: center; gap: 6px;
+    height: 32px; max-width: 100%; padding: 0 12px; border-radius: 16px; border: 1px solid var(--divider-color, #ccc);
+    background: transparent; color: var(--primary-text-color); font: inherit; white-space: nowrap; }
+  .presets button.chip ha-icon { --mdc-icon-size: 18px; flex: none; color: var(--primary-color); }
+  .presets button.chip span { overflow: hidden; text-overflow: ellipsis; }
+  .presets button.chip:hover { background: color-mix(in srgb, var(--primary-text-color) 6%, transparent); }
+  .presets button.chip[aria-selected="true"] { background: var(--primary-color); color: var(--text-primary-color, #fff); border-color: transparent; }
+  .presets button.chip[aria-selected="true"] ha-icon { color: var(--text-primary-color, #fff); }
   .listenrow { display: flex; align-items: center; gap: 12px; }
   button.listen { all: unset; box-sizing: border-box; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 0 16px; min-height: 48px; border-radius: 24px;
     background: var(--secondary-background-color, #eee); color: var(--primary-text-color); }
@@ -261,10 +324,10 @@ const STYLE = `
 
 const TALK_TEXT = {
   idle: "Ready",
-  connecting: "Connecting…",
-  waking: "Waking the camera…",
-  live: "Live: speak now",
-  error: "Error",
+  connecting: "Connecting",
+  waking: "Waking the camera",
+  live: "Live. Speak now",
+  error: "Something went wrong",
 };
 
 const PTZ_ICONS = {
@@ -278,16 +341,26 @@ const PTZ_ICONS = {
 const PTZ_LABELS = { up: "Tilt up", down: "Tilt down", left: "Pan left", right: "Pan right", zoom_in: "Zoom in", zoom_out: "Zoom out" };
 
 const HTTPS_NOTE =
-  "Talk needs HTTPS: browsers block the microphone on plain http://. Open Home Assistant over https:// " +
-  "(for example Nabu Casa or your own certificate), also in the companion app. Live view and listening still work.";
+  "Talk needs a secure page. Open Home Assistant with https so the browser can use the microphone. Live view and listening still work.";
 
 const SWIPE_MIN_DX = 50;
 const GRID_WARN_KEY = "advanced_reolink_card.grid_warning_dismissed";
 const GRID_WARN_TEXT =
-  "Streaming every camera at once uses much more network bandwidth, and more CPU for decoding, on both Home Assistant and this device. Prefer the sub or fluent stream for each camera.";
+  "Streaming every camera at once uses more network and more processor time, on Home Assistant and on this device. Prefer a smaller stream for each camera.";
 
 function _esc(value) {
   return String(value).replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+}
+
+function _wizButton(label, opts = {}) {
+  const ha = window.customElements && window.customElements.get("ha-button");
+  const mwc = window.customElements && window.customElements.get("mwc-button");
+  const tag = ha ? "ha-button" : mwc ? "mwc-button" : "button";
+  const type = tag === "button" ? ' type="button"' : "";
+  const cls = opts.primary ? "act primary" : "act";
+  const go = opts.go ? ` data-go="${opts.go}"` : "";
+  const dis = opts.disabled ? " disabled" : "";
+  return `<${tag}${type} class="${cls}"${go}${dis}>${_esc(label)}</${tag}>`;
 }
 
 /* CARD_CONFIG_START */
@@ -470,6 +543,8 @@ class AdvancedReolinkCard extends HTMLElement {
     this._patrolEl = null;
     this._patrolHolding = null;
     this._patrolTesting = false;
+    this._wiz = null;
+    this._patrolCloseTimer = null;
     this._onVisibility = () => {
       if (!document.hidden) return;
       this._abandonPatrol();
@@ -542,6 +617,8 @@ class AdvancedReolinkCard extends HTMLElement {
   }
 
   disconnectedCallback() {
+    this._rowObserver?.disconnect();
+    this._rowObserver = null;
     document.removeEventListener("visibilitychange", this._onVisibility);
     this._stopTalk("card removed");
     this._abandonPatrol();
@@ -670,7 +747,7 @@ class AdvancedReolinkCard extends HTMLElement {
     if (this._info?.name) return this._info.name;
     const cam = this._config.camera_entity && this._hass?.states?.[this._config.camera_entity];
     if (cam) return cam.attributes.friendly_name || this._config.camera_entity;
-    return this._config.channel !== undefined ? `Channel ${this._config.channel}` : "Camera";
+    return this._config.channel !== undefined && this._config.channel !== "" ? `Camera ${this._config.channel}` : "Camera";
   }
 
   _cameraLabel(cam) {
@@ -689,7 +766,7 @@ class AdvancedReolinkCard extends HTMLElement {
     }
     if (cam.entity) return cam.entity;
     if (cam.camera_entity) return cam.camera_entity;
-    if (cam.channel !== undefined && cam.channel !== "") return `Channel ${cam.channel}`;
+    if (cam.channel !== undefined && cam.channel !== "") return `Camera ${cam.channel}`;
     return "Camera";
   }
 
@@ -768,8 +845,8 @@ class AdvancedReolinkCard extends HTMLElement {
         <div class="ptz" hidden>
           <div class="dpad">${dir("up")}${dir("left")}${dir("right")}${dir("down")}</div>
           <div class="zoom" hidden>${dir("zoom_in")}${dir("zoom_out")}</div>
-          <select class="preset" aria-label="PTZ preset" hidden></select>
-          <button type="button" class="patrol-open" hidden>Patrol limits</button>
+          <div class="presets" role="listbox" aria-label="Presets" hidden></div>
+          <button type="button" class="patrol-open" hidden>Set up patrol</button>
         </div>
         <div class="note ptznote" hidden></div>` : ""}
         ${c.listen && !grid ? `
@@ -800,7 +877,7 @@ class AdvancedReolinkCard extends HTMLElement {
     this._overlayEl = $(".video .overlay");
     this._ptzEl = $(".ptz");
     this._zoomEl = $(".zoom");
-    this._presetEl = $("select.preset");
+    this._presetEl = $(".presets");
     this._ptzNoteEl = $(".ptznote");
     this._listenBtn = $("button.listen");
     this._volumeEl = $("input.volume");
@@ -865,6 +942,68 @@ class AdvancedReolinkCard extends HTMLElement {
       el.appendChild(b);
     });
     el.addEventListener("keydown", (ev) => this._onTabListKeydown(ev));
+    this._scrollActiveTab();
+  }
+
+  _scrollActiveTab() {
+    const el = this._tabsEl;
+    const tab = el && el.querySelector('[role="tab"][aria-selected="true"]');
+    if (tab && typeof tab.scrollIntoView === "function") {
+      tab.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }
+    this._nudgeRow(el, tab);
+    this._watchRow(el);
+    this._clipRow(el);
+  }
+
+  _watchRow(scroller) {
+    if (!scroller || scroller.dataset.clipBound) return;
+    scroller.dataset.clipBound = "1";
+    scroller.addEventListener("scroll", () => this._clipRow(scroller), { passive: true });
+    if (typeof ResizeObserver === "undefined") return;
+    if (!this._rowObserver) {
+      this._rowObserver = new ResizeObserver((entries) => {
+        for (const entry of entries) this._clipRow(entry.target);
+      });
+    }
+    this._rowObserver.observe(scroller);
+  }
+
+  _nudgeRow(scroller, prefer) {
+    if (!scroller) return;
+    const view = scroller.getBoundingClientRect();
+    if (view.width <= 0) return;
+    const max = Math.max(0, scroller.scrollWidth - scroller.clientWidth);
+    let left = scroller.scrollLeft;
+    for (const child of scroller.children) {
+      const rect = child.getBoundingClientRect();
+      if (rect.right <= view.left + 1) continue;
+      if (rect.left < view.left - 1 && rect.width < view.width - 8) {
+        const delta = rect.right - view.left;
+        const preferRect = prefer ? prefer.getBoundingClientRect() : null;
+        const fits = !preferRect || (preferRect.left + delta >= view.left - 1 && preferRect.right + delta <= view.right + 1);
+        if (fits) left = Math.min(max, left + delta);
+      }
+      break;
+    }
+    if (Math.abs(left - scroller.scrollLeft) > 1) scroller.scrollLeft = left;
+  }
+
+  _clipRow(scroller) {
+    if (!scroller) return;
+    const view = scroller.getBoundingClientRect();
+    if (view.width <= 0) return;
+    let clipLeft = 0;
+    let clipRight = 0;
+    for (const child of scroller.children) {
+      const rect = child.getBoundingClientRect();
+      if (rect.right <= view.left + 1 || rect.left >= view.right - 1) continue;
+      if (rect.width >= view.width - 8) continue;
+      if (rect.left < view.left - 1) clipLeft = Math.max(clipLeft, rect.right - view.left + 1);
+      if (rect.right > view.right + 1) clipRight = Math.max(clipRight, view.right - rect.left + 1);
+    }
+    scroller.style.setProperty("--clip-left", `${Math.round(clipLeft)}px`);
+    scroller.style.setProperty("--clip-right", `${Math.round(clipRight)}px`);
   }
 
   _onTabListKeydown(ev) {
@@ -907,6 +1046,7 @@ class AdvancedReolinkCard extends HTMLElement {
     this._render();
     if (this._hass) this._fetchInfo();
     if (wasLive && this._config.video) this._startVideo();
+    this._scrollActiveTab();
     if (opts.focusTab) this._focusActiveTab();
   }
 
@@ -972,7 +1112,6 @@ class AdvancedReolinkCard extends HTMLElement {
     }
     if (this._ptzEl) {
       for (const b of this.shadowRoot.querySelectorAll(".ptz button[data-ptz]")) this._bindPtz(b);
-      this._presetEl.addEventListener("change", () => this._selectPreset(this._presetEl.value));
       if (this._patrolBtn) this._patrolBtn.addEventListener("click", () => this._openPatrol());
     }
     if (this._viewBtn) this._viewBtn.addEventListener("click", () => this._toggleView());
@@ -1057,10 +1196,10 @@ class AdvancedReolinkCard extends HTMLElement {
       this._slotEl.hidden = !(on && v.kind === "stream");
       const waking = v.state === "waking";
       this._overlayEl.textContent =
-        v.state === "connecting" ? "Connecting…" :
-        waking ? "Waking the camera…" :
+        v.state === "connecting" ? "Connecting" :
+        waking ? "Waking the camera" :
         v.state === "error" ? v.message || "Live view failed" :
-        v.state === "live" && v.kind === "image" ? "Still image (no live stream available)" : "";
+        v.state === "live" && v.kind === "image" ? "Still image. Live video is not available." : "";
     }
     if (this._ptzEl) {
       const ptz = this._info?.ptz;
@@ -1069,9 +1208,9 @@ class AdvancedReolinkCard extends HTMLElement {
       this._zoomEl.hidden = !(show && ptz.zoom);
       let note = "";
       if (this._info && !show && ptz && ptz.disabled_entities?.length && !ptz.supported) {
-        note = `PTZ entities are disabled in Home Assistant: enable ${ptz.disabled_entities.join(", ")}.`;
+        note = "Pan and tilt are turned off in Home Assistant. Turn them on to move this camera.";
       } else if (show && !ptz.zoom && ptz.disabled_entities?.some((e) => /zoom/.test(e))) {
-        note = "Zoom buttons are disabled in Home Assistant (Reolink integration); enable the PTZ zoom in/out entities to use zoom.";
+        note = "Zoom is turned off in Home Assistant. Turn on zoom to use it.";
       }
       this._ptzNoteEl.textContent = note;
       this._ptzNoteEl.hidden = !note;
@@ -1083,7 +1222,7 @@ class AdvancedReolinkCard extends HTMLElement {
       this._listenBtn.setAttribute("aria-pressed", this._listening ? "true" : "false");
       this._listenBtn.querySelector("ha-icon").setAttribute("icon", this._listening ? "mdi:volume-high" : "mdi:volume-off");
       this._listenBtn.querySelector(".llabel").textContent =
-        l.state === "connecting" ? "Connecting…" : l.state === "waking" ? "Waking the camera…" :
+        l.state === "connecting" ? "Connecting" : l.state === "waking" ? "Waking the camera" :
         this._listening ? (this._ducked && c.duplex !== "full" ? "Muted while talking" : "Listening") : "Listen";
     }
     if (this._button) {
@@ -1094,7 +1233,7 @@ class AdvancedReolinkCard extends HTMLElement {
       this._button.className = `talk ${state === "waking" ? "connecting" : state}`;
       this._button.setAttribute("aria-pressed", this._talkActive() ? "true" : "false");
       const idleLabel = c.mode === "hold" ? "Hold to talk" : "Tap to talk";
-      this._label.textContent = !secure ? "Talk needs HTTPS" :
+      this._label.textContent = !secure ? "Talk needs a secure page" :
         state === "live" ? (c.mode === "hold" ? "Release to stop" : "Tap to stop") :
         state === "connecting" || state === "waking" ? TALK_TEXT[state] : idleLabel;
       if (this._meterEl) this._meterEl.style.width = state === "live" ? `${Math.round(this._level * 100)}%` : "0%";
@@ -1106,10 +1245,10 @@ class AdvancedReolinkCard extends HTMLElement {
       text = this._talkMessage || TALK_TEXT[this._talk];
       kind = this._talk;
     } else if (!text && this._infoError && (c.video || c.ptz || c.listen) && !c.camera_entity) {
-      text = `Camera details unavailable: ${this._infoError}`;
+      text = `Camera details are not available. ${this._infoError}`;
       kind = "error";
     } else if (!text && this._info && !this._cameraEntity() && (c.video || c.listen)) {
-      text = "No Reolink camera entity found for this camera: pick one under 'Camera entity' in the card editor.";
+      text = "No camera found for this speaker. Choose a camera in the card editor.";
       kind = "error";
     } else if (!text && c.talk) {
       text = TALK_TEXT.idle;
@@ -1119,27 +1258,36 @@ class AdvancedReolinkCard extends HTMLElement {
   }
 
   _updatePresets() {
-    const sel = this._presetEl;
-    if (!sel || !this._hass) return;
+    const box = this._presetEl;
+    if (!box || !this._hass) return;
     const ent = this._info?.ptz?.preset_entity;
     const st = ent && this._hass.states?.[ent];
     const options = (st && st.attributes?.options) || [];
-    sel.hidden = !(this._ptzAvailable() && options.length);
-    const sig = JSON.stringify(options);
-    if (sel.dataset.sig !== sig) {
-      sel.dataset.sig = sig;
-      sel.innerHTML = "";
-      const ph = document.createElement("option");
-      ph.value = "";
-      ph.textContent = "Go to preset…";
-      sel.appendChild(ph);
-      for (const opt of options) {
-        const o = document.createElement("option");
-        o.value = opt;
-        o.textContent = opt;
-        sel.appendChild(o);
-      }
+    const show = !!(this._ptzAvailable() && options.length);
+    box.hidden = !show;
+    if (!show) return;
+    const sig = JSON.stringify(options) + "|" + (this._lastPreset || "");
+    if (box.dataset.sig === sig) return;
+    box.dataset.sig = sig;
+    box.replaceChildren();
+    for (const opt of options) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "chip";
+      b.setAttribute("role", "option");
+      const on = opt === this._lastPreset;
+      b.setAttribute("aria-selected", on ? "true" : "false");
+      b.setAttribute("aria-label", opt);
+      const ic = document.createElement("ha-icon");
+      ic.setAttribute("icon", "mdi:map-marker");
+      const span = document.createElement("span");
+      span.textContent = opt;
+      b.append(ic, span);
+      b.addEventListener("click", () => this._selectPreset(opt));
+      box.appendChild(b);
     }
+    this._watchRow(box);
+    this._clipRow(box);
   }
 
   _ptzStart(role, button) {
@@ -1149,7 +1297,7 @@ class AdvancedReolinkCard extends HTMLElement {
     this._ptzActive = { role, button };
     button?.classList.add("active");
     this._hass.callService("button", "press", { entity_id: ent }).catch((err) => {
-      this._setStatus(`PTZ failed: ${(err && err.message) || err}`, "error");
+      this._setStatus((err && err.message) || "Could not move the camera.", "error");
     });
   }
 
@@ -1161,7 +1309,7 @@ class AdvancedReolinkCard extends HTMLElement {
     const stop = this._info?.ptz?.entities?.stop;
     if (stop && this._hass) {
       this._hass.callService("button", "press", { entity_id: stop }).catch((err) => {
-        this._setStatus(`PTZ stop failed: ${(err && err.message) || err}`, "error");
+        this._setStatus((err && err.message) || "Could not stop the camera.", "error");
       });
     }
   }
@@ -1169,11 +1317,17 @@ class AdvancedReolinkCard extends HTMLElement {
   _selectPreset(option) {
     const ent = this._info?.ptz?.preset_entity;
     if (!option || !ent || !this._hass) return;
+    this._lastPreset = option;
+    if (this._presetEl) delete this._presetEl.dataset.sig;
+    this._updatePresets();
+    const chip = this._presetEl && this._presetEl.querySelector('[aria-selected="true"]');
+    if (chip && typeof chip.scrollIntoView === "function") chip.scrollIntoView({ block: "nearest", inline: "nearest" });
+    this._nudgeRow(this._presetEl, chip);
+    this._clipRow(this._presetEl);
     this._hass
       .callService("select", "select_option", { entity_id: ent, option })
-      .then(() => this._setStatus(`Moving to preset ${option}`, ""))
-      .catch((err) => this._setStatus(`Preset failed: ${(err && err.message) || err}`, "error"));
-    this._presetEl.value = "";
+      .then(() => this._setStatus(`Moving to ${option}.`, ""))
+      .catch((err) => this._setStatus((err && err.message) || "Could not move to that preset.", "error"));
   }
 
   /* Must run synchronously in the tap, before any await, or autoplay blocks audio. */
@@ -1359,7 +1513,7 @@ class AdvancedReolinkCard extends HTMLElement {
     if (!entity) {
       if (this._infoPromise && this._info === undefined) await this._infoPromise;
       if (!this._cameraEntity()) {
-        this._video = { state: "error", kind: null, message: "No Reolink camera entity found" };
+        this._video = { state: "error", kind: null, message: "No camera found for live view." };
         this._update();
         return;
       }
@@ -1410,7 +1564,7 @@ class AdvancedReolinkCard extends HTMLElement {
       const st = this._hass?.states?.[entity];
       const pic = st?.attributes?.entity_picture;
       if (!pic) {
-        this._video = { state: "error", kind: "image", message: "No image available for this camera" };
+        this._video = { state: "error", kind: "image", message: "No image for this camera." };
         this._update();
         return;
       }
@@ -1450,7 +1604,7 @@ class AdvancedReolinkCard extends HTMLElement {
     const cam = this._cameraEntity();
     if (!cam) {
       this._listen = { state: "error", message: "" };
-      this._setStatus("No Reolink camera entity found for listening", "error");
+      this._setStatus("No camera found for listening.", "error");
       return;
     }
     this._listening = true;
@@ -1469,7 +1623,7 @@ class AdvancedReolinkCard extends HTMLElement {
     if (!types.includes("web_rtc") || typeof RTCPeerConnection === "undefined") {
       this._listening = false;
       this._listen = { state: "error", message: "" };
-      this._setStatus("Listening needs Home Assistant's WebRTC (go2rtc) for this camera", "error");
+      this._setStatus("Listening needs a live stream from Home Assistant.", "error");
       return;
     }
     // When live view runs over HLS/still image, listening uses its own audio-only session.
@@ -1510,7 +1664,7 @@ class AdvancedReolinkCard extends HTMLElement {
   async _startTalk() {
     if (this._talkActive() || !this._hass) return;
     if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
-      this._setTalk("error", "The microphone needs a secure connection: open Home Assistant over HTTPS or use the Home Assistant app with an https:// URL.");
+      this._setTalk("error", "Talk needs a secure page. Open this page with https, or use the Home Assistant app.");
       return;
     }
     if (this._config.talk_auto_listen && this._config.listen && !this._listening) {
@@ -1528,8 +1682,8 @@ class AdvancedReolinkCard extends HTMLElement {
       this._setTalk(
         "error",
         denied
-          ? "Microphone permission was denied. Allow microphone access for this site (or the app) and try again."
-          : `No microphone available (${err && err.name ? err.name : err}).`
+          ? "Allow the microphone for this site, then try again."
+          : "No microphone found."
       );
       this._releaseMic();
       return;
@@ -1538,7 +1692,7 @@ class AdvancedReolinkCard extends HTMLElement {
     try {
       await this._startCapture();
     } catch (err) {
-      this._setTalk("error", `Could not start audio capture: ${err && err.message ? err.message : err}`);
+      this._setTalk("error", "Could not start the microphone.");
       this._releaseMic();
       return;
     }
@@ -1631,16 +1785,16 @@ class AdvancedReolinkCard extends HTMLElement {
         break;
       case "live":
         this._handlerId = ev.binary_handler_id;
-        this._setTalk("live", ev.woke_camera ? "Live (camera woken up): speak now" : "");
+        this._setTalk("live", ev.woke_camera ? "The camera woke up. Speak now." : "");
         break;
       case "ended":
         this._cleanupTalk();
-        this._setTalk("idle", ev.reason === "idle" ? "Stopped: no audio received" :
-          ev.reason === "max_duration" ? "Stopped: maximum talk time reached" : "");
+        this._setTalk("idle", ev.reason === "idle" ? "Stopped. No audio arrived." :
+          ev.reason === "max_duration" ? "Stopped. Talk time is up." : "");
         break;
       case "error":
         this._cleanupTalk();
-        this._setTalk("error", ev.message || ev.code || "Live talk failed");
+        this._setTalk("error", ev.message || "Talk failed.");
         break;
       default:
         break;
@@ -1887,7 +2041,7 @@ class AdvancedReolinkCard extends HTMLElement {
           session.videoEl.play?.().catch(() => {});
         }
         this._armGridTimeout(session);
-        this._paintGridTile(session, session.state === "live" ? "" : "Connecting…");
+        this._paintGridTile(session, session.state === "live" ? "" : "Connecting.");
         leftover = null;
         return;
       }
@@ -1977,18 +2131,18 @@ class AdvancedReolinkCard extends HTMLElement {
       const key = cam ? this._targetKey(cam) : "";
       if (cam && this._infoCache[key] === undefined && this._hass) {
         session.state = "wait";
-        this._paintGridTile(session, "Loading camera…");
+        this._paintGridTile(session, "Loading the camera.");
         this._fetchInfoFor(cam, true);
         this._syncGridStart();
         return;
       }
       session.state = "error";
-      this._paintGridTile(session, (cam && this._infoErrorCache[key]) || "No camera entity");
+      this._paintGridTile(session, (cam && this._infoErrorCache[key]) || "No camera found.");
       this._syncGridStart();
       return;
     }
     session.state = "connecting";
-    this._paintGridTile(session, "Connecting…");
+    this._paintGridTile(session, "Connecting.");
     this._syncGridStart();
     const types = this._tileSnapshotOnly(cam, entity) ? [] : await this._capabilities(entity);
     if (session.dead || this._gridSessions?.get(session.index) !== session) return;
@@ -2037,7 +2191,7 @@ class AdvancedReolinkCard extends HTMLElement {
       const pic = st?.attributes?.entity_picture;
       if (!pic || !session.stillEl) {
         session.state = "error";
-        this._paintGridTile(session, "No image available for this camera");
+        this._paintGridTile(session, "No image for this camera.");
         this._syncGridStart();
         return;
       }
@@ -2073,22 +2227,56 @@ class AdvancedReolinkCard extends HTMLElement {
     return 32;
   }
 
-  _hasTilt() {
-    const ptz = this._info?.ptz;
-    if (!ptz) return false;
-    if (ptz.tilt === true) return true;
-    return !!(ptz.entities?.up && ptz.entities?.down);
+  _canTilt() {
+    return this._info?.ptz?.tilt === true;
   }
 
-  _clampPatrol(n) {
+  _clampPatrol(n, min = 0) {
     const x = Math.round(Number(n) * 10) / 10;
-    if (!Number.isFinite(x) || x < 0) return 0;
+    if (!Number.isFinite(x) || x < min) return min;
     if (x > 300) return 300;
     return x;
   }
 
-  _fmtPatrol(n) {
-    return this._clampPatrol(n).toFixed(1);
+  _fmtSeconds(n) {
+    const x = Math.round(Number(n) * 10) / 10;
+    if (!Number.isFinite(x)) return "0";
+    return Number.isInteger(x) ? String(x) : x.toFixed(1);
+  }
+
+  _spanLabel(n) {
+    const text = this._fmtSeconds(n);
+    return `Span ${text} ${text === "1" ? "second" : "seconds"}`;
+  }
+
+  _passSeconds() {
+    const span = Number(this._wiz?.span) || 0;
+    if (span <= 0) return 0;
+    const measured = this._wiz.measureSpeed || this._wiz.speed || 32;
+    const speed = this._wiz.speed || measured;
+    return this._clampPatrol(span * (measured / speed), 0.1);
+  }
+
+  _passLabel() {
+    const text = this._fmtSeconds(this._passSeconds());
+    return `About ${text} ${text === "1" ? "second" : "seconds"} per pass`;
+  }
+
+  _wizMeta() {
+    return [
+      { short: "Left", title: "Left limit", hint: "Aim the camera at the left edge, then set the left limit as the home position." },
+      { short: "Right", title: "Right limit", hint: "Hold right to the right edge. Hold left if you go too far." },
+      { short: "Speed", title: "Sweep speed", hint: "Choose how fast each pass moves." },
+      { short: "Test", title: "Test sweep", hint: "Run one pass from the left limit to the right limit and back." },
+      { short: "Save", title: "Save", hint: "Save this patrol for this camera." },
+    ];
+  }
+
+  _stepReady() {
+    if (!this._wiz) return false;
+    if (this._wiz.step === 0) return !!this._wiz.leftSet;
+    if (this._wiz.step === 1) return !!(this._wiz.rightSet && this._wiz.span > 0);
+    return true;
   }
 
   _nowMs() {
@@ -2102,71 +2290,113 @@ class AdvancedReolinkCard extends HTMLElement {
     if (result && typeof result.then === "function") await result;
   }
 
+  _alignSpan() {
+    if (!this._wiz) return;
+    const speed = this._wiz.speed || 32;
+    const prev = this._wiz.measureSpeed || speed;
+    if (prev !== speed && this._wiz.span) {
+      this._wiz.span = this._clampPatrol(this._wiz.span * (prev / speed));
+    }
+    this._wiz.measureSpeed = speed;
+  }
+
+  _liveSpan() {
+    let span = this._wiz?.span || 0;
+    const hold = this._patrolHolding;
+    if (hold && this._wiz?.step === 1 && (hold.direction === "left" || hold.direction === "right")) {
+      const sign = hold.direction === "right" ? 1 : -1;
+      span += sign * ((this._nowMs() - hold.t0) / 1000);
+    }
+    return this._clampPatrol(span);
+  }
+
   _openPatrol() {
     if (!this._patrolSetupAvailable() || this._patrolEl) return;
     this._stopTalk("patrol");
     if (this._listening) this._stopListen("patrol");
     this._ptzStop();
     const saved = this._info.patrol || {};
-    this._patrolStep = "intro";
-    this._leftAcc = 0;
-    this._rightAcc = 0;
-    this._tiltLevels = Number(saved.tilt_levels) || 1;
-    this._tiltStep = Number.isFinite(Number(saved.tilt_step)) ? Number(saved.tilt_step) : 2;
-    this._tiltSkipped = false;
-    this._tiltVisited = false;
-    this._guardConfigured = this._info.guard_configured;
-    this._patrolMsg = "";
-    this._patrolTesting = false;
-    this._patrolStartedMain = false;
-    const root = this.shadowRoot.querySelector("ha-card") || this.shadowRoot;
-    const el = document.createElement("div");
+    const speed = this._patrolSpeed();
+    let tiltLevels = Math.round(Number(saved.tilt_levels));
+    if (!Number.isFinite(tiltLevels)) tiltLevels = 1;
+    tiltLevels = Math.min(10, Math.max(1, tiltLevels));
+    let tiltStep = Number(saved.tilt_step);
+    if (!Number.isFinite(tiltStep) || tiltStep < 0) tiltStep = 2;
+    tiltStep = Math.min(60, tiltStep);
+    const useDialog = !!(window.customElements && window.customElements.get("ha-dialog"));
+    const el = document.createElement(useDialog ? "ha-dialog" : "div");
     el.className = "patrol-dialog";
     el.setAttribute("role", "dialog");
     el.setAttribute("aria-modal", "true");
     el.setAttribute("aria-labelledby", "patrol-title");
+    el.setAttribute("open", "");
+    el.open = true;
     el.tabIndex = -1;
     el.innerHTML = `
-      <div class="prow">
-        <h3 id="patrol-title">Patrol limits</h3>
-        <button type="button" class="act patrol-x" style="margin-left:auto">Close</button>
-      </div>
+      <ol class="psteps" aria-label="Patrol setup"></ol>
+      <h2 id="patrol-title"></h2>
+      <p class="phint"></p>
       <div class="pmedia">
         <video class="pvideo" muted playsinline autoplay></video>
         <div class="pslot" hidden></div>
       </div>
       <div class="pbody"></div>
-      <div class="note pmsg" hidden></div>`;
+      <p class="presult" aria-live="polite"></p>
+      <div class="pfoot"></div>`;
+    const root = this.shadowRoot.querySelector("ha-card") || this.shadowRoot;
     root.appendChild(el);
     this._patrolEl = el;
-    el.querySelector(".patrol-x").addEventListener("click", () => this._closePatrol());
+    this._patrolTesting = false;
+    this._patrolStartedMain = false;
+    this._wiz = {
+      step: 0,
+      leftSet: false,
+      rightSet: false,
+      span: 0,
+      measureSpeed: speed,
+      speed,
+      tiltOn: this._canTilt() && tiltLevels > 1,
+      tiltLevels: tiltLevels > 1 ? tiltLevels : 2,
+      tiltStep,
+      testing: false,
+      busy: false,
+      msg: "",
+      saved: false,
+    };
     el.addEventListener("keydown", (ev) => {
       if (ev.key !== "Escape") return;
       ev.preventDefault();
       this._closePatrol();
     });
+    el.addEventListener("closed", () => {
+      if (this._patrolEl) this._closePatrol();
+    });
     this._paintPatrol();
     el.focus();
     this._ensurePatrolVideo();
-    this._refreshPatrolStatus();
   }
 
   _closePatrol() {
+    const saved = !!(this._wiz && this._wiz.saved);
     this._abandonPatrol();
-    if (this._statusEl) this._update();
+    if (saved) this._setStatus("Patrol saved.", "");
+    else if (this._statusEl) this._update();
   }
 
   _abandonPatrol() {
-    const open = !!(this._patrolEl || this._patrolHolding || this._patrolTesting || this._patrolPipe);
+    clearTimeout(this._patrolCloseTimer);
+    this._patrolCloseTimer = null;
+    const open = !!(this._patrolEl || this._patrolHolding || this._patrolTesting || this._patrolPipe || this._wiz);
     if (!open) return;
     const info = this._info;
-    const testing = this._patrolTesting;
+    const testing = this._patrolTesting || !!(this._wiz && this._wiz.testing);
     const started = this._patrolStartedMain;
     this._patrolTesting = false;
     this._patrolStartedMain = false;
     this._patrolHolding = null;
     clearInterval(this._patrolTick);
     this._patrolTick = null;
+    this._wiz = null;
     const el = this._patrolEl;
     this._patrolEl = null;
     if (el) el.remove();
@@ -2248,7 +2478,8 @@ class AdvancedReolinkCard extends HTMLElement {
           v.play?.().catch(() => {});
         },
         onError: (message) => {
-          this._patrolMsg = message;
+          if (!this._wiz) return;
+          this._wiz.msg = message;
           this._paintPatrol();
         },
       });
@@ -2256,7 +2487,8 @@ class AdvancedReolinkCard extends HTMLElement {
       try {
         await pipe.start();
       } catch (err) {
-        this._patrolMsg = (err && err.message) || String(err);
+        if (!this._wiz) return;
+        this._wiz.msg = (err && err.message) || "Live view failed.";
         this._paintPatrol();
       }
       return;
@@ -2273,144 +2505,154 @@ class AdvancedReolinkCard extends HTMLElement {
     }
   }
 
-  async _refreshPatrolStatus() {
-    const info = this._info;
-    if (!info || info.channel == null || !this._hass || !this._patrolEl) return;
-    try {
-      const res = await this._hass.callWS({
-        type: WS_PTZ_STATUS,
-        channel: info.channel,
-        config_entry_id: info.config_entry_id,
-      });
-      if (!this._patrolEl) return;
-      this._guardConfigured = !!res.guard_configured;
-      if (res.patrol) info.patrol = res.patrol;
-      if (this._guardConfigured === false) {
-        this._patrolMsg = "No guard position is stored yet. Set one in the Reolink app, then press Go to guard position.";
-      }
-    } catch (err) {
-      if (!this._patrolEl) return;
-      this._patrolMsg = (err && err.message) || String(err);
+  _padHtml() {
+    const tilt = this._canTilt();
+    const btn = (dir, label) =>
+      `<button type="button" data-dir="${dir}" aria-label="${_esc(label)}"><ha-icon icon="${PTZ_ICONS[dir]}"></ha-icon></button>`;
+    const cells = [
+      tilt ? btn("up", "Tilt up") : "",
+      btn("left", "Pan left"),
+      btn("right", "Pan right"),
+      tilt ? btn("down", "Tilt down") : "",
+    ].join("");
+    const zoom = this._info?.ptz?.zoom
+      ? `<div class="zoom">${btn("zoom_in", "Zoom in")}${btn("zoom_out", "Zoom out")}</div>`
+      : "";
+    return `<div class="padrow"><div class="dpad">${cells}</div>${zoom}</div>`;
+  }
+
+  _sliderHtml() {
+    const value = this._wiz.speed;
+    if (window.customElements?.get("ha-slider")) {
+      return `<ha-slider class="speed" min="1" max="64" step="1" value="${value}" aria-label="Sweep speed"></ha-slider>`;
     }
-    this._paintPatrol();
+    return `<input class="speed" type="range" min="1" max="64" step="1" value="${value}" aria-label="Sweep speed">`;
   }
 
   _paintPatrol() {
     const el = this._patrolEl;
-    if (!el || this._patrolHolding) return;
-    const speed = this._patrolSpeed();
-    const saved = this._info?.patrol || {};
+    if (!el || !this._wiz || this._patrolHolding) return;
+    const wiz = this._wiz;
+    const meta = this._wizMeta();
+    const step = meta[wiz.step];
+    const steps = el.querySelector(".psteps");
+    steps.replaceChildren();
+    meta.forEach((item, i) => {
+      const li = document.createElement("li");
+      const done = i < wiz.step || (wiz.saved && i <= wiz.step);
+      const on = i === wiz.step && !wiz.saved;
+      li.className = `pstep${on ? " on" : ""}${done ? " done" : ""}`;
+      if (on) li.setAttribute("aria-current", "step");
+      const n = document.createElement("span");
+      n.className = "n";
+      if (done) {
+        const ic = document.createElement("ha-icon");
+        ic.setAttribute("icon", "mdi:check");
+        n.appendChild(ic);
+      } else {
+        n.textContent = String(i + 1);
+      }
+      const label = document.createElement("span");
+      label.className = "l";
+      label.textContent = item.short;
+      li.append(n, label);
+      steps.appendChild(li);
+    });
+    el.querySelector("#patrol-title").textContent = wiz.saved ? "Patrol saved" : step.title;
+    el.querySelector(".phint").textContent = wiz.saved ? "Patrol saved." : step.hint;
+    const media = el.querySelector(".pmedia");
+    if (media) media.hidden = wiz.step > 1;
     let body = "";
-    if (this._patrolStep === "intro") {
-      body = `
-        <p>The sweep arc is a time, not a saved angle. From the guard (home) position the camera pans left for the left time and right for the right time, at pan speed ${speed}. That is the speed this patrol will use. The PTZ pad on the card uses the camera button speed and is not part of this measurement.</p>
-        <p>${this._guardConfigured === false
-          ? "This camera has no guard position yet. Set one in the Reolink app first."
-          : "Set the guard position in the Reolink app if you have not already, then come back here."}</p>
-        <p>Saved limits: left ${this._fmtPatrol(saved.left_time || 0)} s, right ${this._fmtPatrol(saved.right_time || 0)} s. A new measurement starts from zero.</p>
-        <div class="prow">
-          <button type="button" class="act primary" data-go="guard">Go to guard position</button>
-          <button type="button" class="act" data-go="left">Next: left limit</button>
-        </div>`;
-    } else if (this._patrolStep === "left" || this._patrolStep === "right") {
-      const side = this._patrolStep;
-      const acc = side === "left" ? this._leftAcc : this._rightAcc;
-      body = `
-        <p>From the guard position, press and hold Pan ${side} until the picture reaches the ${side} edge you want. Release to stop. Hold again to add more time. This pan uses patrol speed ${speed}.</p>
-        <div class="prow">
-          <button type="button" class="act primary" data-hold="${side}">Pan ${side}</button>
-          <span class="ptime">${this._fmtPatrol(acc)} s</span>
-        </div>
-        <div class="prow">
-          <button type="button" class="act" data-nudge="-0.5">-0.5 s</button>
-          <button type="button" class="act" data-nudge="0.5">+0.5 s</button>
-          <button type="button" class="act" data-go="redo">Redo</button>
-        </div>
-        <div class="prow">
-          <button type="button" class="act" data-go="${side === "left" ? "intro" : "left"}">Back</button>
-          <button type="button" class="act primary" data-go="set-${side}">Set ${side} limit</button>
-        </div>`;
-    } else if (this._patrolStep === "tilt") {
-      body = `
-        <p>Optional. Tilt levels is how many rows the sweep uses (1 keeps the current tilt). Tilt step is seconds of downward tilt between rows, at patrol speed ${speed}. Nudge the camera to look, or skip.</p>
-        <div class="pfields">
-          <label>Tilt levels<input class="tl" type="number" min="1" max="10" step="1" value="${this._tiltLevels}"></label>
-          <label>Tilt step (s)<input class="ts" type="number" min="0" max="60" step="0.5" value="${this._tiltStep}"></label>
-        </div>
-        <div class="prow">
-          <button type="button" class="act" data-hold="up">Tilt up</button>
-          <button type="button" class="act" data-hold="down">Tilt down</button>
-        </div>
-        <div class="prow">
-          <button type="button" class="act" data-go="right">Back</button>
-          <button type="button" class="act" data-go="skip-tilt">Skip</button>
-          <button type="button" class="act primary" data-go="review">Next</button>
-        </div>`;
-    } else {
-      const left = this._clampPatrol(this._leftAcc);
-      const right = this._clampPatrol(this._rightAcc);
-      const bad = !(left > 0 && right > 0);
-      const tilt = this._hasTilt() && this._tiltVisited && !this._tiltSkipped
-        ? ` Tilt levels ${this._tiltLevels}, tilt step ${this._tiltStep} s.`
+    if (wiz.step === 0) {
+      body = `${this._padHtml()}<div class="pactions">${_wizButton("Set left limit", { primary: true, go: "set-left", disabled: wiz.busy })}</div>`;
+    } else if (wiz.step === 1) {
+      const tilt = this._canTilt()
+        ? `<label class="check"><input class="tilt-on" type="checkbox"${wiz.tiltOn ? " checked" : ""}> Add a tilt pass</label>${wiz.tiltOn
+          ? `<div class="tiltbox"><label>Tilt rows<input class="tl" type="number" min="1" max="10" step="1" value="${wiz.tiltLevels}"></label><label>Tilt step<input class="ts" type="number" min="0" max="60" step="0.5" value="${wiz.tiltStep}"></label></div>`
+          : ""}`
         : "";
-      body = `
-        <p>Left ${this._fmtPatrol(left)} s, right ${this._fmtPatrol(right)} s, speed ${speed}.${tilt}</p>
-        <p>${bad
-          ? "Set both a left time and a right time above 0 before saving. Both 0 would sweep the whole pan range."
-          : "Test sweep runs one pass with these times, then returns to the guard position."}</p>
-        <div class="prow">
-          <button type="button" class="act" data-go="back-review">Back</button>
-          <button type="button" class="act" data-go="test"${bad ? " disabled" : ""}>Test sweep</button>
-          <button type="button" class="act" data-go="stop-sweep"${this._patrolTesting ? "" : " disabled"}>Stop</button>
-        </div>
-        <div class="prow">
-          <button type="button" class="act" data-go="cancel">Cancel</button>
-          <button type="button" class="act primary" data-go="save"${bad ? " disabled" : ""}>Save</button>
-        </div>`;
+      body = `${this._padHtml()}<p class="pspan">${_esc(this._spanLabel(wiz.span))}</p><div class="pactions">${_wizButton("Set right limit", { primary: true, go: "set-right", disabled: !(wiz.span > 0) || wiz.busy })}</div>${tilt}`;
+    } else if (wiz.step === 2) {
+      body = `<div class="speedrow"><span>Slow</span>${this._sliderHtml()}<span>Fast</span></div><p class="pread">${_esc(this._passLabel())}</p>`;
+    } else if (wiz.step === 3) {
+      body = `<div class="pactions">${_wizButton("Start test sweep", { primary: true, go: "test", disabled: wiz.testing })}${_wizButton("Stop", { go: "stop", disabled: !wiz.testing })}</div>`;
+    } else {
+      const secs = this._fmtSeconds(this._passSeconds());
+      const unit = secs === "1" ? "second" : "seconds";
+      const tilt = this._canTilt() && wiz.tiltOn ? "On" : "Off";
+      body = `<ul class="psum"><li>Left limit: Home position</li><li>Right limit: About ${secs} ${unit}</li><li>Sweep speed: ${wiz.speed}</li><li>Tilt pass: ${tilt}</li></ul>${wiz.saved ? "" : `<div class="pactions">${_wizButton("Save", { primary: true, go: "save", disabled: wiz.busy })}</div>`}`;
     }
     const bodyEl = el.querySelector(".pbody");
     bodyEl.innerHTML = body;
-    const msgEl = el.querySelector(".pmsg");
-    if (msgEl) {
-      msgEl.hidden = !this._patrolMsg;
-      msgEl.textContent = this._patrolMsg || "";
+    const result = el.querySelector(".presult");
+    if (result) result.textContent = wiz.msg || "";
+    const foot = el.querySelector(".pfoot");
+    if (wiz.saved) {
+      foot.innerHTML = "";
+    } else {
+      const next = wiz.step < 4 ? _wizButton("Next", { primary: true, go: "next", disabled: !this._stepReady() }) : "";
+      foot.innerHTML = `${_wizButton("Back", { go: "back", disabled: wiz.step === 0 })}${next}${_wizButton("Cancel", { go: "cancel" })}`;
+      this._bindGo(foot);
     }
-    bodyEl.querySelectorAll("[data-hold]").forEach((button) => this._bindPatrolHold(button, button.dataset.hold));
-    bodyEl.querySelectorAll("[data-nudge]").forEach((button) => {
-      button.addEventListener("click", () => {
-        const delta = Number(button.dataset.nudge);
-        if (this._patrolStep === "left") this._leftAcc = this._clampPatrol(this._leftAcc + delta);
-        else this._rightAcc = this._clampPatrol(this._rightAcc + delta);
+    this._bindGo(bodyEl);
+    bodyEl.querySelectorAll("[data-dir]").forEach((button) => this._bindWizHold(button, button.dataset.dir));
+    const slider = bodyEl.querySelector(".speed");
+    if (slider) {
+      const onSpeed = () => {
+        if (!this._wiz) return;
+        const raw = slider.value != null && slider.value !== "" ? slider.value : slider.getAttribute("value");
+        const n = Math.round(Number(raw));
+        if (Number.isFinite(n)) this._wiz.speed = Math.min(64, Math.max(1, n));
+        const line = this._patrolEl?.querySelector(".pread");
+        if (line) line.textContent = this._passLabel();
+      };
+      slider.addEventListener("input", onSpeed);
+      slider.addEventListener("change", onSpeed);
+    }
+    const tiltBox = bodyEl.querySelector(".tilt-on");
+    if (tiltBox) {
+      tiltBox.addEventListener("change", () => {
+        if (!this._wiz) return;
+        this._wiz.tiltOn = !!tiltBox.checked;
+        if (this._wiz.tiltOn && this._wiz.tiltLevels < 2) this._wiz.tiltLevels = 2;
         this._paintPatrol();
       });
-    });
-    bodyEl.querySelectorAll("[data-go]").forEach((button) => {
-      button.addEventListener("click", () => this._patrolGo(button.dataset.go));
-    });
+    }
     const levels = bodyEl.querySelector(".tl");
-    const step = bodyEl.querySelector(".ts");
+    const tiltStep = bodyEl.querySelector(".ts");
     if (levels) {
       levels.addEventListener("change", () => {
         const n = Math.round(Number(levels.value));
-        this._tiltLevels = Math.min(10, Math.max(1, Number.isFinite(n) ? n : 1));
+        this._wiz.tiltLevels = Math.min(10, Math.max(1, Number.isFinite(n) ? n : 1));
+        levels.value = String(this._wiz.tiltLevels);
       });
     }
-    if (step) {
-      step.addEventListener("change", () => {
-        const n = Number(step.value);
-        this._tiltStep = Math.min(60, Math.max(0, Number.isFinite(n) ? n : 0));
+    if (tiltStep) {
+      tiltStep.addEventListener("change", () => {
+        const n = Number(tiltStep.value);
+        this._wiz.tiltStep = Math.min(60, Math.max(0, Number.isFinite(n) ? n : 0));
+        tiltStep.value = String(this._wiz.tiltStep);
       });
     }
   }
 
-  _bindPatrolHold(button, direction) {
+  _bindGo(root) {
+    root.querySelectorAll("[data-go]").forEach((button) => {
+      button.addEventListener("click", () => {
+        if (button.hasAttribute("disabled") || button.disabled) return;
+        this._wizGo(button.dataset.go);
+      });
+    });
+  }
+
+  _bindWizHold(button, direction) {
     const start = (ev) => {
       if (ev.button !== undefined && ev.button !== 0) return;
       ev.preventDefault();
       button.setPointerCapture?.(ev.pointerId);
-      this._patrolPan(direction, button);
+      this._wizPan(direction, button);
     };
-    const stop = () => this._patrolPanStop();
+    const stop = () => this._wizPanStop();
     button.addEventListener("pointerdown", start);
     button.addEventListener("pointerup", stop);
     button.addEventListener("pointercancel", stop);
@@ -2419,7 +2661,7 @@ class AdvancedReolinkCard extends HTMLElement {
     button.addEventListener("keydown", (ev) => {
       if ((ev.key !== " " && ev.key !== "Enter") || ev.repeat) return;
       ev.preventDefault();
-      this._patrolPan(direction, button);
+      this._wizPan(direction, button);
     });
     button.addEventListener("keyup", (ev) => {
       if (ev.key !== " " && ev.key !== "Enter") return;
@@ -2429,41 +2671,42 @@ class AdvancedReolinkCard extends HTMLElement {
     button.addEventListener("blur", stop);
   }
 
-  _paintMeasure() {
-    const hold = this._patrolHolding;
-    const el = this._patrolEl?.querySelector(".ptime");
-    if (!hold || !el) return;
-    if (hold.direction !== "left" && hold.direction !== "right") return;
-    const base = hold.direction === "left" ? this._leftAcc : this._rightAcc;
-    el.textContent = `${this._fmtPatrol(base + (this._nowMs() - hold.t0) / 1000)} s`;
+  _paintSpan() {
+    const el = this._patrolEl?.querySelector(".pspan");
+    if (el && this._wiz) el.textContent = this._spanLabel(this._liveSpan());
   }
 
-  async _patrolPan(direction, button) {
-    if (!this._patrolEl || !this._info || this._patrolHolding) return;
-    if (this._patrolTesting) {
-      this._patrolMsg = "Stop the test sweep before panning.";
+  async _wizPan(direction, button) {
+    if (!this._patrolEl || !this._info || !this._wiz || this._patrolHolding) return;
+    if (this._wiz.testing) {
+      this._wiz.msg = "Stop the test sweep before you move the camera.";
       this._paintPatrol();
       return;
+    }
+    if (this._wiz.step === 0) this._wiz.leftSet = false;
+    if (this._wiz.step === 1 && (direction === "left" || direction === "right")) {
+      this._alignSpan();
+      this._wiz.rightSet = false;
     }
     this._patrolHolding = { direction, button, t0: this._nowMs() };
     button?.classList.add("active");
     clearInterval(this._patrolTick);
-    this._patrolTick = setInterval(() => this._paintMeasure(), 100);
+    this._patrolTick = setInterval(() => this._paintSpan(), 100);
     try {
       await this._hass.callWS({
         type: WS_PTZ_MOVE,
         channel: this._info.channel,
         config_entry_id: this._info.config_entry_id,
         direction,
-        speed: this._patrolSpeed(),
+        speed: this._wiz.speed,
       });
     } catch (err) {
-      this._patrolMsg = `Could not move at patrol speed ${this._patrolSpeed()}: ${(err && err.message) || err}`;
-      await this._patrolPanStop();
+      if (this._wiz) this._wiz.msg = (err && err.message) || "Could not move the camera.";
+      await this._wizPanStop();
     }
   }
 
-  async _patrolPanStop() {
+  async _wizPanStop() {
     const hold = this._patrolHolding;
     if (!hold) return;
     this._patrolHolding = null;
@@ -2471,8 +2714,10 @@ class AdvancedReolinkCard extends HTMLElement {
     this._patrolTick = null;
     hold.button?.classList.remove("active");
     const dt = (this._nowMs() - hold.t0) / 1000;
-    if (hold.direction === "left") this._leftAcc = this._clampPatrol(this._leftAcc + dt);
-    else if (hold.direction === "right") this._rightAcc = this._clampPatrol(this._rightAcc + dt);
+    if (this._wiz && this._wiz.step === 1 && (hold.direction === "left" || hold.direction === "right")) {
+      const sign = hold.direction === "right" ? 1 : -1;
+      this._wiz.span = this._clampPatrol((this._wiz.span || 0) + sign * dt);
+    }
     if (this._info && this._hass) {
       try {
         await this._hass.callWS({
@@ -2481,178 +2726,172 @@ class AdvancedReolinkCard extends HTMLElement {
           config_entry_id: this._info.config_entry_id,
         });
       } catch (err) {
-        this._patrolMsg = `Stop failed: ${(err && err.message) || err}`;
+        if (this._wiz) this._wiz.msg = (err && err.message) || "Could not stop the camera.";
       }
     }
+    if (this._patrolEl) this._paintPatrol();
+  }
+
+  async _wizGo(action) {
+    if (this._patrolHolding) await this._wizPanStop();
+    if (!this._wiz || this._wiz.saved) return;
+    if (action === "cancel") return this._closePatrol();
+    if (action === "set-left") return this._setLeftLimit();
+    if (action === "set-right") return this._setRightLimit();
+    if (action === "test") return this._startTest();
+    if (action === "stop") return this._stopTest();
+    if (action === "save") return this._savePatrol();
+    if (action !== "back" && action !== "next") return;
+    if (this._wiz.testing) await this._stopTest();
+    if (!this._wiz) return;
+    if (action === "back") {
+      if (this._wiz.step > 0) this._wiz.step -= 1;
+    } else if (this._stepReady() && this._wiz.step < 4) {
+      this._wiz.step += 1;
+    } else {
+      return;
+    }
+    this._wiz.msg = "";
     this._paintPatrol();
   }
 
-  async _patrolGotoGuard() {
-    if (!this._info || !this._hass) return;
-    this._patrolMsg = "Going to the guard position…";
+  async _setLeftLimit() {
+    if (!this._wiz || this._wiz.busy || !this._info || !this._hass) return;
+    this._wiz.busy = true;
+    this._wiz.msg = "Setting the left limit.";
     this._paintPatrol();
     try {
       const res = await this._hass.callWS({
-        type: WS_PTZ_GUARD,
+        type: WS_PTZ_SET_GUARD,
         channel: this._info.channel,
         config_entry_id: this._info.config_entry_id,
       });
+      if (!this._wiz) return;
       if (res && res.guard_configured === false) {
-        this._guardConfigured = false;
-        this._patrolMsg = "No guard position is stored on this camera. Set the guard position in the Reolink app, then try again.";
+        this._wiz.leftSet = false;
+        this._wiz.msg = "Could not set the left limit.";
       } else {
-        this._guardConfigured = true;
-        this._patrolMsg = "Asked the camera to return to the guard position.";
+        this._wiz.leftSet = true;
+        this._info.guard_configured = true;
+        this._wiz.msg = "Left limit set.";
       }
     } catch (err) {
-      if (this._info.guard_entity) {
-        try {
-          await this._hass.callService("button", "press", { entity_id: this._info.guard_entity });
-          this._patrolMsg = "Sent the Home Assistant guard button. If the camera did not move, set the guard position in the Reolink app.";
-          this._paintPatrol();
-          return;
-        } catch (_err) {
-          /* guard button failed; report the websocket error */
-        }
-      }
-      this._patrolMsg = `Could not go to guard: ${(err && err.message) || err}`;
+      if (this._wiz) this._wiz.msg = (err && err.message) || "Could not set the left limit.";
+    } finally {
+      if (this._wiz) this._wiz.busy = false;
     }
+    if (this._patrolEl) this._paintPatrol();
+  }
+
+  _setRightLimit() {
+    if (!this._wiz) return;
+    const span = this._clampPatrol(this._liveSpan());
+    this._wiz.span = span;
+    if (!(span > 0)) {
+      this._wiz.rightSet = false;
+      this._wiz.msg = "Pan right to the right edge first.";
+      this._paintPatrol();
+      return;
+    }
+    if (!this._wiz.measureSpeed) this._wiz.measureSpeed = this._wiz.speed;
+    this._wiz.rightSet = true;
+    this._wiz.msg = "Right limit set.";
     this._paintPatrol();
   }
 
-  async _patrolGo(action) {
-    if (this._patrolHolding) await this._patrolPanStop();
-    if (action === "guard" || action === "redo") {
-      if (action === "redo") {
-        if (this._patrolStep === "left") this._leftAcc = 0;
-        else this._rightAcc = 0;
-      }
-      return this._patrolGotoGuard();
-    }
-    if (action === "left" || action === "intro" || action === "right") {
-      this._patrolStep = action === "intro" ? "intro" : action;
-      this._paintPatrol();
-      return;
-    }
-    if (action === "set-left") {
-      this._leftAcc = this._clampPatrol(this._leftAcc);
-      this._patrolStep = "right";
-      this._paintPatrol();
-      return this._patrolGotoGuard();
-    }
-    if (action === "set-right") {
-      this._rightAcc = this._clampPatrol(this._rightAcc);
-      this._patrolStep = this._hasTilt() ? "tilt" : "review";
-      if (this._patrolStep === "tilt") this._tiltVisited = true;
-      this._paintPatrol();
-      return;
-    }
-    if (action === "skip-tilt") {
-      this._tiltSkipped = true;
-      this._tiltVisited = true;
-      this._patrolStep = "review";
-      this._paintPatrol();
-      return;
-    }
-    if (action === "review") {
-      this._tiltSkipped = false;
-      this._tiltVisited = true;
-      this._patrolStep = "review";
-      this._paintPatrol();
-      return;
-    }
-    if (action === "back-review") {
-      this._patrolStep = this._hasTilt() ? "tilt" : "right";
-      this._paintPatrol();
-      return;
-    }
-    if (action === "cancel") return this._closePatrol();
-    if (action === "test") return this._patrolTest();
-    if (action === "stop-sweep") return this._patrolStopSweep();
-    if (action === "save") return this._patrolSave();
-  }
-
-  _patrolLimits() {
+  _sweepData() {
+    const info = this._info;
+    const tilt = this._canTilt() && this._wiz.tiltOn;
     return {
-      left: this._clampPatrol(this._leftAcc),
-      right: this._clampPatrol(this._rightAcc),
+      channel: info.channel,
+      config_entry_id: info.config_entry_id,
+      mode: "sweep",
+      left_time: 0,
+      right_time: this._passSeconds(),
+      speed: this._wiz.speed,
+      loops: 1,
+      settle_time: 0,
+      pause: 0,
+      tilt_levels: tilt ? this._wiz.tiltLevels : 1,
+      tilt_step: tilt ? this._wiz.tiltStep : 0,
     };
   }
 
-  async _patrolTest() {
-    const { left, right } = this._patrolLimits();
-    if (!(left > 0 && right > 0)) {
-      this._patrolMsg = "Set both a left time and a right time before a test sweep.";
+  async _startTest() {
+    if (!this._wiz || this._wiz.testing || !this._info) return;
+    const right = this._passSeconds();
+    if (!(right > 0)) {
+      this._wiz.msg = "Set the right limit before a test sweep.";
       this._paintPatrol();
       return;
     }
-    const data = {
-      channel: this._info.channel,
-      config_entry_id: this._info.config_entry_id,
-      mode: "sweep",
-      left_time: left,
-      right_time: right,
-      speed: this._patrolSpeed(),
-      loops: 1,
-    };
-    if (this._hasTilt() && this._tiltVisited && !this._tiltSkipped) {
-      data.tilt_levels = this._tiltLevels;
-      data.tilt_step = this._tiltStep;
-    }
+    this._wiz.testing = true;
     this._patrolTesting = true;
-    this._patrolMsg = "Test sweep running (one pass).";
+    this._wiz.msg = "Test sweep running.";
     this._paintPatrol();
     try {
-      await this._callAction("start_patrol", data);
+      await this._callAction("start_patrol", this._sweepData());
     } catch (err) {
+      if (!this._wiz) return;
+      this._wiz.testing = false;
       this._patrolTesting = false;
-      this._patrolMsg = (err && err.message) || String(err);
-      this._paintPatrol();
+      this._wiz.msg = (err && err.message) || "Could not start the test sweep.";
+      if (this._patrolEl) this._paintPatrol();
     }
   }
 
-  async _patrolStopSweep() {
+  async _stopTest() {
+    if (!this._info) return;
+    const was = !!(this._wiz && this._wiz.testing);
+    if (this._wiz) this._wiz.testing = false;
     this._patrolTesting = false;
     try {
       await this._callAction("stop_patrol", {
         channel: this._info.channel,
         config_entry_id: this._info.config_entry_id,
       });
-      this._patrolMsg = "Sweep stopped.";
+      if (this._wiz && was) this._wiz.msg = "Test sweep stopped.";
     } catch (err) {
-      this._patrolMsg = (err && err.message) || String(err);
+      if (this._wiz) this._wiz.msg = (err && err.message) || "Could not stop the test sweep.";
     }
-    this._paintPatrol();
+    if (this._patrolEl && this._wiz) this._paintPatrol();
   }
 
-  async _patrolSave() {
-    const { left, right } = this._patrolLimits();
-    if (!(left > 0 && right > 0)) {
-      this._patrolMsg = "Set both a left time and a right time before saving.";
+  async _savePatrol() {
+    if (!this._wiz || this._wiz.busy || this._wiz.saved || !this._info) return;
+    const right = this._passSeconds();
+    if (!(right > 0)) {
+      this._wiz.msg = "Set the right limit before you save.";
       this._paintPatrol();
       return;
     }
-    const data = {
-      channel: this._info.channel,
-      config_entry_id: this._info.config_entry_id,
-      left_time: left,
-      right_time: right,
-      speed: this._patrolSpeed(),
-    };
-    if (this._hasTilt() && this._tiltVisited && !this._tiltSkipped) {
-      data.tilt_levels = this._tiltLevels;
-      data.tilt_step = this._tiltStep;
-    }
+    if (this._wiz.testing) await this._stopTest();
+    if (!this._wiz) return;
+    const data = this._sweepData();
+    delete data.mode;
+    delete data.loops;
+    delete data.settle_time;
+    delete data.pause;
+    this._wiz.busy = true;
+    this._wiz.msg = "Saving patrol.";
+    this._paintPatrol();
     try {
       await this._callAction("set_patrol_limits", data);
     } catch (err) {
-      this._patrolMsg = (err && err.message) || String(err);
+      if (!this._wiz) return;
+      this._wiz.busy = false;
+      this._wiz.msg = (err && err.message) || "Could not save patrol.";
       this._paintPatrol();
       return;
     }
-    if (this._info) this._info.patrol = { ...(this._info.patrol || {}), ...data };
-    this._closePatrol();
-    this._setStatus("Patrol limits saved", "");
+    if (!this._wiz) return;
+    this._info.patrol = { ...(this._info.patrol || {}), ...data };
+    this._wiz.busy = false;
+    this._wiz.saved = true;
+    this._wiz.msg = "";
+    this._paintPatrol();
+    clearTimeout(this._patrolCloseTimer);
+    this._patrolCloseTimer = setTimeout(() => this._closePatrol(), 800);
   }
 }
 
@@ -2689,7 +2928,7 @@ const EDITOR_SCHEMA = [
             mode: "dropdown",
             options: [
               { value: "hold", label: "Hold to talk" },
-              { value: "toggle", label: "Tap to start / stop" },
+              { value: "toggle", label: "Tap to talk" },
             ],
           },
         },
@@ -2700,8 +2939,8 @@ const EDITOR_SCHEMA = [
           select: {
             mode: "dropdown",
             options: [
-              { value: "half", label: "Half-duplex (mute while talking)" },
-              { value: "full", label: "Full-duplex (may echo)" },
+              { value: "half", label: "Mute while talking" },
+              { value: "full", label: "Keep listening" },
             ],
           },
         },
@@ -2719,25 +2958,25 @@ const EDITOR_SCHEMA = [
 ];
 
 const EDITOR_LABELS = {
-  entity: "Camera speaker (talk target)",
-  camera_entity: "Camera entity (optional, auto-matched)",
+  entity: "Speaker",
+  camera_entity: "Camera",
   name: "Name",
   icon: "Icon",
-  video: "Live video",
-  ptz: "PTZ controls",
-  listen: "Listen (camera microphone)",
-  talk: "Push-to-talk",
+  video: "Live view",
+  ptz: "Pan and tilt",
+  listen: "Listen",
+  talk: "Talk",
   volume: "Listening volume",
   mode: "Talk button",
-  duplex: "Duplex",
-  talk_auto_listen: "Talking starts listening",
-  show_level: "Show microphone level",
+  duplex: "While talking",
+  talk_auto_listen: "Listen when you talk",
+  show_level: "Microphone level",
 };
 
 const EDITOR_HELPERS = {
-  camera_entity: "Leave empty to use the Reolink camera that belongs to the speaker's camera.",
-  ptz: "Shown only for cameras with PTZ (pan/tilt/zoom).",
-  talk_auto_listen: "Needs 'Listen' enabled.",
+  camera_entity: "Leave empty to use the camera that belongs to this speaker.",
+  ptz: "Shown when this camera can pan.",
+  talk_auto_listen: "Turn on Listen as well.",
 };
 
 class AdvancedReolinkCardEditor extends HTMLElement {
@@ -2793,19 +3032,20 @@ class AdvancedReolinkCardEditor extends HTMLElement {
           .layout-fields select, .layout-fields input[type="number"] { font: inherit; padding: 6px 8px; max-width: 16em; }
           .grid-warn { margin: 0; font-size: 0.9em; line-height: 1.45; color: var(--secondary-text-color); }
         </style>
-        <p class="multicam-note">This card uses a <code>cameras</code> list (multiple cameras). Edit the camera list in YAML. View, columns and the bandwidth warning can be set here without changing that list.</p>
+        <p class="multicam-note">This card uses a <code>cameras</code> list. Edit the cameras in YAML. You can change the view, the columns, and the warning here.</p>
         <ul class="multicam-list"></ul>
         <div class="layout-fields">
           <label>View
             <select name="view">
-              <option value="tabs"${view === "tabs" ? " selected" : ""}>Tabs (one camera)</option>
-              <option value="grid"${view === "grid" ? " selected" : ""}>Grid (all cameras)</option>
+              <option value="tabs"${view === "tabs" ? " selected" : ""}>One camera</option>
+              <option value="grid"${view === "grid" ? " selected" : ""}>All cameras</option>
             </select>
           </label>
-          <label>Grid columns (empty = automatic, 1 to 6)
-            <input name="grid_columns" type="number" min="1" max="6" step="1" value="${_esc(cols)}">
+          <label>Columns
+            <input name="grid_columns" type="number" min="1" max="6" step="1" value="${_esc(cols)}" aria-describedby="cols-hint">
           </label>
-          <label class="row"><input name="hide_grid_warning" type="checkbox"${hide ? " checked" : ""}> Hide the bandwidth warning</label>
+          <p id="cols-hint" class="grid-warn">Leave empty to fit the width. Use 1 to 6.</p>
+          <label class="row"><input name="hide_grid_warning" type="checkbox"${hide ? " checked" : ""}> Hide the warning</label>
           ${view === "grid" ? `<p class="grid-warn">${_esc(GRID_WARN_TEXT)}</p>` : ""}
         </div>
       `;
@@ -2866,7 +3106,7 @@ function registerCard() {
     window.customCards.push({
       type: "advanced-reolink-card",
       name: "Advanced Reolink Card",
-      description: "Live view, PTZ, listen and push-to-talk for Reolink cameras (Advanced Reolink Card).",
+      description: "Live view, pan and tilt, listen and talk.",
       preview: false,
       documentationURL: "https://github.com/MainMaxton/advanced-reolink-card#camera-card",
     });
