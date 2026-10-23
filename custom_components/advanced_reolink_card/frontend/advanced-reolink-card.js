@@ -170,15 +170,14 @@ const STYLE = `
   .tabs { display: flex; flex-wrap: nowrap; align-items: stretch; gap: 0; overflow-x: auto; overflow-y: hidden;
     white-space: nowrap; scrollbar-width: none; height: 48px; max-height: 48px; margin: 0; padding: 0;
     scroll-padding-inline: 8px; -webkit-overflow-scrolling: touch;
-    --clip-left: 0px; --clip-right: 0px;
-    -webkit-mask-image: linear-gradient(to right, transparent var(--clip-left), #000 var(--clip-left), #000 calc(100% - var(--clip-right)), transparent calc(100% - var(--clip-right)));
-    mask-image: linear-gradient(to right, transparent var(--clip-left), #000 var(--clip-left), #000 calc(100% - var(--clip-right)), transparent calc(100% - var(--clip-right))); }
+    --fade-left: 0px; --fade-right: 0px;
+    -webkit-mask-image: linear-gradient(to right, transparent 0, #000 var(--fade-left), #000 calc(100% - var(--fade-right)), transparent 100%);
+    mask-image: linear-gradient(to right, transparent 0, #000 var(--fade-left), #000 calc(100% - var(--fade-right)), transparent 100%); }
   .tabs::-webkit-scrollbar { display: none; height: 0; width: 0; }
   .tabs button[role="tab"] { all: unset; box-sizing: border-box; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
     flex: none; height: 48px; padding: 0 16px; color: var(--secondary-text-color); box-shadow: inset 0 -2px 0 transparent;
     white-space: nowrap; font: inherit; font-size: 14px; font-weight: 500; text-transform: none; }
   .tabs button[role="tab"] ha-icon { --mdc-icon-size: 18px; flex: none; }
-  .tabs button[role="tab"]:hover { background: color-mix(in srgb, var(--primary-text-color) 8%, transparent); }
   .tabs button[role="tab"][aria-selected="true"] { color: var(--primary-color); box-shadow: inset 0 -2px 0 var(--primary-color); }
   .tabrow { display: flex; align-items: center; height: 48px; max-height: 48px; gap: 0; min-width: 0; overflow: hidden; }
   .tabrow .tabs { flex: 1; min-width: 0; }
@@ -209,10 +208,12 @@ const STYLE = `
   .gridwarn button, .patrol-dialog button.plain { all: unset; box-sizing: border-box; cursor: pointer; align-self: flex-start;
     padding: 6px 12px; border-radius: 8px; background: var(--primary-color); color: var(--text-primary-color, #fff); }
   .patrol-dialog { position: absolute; inset: 0; z-index: 6; overflow-x: hidden; overflow-y: auto; scrollbar-width: none; box-sizing: border-box;
-    display: flex; flex-direction: column; gap: 10px; padding: 12px;
     background: var(--card-background-color, #fff); color: var(--primary-text-color);
     border-radius: var(--ha-card-border-radius, 12px); }
   .patrol-dialog::-webkit-scrollbar { display: none; height: 0; width: 0; }
+  .psheet { display: flex; flex-direction: column; gap: 12px; padding: 12px 16px 16px; box-sizing: border-box; min-width: 0; }
+  .psheet > * { flex: 0 0 auto; }
+  .dhead { margin: 0; font-size: 1.15em; font-weight: 500; }
   .patrol-dialog h2 { margin: 0; font-size: 1.05em; font-weight: 500; }
   .patrol-dialog p { margin: 0; font-size: 0.92em; line-height: 1.35; color: var(--primary-text-color); }
   .psteps { display: flex; gap: 4px; margin: 0; padding: 0; list-style: none; }
@@ -238,14 +239,11 @@ const STYLE = `
   .patrol-dialog .zoom { display: flex; flex-direction: column; gap: 4px; }
   .patrol-dialog .zoom button { width: 44px; height: 44px; }
   .patrol-dialog .dpad button.active, .patrol-dialog .zoom button.active { background: var(--primary-color); color: var(--text-primary-color, #fff); }
-  .patrol-dialog .act { box-sizing: border-box; cursor: pointer; min-height: 40px; padding: 0 12px; border-radius: 20px;
+  .patrol-dialog .act { appearance: none; -webkit-appearance: none; box-sizing: border-box; cursor: pointer; min-height: 40px; padding: 0 16px; border-radius: 20px;
     border: none; background: var(--secondary-background-color, #eee); color: var(--primary-text-color);
-    font: inherit; font-weight: 500; display: inline-flex; align-items: center; justify-content: center; }
+    font: inherit; font-weight: 500; line-height: 1.2; display: inline-flex; align-items: center; justify-content: center; text-align: center; }
   .patrol-dialog .act.primary { background: var(--primary-color); color: var(--text-primary-color, #fff); }
-  .patrol-dialog .act[disabled],
-  .patrol-dialog .act.primary[disabled] {
-    background: var(--secondary-background-color, #eee); color: var(--secondary-text-color); opacity: 0.6; cursor: not-allowed;
-  }
+  .patrol-dialog .act[disabled] { opacity: 0.4; cursor: not-allowed; }
   .pmedia { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: var(--ha-card-border-radius, 12px); overflow: hidden; flex: none; }
   .pmedia video, .pmedia .pslot, .pmedia .pslot > * { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
   .pspan { font-variant-numeric: tabular-nums; font-weight: 500; }
@@ -259,7 +257,6 @@ const STYLE = `
   .tiltbox input, .check input { font: inherit; }
   .tiltbox input[type="number"] { padding: 6px 8px; width: 5.5em; border-radius: 8px; border: 1px solid var(--divider-color, #ccc);
     background: var(--card-background-color, #fff); color: var(--primary-text-color); }
-  .patrol-dialog > * { flex: 0 0 auto; }
   .pfoot, .prow, .pactions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
   .pactions { flex-direction: column; align-items: stretch; }
   .pfoot .act, .pactions .act { flex: 1 1 0; }
@@ -292,16 +289,15 @@ const STYLE = `
   .zoom { display: flex; flex-direction: column; gap: 4px; } .zoom button { width: 48px; height: 48px; }
   .presets { display: flex; flex: 1 0 100%; flex-wrap: nowrap; align-items: center; gap: 8px; overflow-x: auto; overflow-y: hidden;
     white-space: nowrap; scrollbar-width: none; height: 40px; max-height: 40px; margin: 0; padding: 0 2px; box-sizing: border-box;
-    --clip-left: 0px; --clip-right: 0px;
-    -webkit-mask-image: linear-gradient(to right, transparent var(--clip-left), #000 var(--clip-left), #000 calc(100% - var(--clip-right)), transparent calc(100% - var(--clip-right)));
-    mask-image: linear-gradient(to right, transparent var(--clip-left), #000 var(--clip-left), #000 calc(100% - var(--clip-right)), transparent calc(100% - var(--clip-right))); }
+    --fade-left: 0px; --fade-right: 0px;
+    -webkit-mask-image: linear-gradient(to right, transparent 0, #000 var(--fade-left), #000 calc(100% - var(--fade-right)), transparent 100%);
+    mask-image: linear-gradient(to right, transparent 0, #000 var(--fade-left), #000 calc(100% - var(--fade-right)), transparent 100%); }
   .presets::-webkit-scrollbar { display: none; height: 0; width: 0; }
   .presets button.chip { all: unset; box-sizing: border-box; cursor: pointer; flex: none; display: inline-flex; align-items: center; gap: 6px;
     height: 32px; max-width: 100%; padding: 0 12px; border-radius: 16px; border: 1px solid var(--divider-color, #ccc);
     background: transparent; color: var(--primary-text-color); font: inherit; white-space: nowrap; }
   .presets button.chip ha-icon { --mdc-icon-size: 18px; flex: none; color: var(--primary-color); }
   .presets button.chip span { overflow: hidden; text-overflow: ellipsis; }
-  .presets button.chip:hover { background: color-mix(in srgb, var(--primary-text-color) 6%, transparent); }
   .presets button.chip[aria-selected="true"] { background: var(--primary-color); color: var(--text-primary-color, #fff); border-color: transparent; }
   .presets button.chip[aria-selected="true"] ha-icon { color: var(--text-primary-color, #fff); }
   .listenrow { display: flex; align-items: center; gap: 12px; }
@@ -328,6 +324,15 @@ const STYLE = `
   ha-icon { --mdc-icon-size: 28px; }
   .meter { height: 8px; border-radius: 4px; background: var(--divider-color, #e0e0e0); overflow: hidden; }
   .meter > div { height: 100%; width: 0%; background: var(--success-color, #43a047); transition: width 60ms linear; }
+  @media (hover: hover) {
+    .tabs button[role="tab"]:hover { background: color-mix(in srgb, var(--primary-text-color) 8%, transparent); }
+    .presets button.chip:hover:not([aria-selected="true"]) { background: color-mix(in srgb, var(--primary-text-color) 6%, transparent); }
+    .ptz button[data-ptz]:hover:not(.active),
+    .patrol-dialog .dpad button:hover:not(.active),
+    .patrol-dialog .zoom button:hover:not(.active) {
+      background: color-mix(in srgb, var(--primary-text-color) 10%, var(--secondary-background-color, #eee));
+    }
+  }
   [hidden] { display: none !important; }
 `;
 
@@ -362,14 +367,10 @@ function _esc(value) {
 }
 
 function _wizButton(label, opts = {}) {
-  const ha = window.customElements && window.customElements.get("ha-button");
-  const mwc = window.customElements && window.customElements.get("mwc-button");
-  const tag = ha ? "ha-button" : mwc ? "mwc-button" : "button";
-  const type = tag === "button" ? ' type="button"' : "";
   const cls = opts.primary ? "act primary" : "act";
   const go = opts.go ? ` data-go="${opts.go}"` : "";
   const dis = opts.disabled ? " disabled" : "";
-  return `<${tag}${type} class="${cls}"${go}${dis}>${_esc(label)}</${tag}>`;
+  return `<button type="button" class="${cls}"${go}${dis}>${_esc(label)}</button>`;
 }
 
 /* CARD_CONFIG_START */
@@ -997,59 +998,30 @@ class AdvancedReolinkCard extends HTMLElement {
     if (tab && typeof tab.scrollIntoView === "function") {
       tab.scrollIntoView({ block: "nearest", inline: "nearest" });
     }
-    this._nudgeRow(el, tab);
     this._watchRow(el);
-    this._clipRow(el);
+    this._fadeRow(el);
   }
 
   _watchRow(scroller) {
-    if (!scroller || scroller.dataset.clipBound) return;
-    scroller.dataset.clipBound = "1";
-    scroller.addEventListener("scroll", () => this._clipRow(scroller), { passive: true });
+    if (!scroller || scroller.dataset.fadeBound) return;
+    scroller.dataset.fadeBound = "1";
+    scroller.addEventListener("scroll", () => this._fadeRow(scroller), { passive: true });
     if (typeof ResizeObserver === "undefined") return;
     if (!this._rowObserver) {
       this._rowObserver = new ResizeObserver((entries) => {
-        for (const entry of entries) this._clipRow(entry.target);
+        for (const entry of entries) this._fadeRow(entry.target);
       });
     }
     this._rowObserver.observe(scroller);
   }
 
-  _nudgeRow(scroller, prefer) {
+  _fadeRow(scroller) {
     if (!scroller) return;
-    const view = scroller.getBoundingClientRect();
-    if (view.width <= 0) return;
     const max = Math.max(0, scroller.scrollWidth - scroller.clientWidth);
-    let left = scroller.scrollLeft;
-    for (const child of scroller.children) {
-      const rect = child.getBoundingClientRect();
-      if (rect.right <= view.left + 1) continue;
-      if (rect.left < view.left - 1 && rect.width < view.width - 8) {
-        const delta = rect.right - view.left;
-        const preferRect = prefer ? prefer.getBoundingClientRect() : null;
-        const fits = !preferRect || (preferRect.left + delta >= view.left - 1 && preferRect.right + delta <= view.right + 1);
-        if (fits) left = Math.min(max, left + delta);
-      }
-      break;
-    }
-    if (Math.abs(left - scroller.scrollLeft) > 1) scroller.scrollLeft = left;
-  }
-
-  _clipRow(scroller) {
-    if (!scroller) return;
-    const view = scroller.getBoundingClientRect();
-    if (view.width <= 0) return;
-    let clipLeft = 0;
-    let clipRight = 0;
-    for (const child of scroller.children) {
-      const rect = child.getBoundingClientRect();
-      if (rect.right <= view.left + 1 || rect.left >= view.right - 1) continue;
-      if (rect.width >= view.width - 8) continue;
-      if (rect.left < view.left - 1) clipLeft = Math.max(clipLeft, rect.right - view.left + 1);
-      if (rect.right > view.right + 1) clipRight = Math.max(clipRight, view.right - rect.left + 1);
-    }
-    scroller.style.setProperty("--clip-left", `${Math.round(clipLeft)}px`);
-    scroller.style.setProperty("--clip-right", `${Math.round(clipRight)}px`);
+    const left = scroller.scrollLeft > 1 ? 16 : 0;
+    const right = max - scroller.scrollLeft > 1 ? 28 : 0;
+    scroller.style.setProperty("--fade-left", `${left}px`);
+    scroller.style.setProperty("--fade-right", `${right}px`);
   }
 
   _onTabListKeydown(ev) {
@@ -1502,7 +1474,7 @@ class AdvancedReolinkCard extends HTMLElement {
       box.appendChild(b);
     }
     this._watchRow(box);
-    this._clipRow(box);
+    this._fadeRow(box);
   }
 
   _ptzStart(role, button) {
@@ -1538,8 +1510,7 @@ class AdvancedReolinkCard extends HTMLElement {
     this._updatePresets();
     const chip = this._presetEl && this._presetEl.querySelector('[aria-selected="true"]');
     if (chip && typeof chip.scrollIntoView === "function") chip.scrollIntoView({ block: "nearest", inline: "nearest" });
-    this._nudgeRow(this._presetEl, chip);
-    this._clipRow(this._presetEl);
+    this._fadeRow(this._presetEl);
     this._hass
       .callService("select", "select_option", { entity_id: ent, option })
       .then(() => this._setStatus(`Moving to ${option}.`, ""))
@@ -2561,18 +2532,27 @@ class AdvancedReolinkCard extends HTMLElement {
     el.setAttribute("aria-labelledby", "patrol-title");
     el.setAttribute("open", "");
     el.open = true;
+    if (useDialog) {
+      el.setAttribute("heading", "Patrol setup");
+      el.setAttribute("header-title", "Patrol setup");
+      el.style.setProperty("--dialog-content-padding", "0");
+    }
     el.tabIndex = -1;
+    const title = useDialog ? "" : `<h2 class="dhead">Patrol setup</h2>`;
     el.innerHTML = `
-      <ol class="psteps" aria-label="Patrol setup"></ol>
-      <h2 id="patrol-title"></h2>
-      <p class="phint"></p>
-      <div class="pmedia">
-        <video class="pvideo" muted playsinline autoplay></video>
-        <div class="pslot" hidden></div>
-      </div>
-      <div class="pbody"></div>
-      <p class="presult" aria-live="polite"></p>
-      <div class="pfoot"></div>`;
+      <div class="psheet">
+        ${title}
+        <ol class="psteps" aria-label="Patrol setup"></ol>
+        <h2 id="patrol-title"></h2>
+        <p class="phint"></p>
+        <div class="pmedia">
+          <video class="pvideo" muted playsinline autoplay disablepictureinpicture></video>
+          <div class="pslot" hidden></div>
+        </div>
+        <div class="pbody"></div>
+        <p class="presult" aria-live="polite"></p>
+        <div class="pfoot"></div>
+      </div>`;
     const root = this.shadowRoot.querySelector("ha-card") || this.shadowRoot;
     root.appendChild(el);
     this._patrolEl = el;
