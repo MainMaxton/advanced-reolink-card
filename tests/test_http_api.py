@@ -111,6 +111,17 @@ async def test_set_guard_payload() -> None:
     await client.close()
 
 
+async def test_set_guard_keeps_auto_return_off() -> None:
+    session = FakeSession()
+    client = ReolinkHttpClient("198.51.100.10", "admin", "pw", session=session)
+    await client.login()
+    await client.set_guard(2, enable=False)
+    guard = session.posts[1][2][0]["param"]["PtzGuard"]
+    assert guard["benable"] == 0
+    assert guard["bSaveCurrentPos"] == 1
+    await client.close()
+
+
 async def test_ptz_channels_from_ability() -> None:
     session = FakeSession()
     client = ReolinkHttpClient("198.51.100.10", "admin", "pw", session=session)

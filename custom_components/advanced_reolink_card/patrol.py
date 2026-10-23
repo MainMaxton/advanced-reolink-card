@@ -547,7 +547,9 @@ class PatrolManager:
                     raise HomeAssistantError(
                         **translated("ptz_not_supported", channel=channel, name=name)
                     )
-                await client.set_guard(channel)
+                # Keep the camera's own auto return choice.
+                enable = bool((info.guard or {}).get("benable", 0) == 1)
+                await client.set_guard(channel, enable)
         except BaichuanAuthError as err:
             raise HomeAssistantError(**translated("invalid_auth")) from err
         except HomeAssistantError:

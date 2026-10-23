@@ -267,8 +267,11 @@ class ReolinkHttpClient:
         if item.get("code") != 0:
             raise BaichuanError(f"SetPtzGuard toPos failed on channel {channel}: {item.get('error') or item}")
 
-    async def set_guard(self, channel: int) -> None:
-        """Store the current aim as the guard (home) position."""
+    async def set_guard(self, channel: int, enable: bool = True) -> None:
+        """Store the current aim as the guard (home) position.
+
+        ``enable`` is the camera's auto return setting, passed through unchanged.
+        """
         data = await self.send(
             [
                 {
@@ -278,7 +281,7 @@ class ReolinkHttpClient:
                         "PtzGuard": {
                             "channel": channel,
                             "cmdStr": "setPos",
-                            "benable": 1,
+                            "benable": 1 if enable else 0,
                             "bSaveCurrentPos": 1,
                         }
                     },

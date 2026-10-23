@@ -43,8 +43,9 @@ class FakeClient:
     async def set_ai_cfg(self, channel: int, values: dict[str, Any]) -> None:
         self.calls.append(("set_ai_cfg", channel, dict(values)))
 
-    async def set_guard(self, channel: int) -> None:
+    async def set_guard(self, channel: int, enable: bool = True) -> None:
         self.calls.append(("set_guard", channel, {}))
+        self.guard_enable = enable
         if getattr(self, "fail_set_guard", False):
             from custom_components.advanced_reolink_card.baichuan_talk import BaichuanError
 
@@ -508,7 +509,17 @@ async def test_set_guard_marks_home_known(
     assert mgr.guard_known(3) is None
     await mgr.async_set_guard(3)
     assert ("set_guard", 3, {}) in client.calls
+    assert client.guard_enable is False
     assert mgr.guard_known(3) is True
+
+
+async def test_set_guard_keeps_auto_return_on(
+    hass: HomeAssistant, online_flag: dict[str, bool | None]
+) -> None:
+    client = FakeClient({3: _ptz(guard=True)})
+    mgr = _manager(hass, client, online_flag)
+    await mgr.async_set_guard(3)
+    assert client.guard_enable is True
 
 
 async def test_arc_requires_guard(
