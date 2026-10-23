@@ -9,6 +9,7 @@ const WS_PTZ_STOP = "advanced_reolink_card/ptz/stop";
 const WS_PTZ_GUARD = "advanced_reolink_card/ptz/guard";
 const WS_PTZ_SET_GUARD = "advanced_reolink_card/ptz/set_guard";
 const WS_PTZ_STATUS = "advanced_reolink_card/ptz/status";
+const TEST_SETTLE_S = 5; // time to reach the home position before a test sweep
 const TARGET_RATE = 16000; // what we send: 16 kHz mono s16le
 const SEND_MS = 40; // send a frame every ~40 ms
 const DUCK_TAIL_MS = 1500; // half-duplex: keep playback muted this long after talking
@@ -2810,7 +2811,7 @@ class AdvancedReolinkCard extends HTMLElement {
       right_time: this._passSeconds(),
       speed: this._wiz.speed,
       loops: 1,
-      settle_time: 0,
+      settle_time: TEST_SETTLE_S,
       pause: 0,
       tilt_levels: tilt ? this._wiz.tiltLevels : 1,
       tilt_step: tilt ? this._wiz.tiltStep : 0,
@@ -2829,9 +2830,24 @@ class AdvancedReolinkCard extends HTMLElement {
     this._patrolTesting = true;
     this._wiz.msg = "Test sweep running.";
     this._paintPatrol();
+    const data = this._sweepData();
+    // The action returns once the sweep starts, so estimate when it ends.
+    const rows = Math.max(1, data.tilt_levels);
+    const secs = TEST_SETTLE_S + rows * 2 * right + (rows - 1) * data.tilt_step + 4;
+    clearTimeout(this._testTimer);
+    this._testTimer = setTimeout(() => {
+      this._testTimer = null;
+      if (!this._wiz || !this._wiz.testing) return;
+      this._wiz.testing = false;
+      this._patrolTesting = false;
+      this._wiz.msg = "Test sweep done.";
+      if (this._patrolEl) this._paintPatrol();
+    }, secs * 1000);
     try {
-      await this._callAction("start_patrol", this._sweepData());
+      await this._callAction("start_patrol", data);
     } catch (err) {
+      clearTimeout(this._testTimer);
+      this._testTimer = null;
       if (!this._wiz) return;
       this._wiz.testing = false;
       this._patrolTesting = false;
@@ -2843,6 +2859,8 @@ class AdvancedReolinkCard extends HTMLElement {
   async _stopTest() {
     if (!this._info) return;
     const was = !!(this._wiz && this._wiz.testing);
+    clearTimeout(this._testTimer);
+    this._testTimer = null;
     if (this._wiz) this._wiz.testing = false;
     this._patrolTesting = false;
     try {
