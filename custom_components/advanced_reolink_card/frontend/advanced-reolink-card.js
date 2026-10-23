@@ -1076,6 +1076,8 @@ class AdvancedReolinkCard extends HTMLElement {
       if (opts.focusTab) this._focusActiveTab();
       return;
     }
+    // Measure the outgoing camera first so the card never shrinks under the page.
+    this._lockCardHeight();
     const wasLive = this._video.state !== "off" && this._video.state !== "error";
     // Gesture unlock is only for live video. Listen stays stopped after a tab switch.
     if (wasLive) this._ensurePlayCtx();
