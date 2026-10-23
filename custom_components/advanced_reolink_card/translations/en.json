@@ -89,7 +89,7 @@
       },
       "patrol_settings": {
         "title": "Patrol settings: {camera}",
-        "description": "Defaults for start_patrol on {camera} (channel {channel}). Values given in an action call override these. Arc times are seconds of panning at the speed below, measured from the guard (home) position. Set both left and right to 0 for a full-range sweep.",
+        "description": "Defaults for start_patrol on {camera} (channel {channel}). Arc times are seconds of panning at the speed below, measured from the guard (home) position, not a stored angle. You can measure them on the Advanced Reolink Card: open the camera, turn on PTZ controls, and press Patrol limits. The wizard returns to the guard position, pans at this speed while you hold Pan left or Pan right, and records the seconds. The fields on this page are the manual fallback for the same values. Values given in an action call override these. Set both left and right to 0 for a full-range sweep.",
         "data": {
           "enabled": "Patrol enabled",
           "left_time": "Sweep left of guard",
@@ -103,9 +103,9 @@
         },
         "data_description": {
           "enabled": "When off, start_patrol refuses this camera.",
-          "left_time": "Seconds of left pan from guard to the left limit. The camera never pans past it.",
-          "right_time": "Seconds of right pan from guard to the right limit.",
-          "speed": "1-64. The arc times are measured at this speed; changing it changes the arc.",
+          "left_time": "Seconds of left pan from guard to the left limit. The camera never pans past it. Patrol limits on the card measures this for you.",
+          "right_time": "Seconds of right pan from guard to the right limit. Patrol limits on the card measures this for you.",
+          "speed": "1-64. The arc times are measured at this speed; changing it changes the arc. The card wizard pans at this speed.",
           "tilt_levels": "Number of tilt rows. 1 keeps the current tilt.",
           "tilt_step": "Seconds of Down tilt between rows."
         }

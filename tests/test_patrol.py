@@ -1,4 +1,4 @@
-"""PTZ patrol manager tests — all NVR calls mocked (no real PtzCtrl)."""
+"""PTZ patrol manager tests: all NVR calls mocked (no real PtzCtrl)."""
 
 from __future__ import annotations
 
@@ -81,6 +81,35 @@ def _manager(
         online_check=lambda _ch: online_flag["value"],
         channel_name=lambda ch: f"Cam{ch}",
     )
+
+
+async def test_ptz_move_stop_guard_and_status(
+    hass: HomeAssistant, online_flag: dict[str, bool | None]
+) -> None:
+    client = FakeClient({3: _ptz()})
+    mgr = _manager(hass, client, online_flag)
+    await mgr.async_ptz_move(3, "left", 32)
+    assert ("ptz_ctrl", 3, {"op": "Left", "id": None, "speed": 32}) in client.calls
+    await mgr.async_ptz_stop(3)
+    assert ("ptz_ctrl", 3, {"op": "Stop", "id": None, "speed": None}) in client.calls
+    assert await mgr.async_goto_guard(3) is True
+    assert ("goto_guard", 3, {}) in client.calls
+    status = await mgr.async_ptz_status(3)
+    assert status["guard_configured"] is True
+    assert status["ptz_supported"] is True
+    assert status["ptz_type"] == 3
+    assert status["tilt"] is True
+
+
+async def test_goto_guard_false_when_unset(
+    hass: HomeAssistant, online_flag: dict[str, bool | None]
+) -> None:
+    client = FakeClient({3: _ptz(guard=False)})
+    mgr = _manager(hass, client, online_flag)
+    assert await mgr.async_goto_guard(3) is False
+    assert not any(call[0] == "goto_guard" for call in client.calls)
+    status = await mgr.async_ptz_status(3)
+    assert status["guard_configured"] is False
 
 
 async def test_native_patrol_start(

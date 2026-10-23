@@ -42,6 +42,8 @@ works through an NVR with any number of channels, or directly with a standalone 
   direction pad, zoom, presets), **listen** to the camera microphone and
   **push-to-talk**, with half-duplex muting so you do not hear yourself. The
   matching Reolink camera, PTZ buttons and presets are found automatically.
+  A `cameras` list puts several cameras on one card with tabs (and swipe) to
+  switch between them; only the active camera streams.
 - **Battery cameras and doorbells**: asleep cameras stay selectable and are
   **woken up** automatically before they speak.
 - **Local and lightweight**: talk is pure Python, no Node.js, no cloud relay, and
@@ -185,7 +187,7 @@ attribute shows the state.
 | `config_entry_id` | no | only needed with `channel` when you have several devices |
 | `message` | yes | text to speak |
 | `voice` | no | edge-tts voice (overrides the default) |
-| `volume` | no | 0–200 % software gain |
+| `volume` | no | 0-200 % software gain |
 
 ```yaml
 action: advanced_reolink_card.say
@@ -350,6 +352,34 @@ name: Porch
 mode: hold
 ```
 
+**Several cameras on one card** (tabs above the video, swipe on the video to
+switch). Top-level options are defaults; each camera can override them:
+
+```yaml
+type: custom:advanced-reolink-card
+video: true
+ptz: true
+listen: true
+talk: true
+volume: 80
+default_camera: Front yard
+cameras:
+  - entity: media_player.front_yard_speaker
+    name: Front yard
+    icon: mdi:cctv
+  - entity: media_player.garage_speaker
+    name: Garage
+    icon: mdi:garage
+    ptz: false
+  - camera_entity: camera.doorbell_fluent
+    name: Doorbell
+    icon: mdi:doorbell-video
+    talk: false
+```
+
+A single-camera config (no `cameras` key) is unchanged: no tab bar, same
+options as before.
+
 ### Card options
 
 | Option | Default | Description |
@@ -369,8 +399,69 @@ mode: hold
 | `duplex` | `half` | `half` mutes listening while talking (+1.5 s); `full` keeps it on (may echo). |
 | `mode` | `hold` | Talk button: `hold` (push-to-talk) or `toggle` (tap to start/stop). |
 | `show_level` | `true` | Microphone level meter. |
+| `cameras` | | List of per-camera configs. With 2 or more entries the card shows a tab bar. Each entry takes the same keys as a single-camera card (`entity`, `camera_entity`, `name`, `icon`, `channel`, `config_entry_id`, `video`, `ptz`, `listen`, `talk`, `talk_auto_listen`, `volume`, `duplex`, `mode`, `show_level`). Top-level values are defaults; a camera entry overrides them. |
+| `default_camera` | `0` | Initial tab: a 0-based index, or the camera's `name`, `entity` or `camera_entity`. The selected tab is kept while the card stays on the dashboard (hass updates do not reset it). |
+| `view` | `tabs` | `tabs` (one camera at a time) or `grid` (every camera at once). Only changes the layout with 2 or more cameras. The on-card toggle can switch while the card is open; YAML sets the initial choice. |
+| `grid_columns` | | Optional fixed column count, 1 to 6. Omit it and the grid follows the card width (1 column, then 2 from 520px, then 3 from 900px). |
+| `hide_grid_warning` | `false` | When `true`, do not show the bandwidth warning the first time the grid streams every camera. |
 
-You need `entity`, `channel` or `camera_entity`. Talk needs `entity` or `channel`.
+You need `entity`, `channel` or `camera_entity` (on the card, or on each `cameras` entry). Talk needs `entity` or `channel`.
+
+### Multiple cameras
+
+With `cameras:` and at least two entries:
+
+- A tab bar sits above the video. Each tab shows the camera `name` (then the
+  friendly name or entity id) and optional `icon` (`ha-icon`, for example
+  `mdi:cctv`).
+- Only the **active** camera streams. Switching tabs (click, left/right arrows,
+  or a horizontal swipe on the video) tears down that camera's WebRTC/HLS/still
+  session and stops listen and talk before the next camera starts. One live
+  stream at a time keeps bandwidth down and avoids waking extra battery cameras.
+- If live view was on, the new camera starts live view again (still from a
+  user gesture: the tab click or swipe). Listening stays stopped on the new
+  camera; press Listen to hear it. Talk does not resume; press the button
+  again.
+- PTZ, listen and talk follow the active camera and only show what that camera
+  has (via `advanced_reolink_card/card/info`, cached per camera).
+- Horizontal swipe uses a simple touchstart/touchend threshold on the video
+  area. Vertical scrolling and the PTZ pad are left alone.
+- The visual editor does not edit a `cameras` list (it would be easy to wipe
+  the list). It shows the camera names, and it can set `view`, `grid_columns`
+  and `hide_grid_warning`. When `view` is `grid` it also shows the bandwidth
+  warning. Edit the camera list in YAML.
+
+A one-item `cameras` list behaves like a single-camera card (no tab bar).
+
+### Grid view
+
+`view: grid` (or the grid button next to the tab bar) shows every camera at
+once. `view` defaults to `tabs`. It only changes the layout when the card has
+two or more cameras. A single camera, including a one-item `cameras` list, stays
+a normal card. The fields are still checked.
+
+- The button uses a grid icon to enter the grid and a tab icon to leave it.
+  The choice lasts while that card stays on the dashboard. The YAML `view` value
+  is only the starting choice. Later updates of the card config do not put the
+  toggle back. If the camera list drops below two, the card leaves the grid.
+- Tiles sit in a responsive grid: one column when the card is narrow, two from
+  520px, three from 900px. Set `grid_columns` (1 to 6) for a fixed count. Each
+  tile shows the camera name.
+- Tapping a tile, or its name, leaves the grid with that camera selected, so
+  PTZ, listen and talk work again.
+- In the grid, PTZ, listen and talk are hidden. Entering the grid stops listen
+  and talk. Leaving the grid stops every stream except the camera you opened.
+- The first time every camera is set to stream, the card shows: "Streaming every
+  camera at once uses much more network bandwidth, and more CPU for decoding, on
+  both Home Assistant and this device. Prefer the sub or fluent stream for each
+  camera." Dismiss hides it for later visits in this browser
+  (`advanced_reolink_card.grid_warning_dismissed`). Set `hide_grid_warning: true`
+  to never show it. The visual editor shows the same text when `view` is `grid`.
+- A card that opens already in the grid does not start the streams by itself
+  (that would wake every battery camera). It shows **Stream all cameras** and
+  the warning. The view toggle starts the streams, because that click is a user
+  gesture. A later config update stops grid streams and shows **Stream all
+  cameras** again.
 
 ### How the camera is matched
 
@@ -451,7 +542,7 @@ forwards the audio in real time.
 <summary>Websocket API (for developers)</summary>
 
 - `advanced_reolink_card/talk/start` (subscription): `entity_id` or `channel`
-  (+ `config_entry_id`), `sample_rate` (8000–96000, default 16000), `format`
+  (+ `config_entry_id`), `sample_rate` (8000-96000, default 16000), `format`
   (`s16le` or `f32le`). Events: `connecting`, `live` (with `binary_handler_id`,
   camera `sample_rate`), then `ended` (reason, blocks sent, timings) or `error`
   (`code`: `busy`, `channel_offline`, `talk_not_supported`, `invalid_auth`,
@@ -541,7 +632,7 @@ logger:
 Automations can send a PTZ camera on a tour of its area, then bring it home.
 
 **What core Reolink already has:** a `PTZ patrol` switch (start/stop the camera's
-built-in cruise — only after you configure patrol positions in the Reolink app),
+built-in cruise, only after you configure patrol positions in the Reolink app),
 a `PTZ preset` select, guard go-to / return, and auto-tracking. Those appeared
 with the patrol switch in HA **2024.3** (status reporting improved in **2026.2**).
 
@@ -553,7 +644,7 @@ cruise when `patrol_id` is set or an enabled patrol exists and you did not pass
 
 Only the TrackMix channels on this NVR are PTZ (Front Yard, Backyard Left,
 Living Room, Kitchen). Fixed cameras raise `ptz_not_supported`. Create presets
-and/or an enabled patrol in the Reolink app first — out of the box this NVR had
+and/or an enabled patrol in the Reolink app first; out of the box this NVR had
 guard points on the TrackMix cameras but **no enabled patrols** and almost no
 named presets.
 
@@ -610,7 +701,7 @@ Force it with `mode: sweep`.
 |---|---|---|
 | `mode` | `auto` | `auto`, `native`, `presets`, `sweep` |
 | `left_time`, `right_time` | camera setting, else 0 | Arc limits from guard in seconds of pan (see below). Both 0: full range |
-| `arc` | – | Shorthand: `arc: [left_time, right_time]` |
+| `arc` | - | Shorthand: `arc: [left_time, right_time]` |
 | `settle_time` | camera setting, else 3 s | Wait after going to guard before an arc sweep |
 | `sweep_time` | 25 s | Seconds per side-to-side pass (about a full TrackMix pan at speed 32). Full-range sweeps only |
 | `pause` | 2 s | Hold at each end |
@@ -619,7 +710,7 @@ Force it with `mode: sweep`.
 | `tilt_step` | 2 s | Tilt-down time between levels |
 | `zoom_out_first` | false | Zoom fully out (6 s ZoomDec) first |
 | `disable_tracking` | false | Pause auto-tracking during the sweep, restore it afterwards |
-| `duration`, `loops`, `return_preset` | – | As above |
+| `duration`, `loops`, `return_preset` | - | As above |
 
 `pause`, `speed`, `tilt_levels`, `tilt_step` and `disable_tracking` also fall back
 to the camera's saved setting before the built-in default shown. Precedence is
@@ -662,15 +753,15 @@ limits**, pick the camera (only PTZ cameras are listed) and set:
 
 | Setting | Default | Range | Meaning |
 |---|---|---|---|
-| Patrol enabled | on | – | When off, `start_patrol` refuses this camera |
-| Sweep left of guard (`left_time`) | 0 | 0–300 s | Seconds of left pan from the guard position to the left limit |
-| Sweep right of guard (`right_time`) | 0 | 0–300 s | Seconds of right pan from guard to the right limit |
-| Pan speed (`speed`) | 32 | 1–64 | Speed for every move. The arc times are measured at this speed |
-| Pause at each end (`pause`) | 2 s | 0–600 s | Hold at each limit |
-| Tilt levels (`tilt_levels`) | 1 | 1–10 | Rows of passes; 1 keeps the current tilt |
-| Tilt step (`tilt_step`) | 2 s | 0–60 s | Down-tilt time between rows |
-| Settle time (`settle_time`) | 3 s | 0–60 s | Wait after going to guard before the first move |
-| Pause auto-tracking (`disable_tracking`) | off | – | Pause and restore auto-tracking around the sweep |
+| Patrol enabled | on | - | When off, `start_patrol` refuses this camera |
+| Sweep left of guard (`left_time`) | 0 | 0-300 s | Seconds of left pan from the guard position to the left limit |
+| Sweep right of guard (`right_time`) | 0 | 0-300 s | Seconds of right pan from guard to the right limit |
+| Pan speed (`speed`) | 32 | 1-64 | Speed for every move. The arc times are measured at this speed |
+| Pause at each end (`pause`) | 2 s | 0-600 s | Hold at each limit |
+| Tilt levels (`tilt_levels`) | 1 | 1-10 | Rows of passes; 1 keeps the current tilt |
+| Tilt step (`tilt_step`) | 2 s | 0-60 s | Down-tilt time between rows |
+| Settle time (`settle_time`) | 3 s | 0-60 s | Wait after going to guard before the first move |
+| Pause auto-tracking (`disable_tracking`) | off | - | Pause and restore auto-tracking around the sweep |
 
 Left and right must both be set (an **arc**) or both 0 (a **full-range** sweep).
 Saving these settings does not reload the integration or interrupt a running patrol.
@@ -687,7 +778,39 @@ The arc is measured from guard, so the camera never pans past guard−left or
 guard+right (within timing accuracy). An arc needs a guard position: set one in the
 Reolink app first, otherwise the action fails with a clear error. To find the times,
 time how long the camera takes to pan from guard to each edge you want at your
-chosen speed.
+chosen speed. The card can measure those times for you (below). The number fields
+on the Configure page stay available as the manual fallback.
+
+### Guided setup on the card
+
+Administrators see **Patrol limits** on the PTZ controls when the camera belongs
+to this integration (the card knows the channel and config entry) and the camera
+supports PTZ. The button is hidden in grid view, because the PTZ controls are
+hidden there.
+
+The dialog measures seconds of pan at the patrol speed, starting from the guard
+position. It does not store an angle.
+
+1. **Guard.** **Go to guard position** moves the camera there. If the camera has
+   no guard stored, set one in the Reolink app first, then try again.
+2. **Left limit.** From guard, press and hold **Pan left** (mouse, touch or
+   keyboard). The card times the pan, shows it to 0.1 s, and keeps the total
+   between 0 and 300 s. **Set left limit** records `left_time`. Use **+0.5 s**
+   and **-0.5 s** to nudge it. **Redo** zeros it and goes back to guard.
+3. **Right limit.** The camera returns to guard. The same hold measures
+   `right_time`.
+4. **Tilt.** Only if the camera can tilt. Set `tilt_levels` and `tilt_step`, or
+   skip. Skip does not send tilt fields, so a saved tilt setting is left as it was.
+5. **Review.** **Test sweep** runs one sweep (`mode: sweep`, `loops: 1`) at the
+   patrol speed, including tilt when you did not skip it. Both times must be
+   greater than 0. **Stop** calls `stop_patrol`. **Save** calls
+   `set_patrol_limits`. **Cancel** closes without saving.
+
+The wizard pans at the camera's saved patrol speed, or 32 if none is saved. The
+PTZ pad on the card, outside the dialog, uses the camera button speed and is not
+part of the measurement. The timed hold includes the small delay of the HTTP
+command on start and on stop. Opening the dialog starts video if the card is not
+already streaming, so you can see the camera move.
 
 You can also save the same settings from an automation or script with
 `advanced_reolink_card.set_patrol_limits`. Only the fields you pass change;

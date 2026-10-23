@@ -1,17 +1,4 @@
-"""Camera card support: match a talk channel to the Reolink core integration's
-camera device and discover its stream, PTZ, preset and battery entities.
-
-Websocket command ``advanced_reolink_card/card/info`` (any authenticated user;
-it only reads the entity/device registries, the card then uses Home
-Assistant's own camera WebRTC/stream API and ``button.press`` /
-``select.select_option`` actions, which apply the usual permissions).
-
-Target: ``entity_id`` (a speaker of this integration) or ``channel`` (+
-optional ``config_entry_id``), and/or ``camera_entity`` (a Reolink core camera,
-manual override). The result lists the matched camera entities (preferred
-first), PTZ buttons (direction, stop, zoom), the preset select and whether the
-camera runs on a battery.
-"""
+"""Match a talk channel to the Reolink core camera, stream, PTZ, preset and battery entities."""
 
 from __future__ import annotations
 
@@ -30,6 +17,7 @@ from homeassistant.helpers import device_registry as dr, entity_registry as er
 
 from .const import ATTR_CAMERA, ATTR_CHANNEL, ATTR_CONFIG_ENTRY_ID, DOMAIN
 from .helpers import resolve_target
+from .patrol_settings import camera_settings
 
 if TYPE_CHECKING:
     from . import AdvancedReolinkConfigEntry
@@ -66,13 +54,13 @@ PTZ_BUTTONS: Mapping[str, str] = {
 }
 PTZ_DIRECTIONS = ("left", "right", "up", "down")
 PRESET_KEY = "ptz_preset"
+GUARD_KEY = "guard_go_to"
 SLEEP_KEY = "sleep"
 BATTERY_KEY = "battery_percent"
 
 
 def _match_key(unique_id: str, keys: Iterable[str]) -> str | None:
-    """Longest key that ``unique_id`` ends with (``_<key>``), so e.g.
-    ``…_autotrack_snapshots_sub`` is not mistaken for ``…_sub``."""
+    """Longest ``_<key>`` suffix, so ``_autotrack_snapshots_sub`` is not read as ``_sub``."""
     for key in sorted(keys, key=len, reverse=True):
         if unique_id.endswith(f"_{key}"):
             return key
@@ -97,6 +85,7 @@ class DeviceFeatures:
     ptz: dict[str, str] = field(default_factory=dict)  # role -> entity_id (enabled only)
     ptz_disabled: list[str] = field(default_factory=list)  # entity_ids disabled in HA
     preset_entity: str | None = None
+    guard_entity: str | None = None
     sleep_entity: str | None = None
     battery_entity: str | None = None
 
@@ -118,10 +107,12 @@ class DeviceFeatures:
             "ptz": {
                 "supported": self.ptz_supported,
                 "zoom": "zoom_in" in self.ptz and "zoom_out" in self.ptz,
+                "tilt": "up" in self.ptz and "down" in self.ptz,
                 "entities": dict(self.ptz),
                 "disabled_entities": list(self.ptz_disabled),
                 "preset_entity": self.preset_entity,
             },
+            "guard_entity": self.guard_entity,
             "battery": self.battery,
             "sleep_entity": self.sleep_entity,
             "battery_entity": self.battery_entity,
@@ -149,6 +140,10 @@ def classify_entities(entities: Iterable[RegistryEntity]) -> DeviceFeatures:
                 )
             )
         elif ent.domain == "button":
+            if _match_key(ent.unique_id, (GUARD_KEY,)):
+                if not ent.disabled:
+                    feats.guard_entity = ent.entity_id
+                continue
             key = _match_key(ent.unique_id, PTZ_BUTTONS)
             if key is None:
                 continue
@@ -185,13 +180,7 @@ def _norm(value: str | None) -> str:
 
 
 def match_reolink_device(hass: HomeAssistant, hint: ChannelHint) -> dr.DeviceEntry | None:
-    """Reolink core device for a channel.
-
-    Looks in Reolink core config entries for the same host first (all of them
-    if none matches), then by camera UID (identifier suffix or serial number),
-    ``<host id>_ch<channel>`` identifier, a standalone camera (single device
-    with cameras), and finally the device name.
-    """
+    """Reolink core device for a channel: same host, then UID, channel id, then name."""
     dev_reg = dr.async_get(hass)
     ent_reg = er.async_get(hass)
     entries = hass.config_entries.async_entries(REOLINK_DOMAIN)
@@ -285,6 +274,8 @@ def build_card_info(hass: HomeAssistant, target: Mapping[str, Any]) -> dict[str,
         "device_id": None,
         "matched": False,
         "sleeping": None,
+        "guard_configured": None,
+        "patrol": None,
     }
     entry: AdvancedReolinkConfigEntry | None = None
     channel: int | None = None
@@ -330,6 +321,8 @@ def build_card_info(hass: HomeAssistant, target: Mapping[str, Any]) -> dict[str,
     # Our own data also knows battery cameras (they report sleeping).
     if entry is not None and channel is not None and result["sleeping"] is True:
         result["battery"] = True
+    if entry is not None and channel is not None:
+        result["patrol"] = camera_settings(entry.options, channel)
     return result
 
 

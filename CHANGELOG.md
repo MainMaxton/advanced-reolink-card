@@ -1,5 +1,36 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- Multi-camera Lovelace card: a `cameras` list puts several cameras on one
+  `custom:advanced-reolink-card` with tabs above the video (name, optional
+  `icon`) and a horizontal swipe on the video area. Top-level options are
+  defaults; each camera can override them. `default_camera` (index, name or
+  entity) chooses the initial tab; the selection is kept while the card stays
+  open.
+- Only the active camera streams. Switching tabs tears down the previous
+  WebRTC/HLS/still session and stops listen and talk before starting the next
+  camera. Live view starts again on the new camera when it was already on.
+  Listening stays stopped (press Listen again). Talk does not resume.
+  PTZ, listen and talk follow the active camera's capabilities.
+- Visual editor: a `cameras` list is not edited in the form (YAML note plus the
+  camera names) so the form cannot wipe the list. `view`, `grid_columns` and
+  `hide_grid_warning` can be set there. Single-camera configs and
+  `getStubConfig` are unchanged.
+- Grid view on a multi-camera card (`view: tabs` or `grid`, default `tabs`),
+  with optional `grid_columns` (1 to 6) and `hide_grid_warning`. A button next
+  to the tab bar switches while the card is open. The grid streams every camera;
+  tapping a tile returns to that camera. The first time, a dismissible bandwidth
+  warning is shown. A card that opens already in the grid waits for Stream all
+  cameras or the view toggle before starting streams.
+- Guided patrol limit setup: Patrol limits on the card PTZ controls
+  (administrators, PTZ cameras of this integration) times the left and right pan
+  from the guard position, optionally sets tilt, can test one sweep, then saves
+  with `set_patrol_limits`. Manual fields in Configure stay as the fallback.
+  Admin websocket commands: `advanced_reolink_card/ptz/move`, `ptz/stop`,
+  `ptz/guard` and `ptz/status`.
+
 ## 0.4.0 - 2026-10-08
 
 ### Breaking: renamed to Advanced Reolink Card

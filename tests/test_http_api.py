@@ -1,4 +1,4 @@
-"""HTTP api.cgi client tests (fake aiohttp session — no network)."""
+"""HTTP api.cgi client tests (fake aiohttp session, no network)."""
 
 from __future__ import annotations
 

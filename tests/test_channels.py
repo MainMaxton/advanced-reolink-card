@@ -140,7 +140,7 @@ def test_merge_sleeping_battery_camera_never_dropped() -> None:
     assert merged[0]["sleeping"] is True
     assert selectable_channels(merged) == [8]
 
-    # Entirely omitted from a partial scan — still kept.
+    # Entirely omitted from a partial scan, still kept.
     merged_missing = merge_channels(old, [_cam(0, "Garage")])
     by_ch = {int(c["channel"]): c for c in merged_missing}
     assert 8 in by_ch

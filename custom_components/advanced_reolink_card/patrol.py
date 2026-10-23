@@ -1,7 +1,4 @@
-"""Camera PTZ patrol orchestration (native cruise, preset loop or timed sweep).
-
-The HTTP client is injected in tests so no real PtzCtrl ever hits an NVR.
-"""
+"""PTZ patrol: native cruise, preset loop, or timed sweep."""
 
 from __future__ import annotations
 
@@ -31,14 +28,21 @@ DEFAULT_SWEEP_SPEED = 32
 DEFAULT_TILT_STEP_S = 2.0
 ZOOM_OUT_TIME_S = 6.0
 MODES = ("auto", "native", "presets", "sweep")
+# Card "Patrol limits" pans with these ops so the timed arc matches a sweep.
+PTZ_DIRECTION_OPS: dict[str, str] = {
+    "left": "Left",
+    "right": "Right",
+    "up": "Up",
+    "down": "Down",
+    "zoom_in": "ZoomInc",
+    "zoom_out": "ZoomDec",
+}
 OnlineCheck = Callable[[int], bool | None]
 ClientFactory = Callable[[], ReolinkHttpClient]
 
 
 @dataclass
 class PatrolRequest:
-    """Parameters for one start_patrol call."""
-
     channel: int
     patrol_id: int | str | None = None
     presets: list[int | str] | None = None
@@ -221,10 +225,7 @@ class PatrolManager:
     async def async_start(
         self, request: PatrolRequest, *, wait: bool = False
     ) -> PatrolResult:
-        """Start patrol. Returns after validation; long runs continue in the background.
-
-        Pass ``wait=True`` (tests) to await completion.
-        """
+        """Return after validation; the run continues in the background unless wait=True."""
         await self.async_stop(request.channel, native_stop=True)
         try:
             async with self._client() as client:
@@ -396,7 +397,7 @@ class PatrolManager:
                     if loops_left <= 0:
                         reason = "loops"
                         break
-                # else: unbounded — keep circulating until stop_patrol
+                # else: unbounded, keep circulating until stop_patrol
         finally:
             if reason != "offline":
                 await self._return_home(client, plan.info, request)
@@ -452,6 +453,82 @@ class PatrolManager:
         except (BaichuanError, OSError, TimeoutError) as err:
             _LOGGER.debug("PTZ Stop on channel %s failed: %s", channel, err)
 
+    async def async_ptz_move(self, channel: int, direction: str, speed: int) -> None:
+        """Start one continuous PtzCtrl move at ``speed`` (1-64). Caller sends stop."""
+        op = PTZ_DIRECTION_OPS.get(direction)
+        if op is None:
+            raise HomeAssistantError(
+                **translated(
+                    "patrol_failed",
+                    channel=channel,
+                    name=self._name(channel),
+                    error=f"unknown direction {direction}",
+                )
+            )
+        speed_i = max(1, min(64, int(speed)))
+        try:
+            async with self._client() as client:
+                await client.ptz_ctrl(channel, op, speed=speed_i)
+        except BaichuanAuthError as err:
+            raise HomeAssistantError(**translated("invalid_auth")) from err
+        except (BaichuanError, OSError, TimeoutError) as err:
+            raise HomeAssistantError(
+                **translated(
+                    "patrol_failed", channel=channel, name=self._name(channel), error=err
+                )
+            ) from err
+
+    async def async_ptz_stop(self, channel: int) -> None:
+        """Stop whatever PtzCtrl move is in progress on ``channel``."""
+        try:
+            async with self._client() as client:
+                await self._safe_stop(client, channel)
+        except BaichuanAuthError as err:
+            raise HomeAssistantError(**translated("invalid_auth")) from err
+
+    async def async_goto_guard(self, channel: int) -> bool:
+        """Move to the guard position. False when the camera has none stored."""
+        name = self._name(channel)
+        try:
+            async with self._client() as client:
+                info = await client.get_ptz_info(channel)
+                if not info.ptz_supported:
+                    raise HomeAssistantError(
+                        **translated("ptz_not_supported", channel=channel, name=name)
+                    )
+                if not info.guard_configured:
+                    return False
+                await client.goto_guard(channel)
+                return True
+        except BaichuanAuthError as err:
+            raise HomeAssistantError(**translated("invalid_auth")) from err
+        except HomeAssistantError:
+            raise
+        except (BaichuanError, OSError, TimeoutError) as err:
+            raise HomeAssistantError(
+                **translated("patrol_failed", channel=channel, name=name, error=err)
+            ) from err
+
+    async def async_ptz_status(self, channel: int) -> dict[str, Any]:
+        """Guard and PTZ facts for the card wizard (one HTTP read)."""
+        try:
+            async with self._client() as client:
+                info = await client.get_ptz_info(channel)
+        except BaichuanAuthError as err:
+            raise HomeAssistantError(**translated("invalid_auth")) from err
+        except (BaichuanError, OSError, TimeoutError) as err:
+            raise HomeAssistantError(
+                **translated(
+                    "patrol_failed", channel=channel, name=self._name(channel), error=err
+                )
+            ) from err
+        return {
+            "guard_configured": info.guard_configured,
+            "ptz_supported": info.ptz_supported,
+            "ptz_type": info.ptz_type,
+            "tilt": info.ptz_type >= 2,
+        }
+
     async def _sweep(
         self,
         client: ReolinkHttpClient,
@@ -459,13 +536,7 @@ class PatrolManager:
         request: PatrolRequest,
         cancel: asyncio.Event,
     ) -> PatrolResult:
-        """Preset-free sweep, Right/Left passes repeated.
-
-        Full range (no limits): Left for ``sweep_time`` to the end stop, then
-        passes of ``sweep_time``. Arc (left_time/right_time): go to the guard
-        position and settle, Left for ``left_time``, then passes of
-        ``left_time + right_time`` so the camera never pans past the arc.
-        """
+        """Timed Right/Left sweep. An arc stays inside left_time and right_time."""
         channel = request.channel
         if request.arc:
             first_time = float(request.left_time)
@@ -568,7 +639,7 @@ class PatrolManager:
             return None
         key = "bSmartTrack" if "bSmartTrack" in cfg else "aiTrack" if "aiTrack" in cfg else None
         if key is None or not cfg.get(key):
-            return None  # nothing to pause
+            return None
         original = {key: cfg[key]}
         await client.set_ai_cfg(channel, {key: 0})
         return original

@@ -86,6 +86,7 @@ from .const import (
 from .coordinator import AdvancedReolinkCoordinator
 from .helpers import resolve_patrol_target, resolve_target, translated
 from .card_info import async_setup_card_info
+from .ptz_ws import async_setup_ptz_ws
 from .patrol import PatrolManager, PatrolRequest
 from .patrol_settings import (
     CONF_PATROL,
@@ -209,6 +210,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Register the domain services, the card/live talk websocket API and the card."""
     _async_register_services(hass)
     async_setup_card_info(hass)
+    async_setup_ptz_ws(hass)
     await async_setup_live_talk(hass)
     return True
 
@@ -307,7 +309,7 @@ async def _async_rediscover(hass: HomeAssistant, entry: AdvancedReolinkConfigEnt
 
     Updates stored channel metadata via :func:`merge_channels` (which never
     drops known cameras on a partial scan). Reloads only to **add** new
-    cameras or refresh names — never because the enabled set would shrink.
+    cameras or refresh names, never because the enabled set would shrink.
     A failed or empty discovery leaves the stored list untouched.
     """
     data = entry.runtime_data
@@ -334,7 +336,7 @@ async def _async_rediscover(hass: HomeAssistant, entry: AdvancedReolinkConfigEnt
     names_changed = {c["channel"]: c.get("name") for c in merged} != {
         c["channel"]: c.get("name") for c in stored
     }
-    # Never reload solely because enabled shrank — that would drop entities
+    # Never reload solely because enabled shrank: that would drop entities
     # after a flaky rescan. Only Configure (options change) removes cameras.
     if added or names_changed:
         hass.config_entries.async_schedule_reload(entry.entry_id)

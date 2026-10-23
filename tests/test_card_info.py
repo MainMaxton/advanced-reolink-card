@@ -97,6 +97,8 @@ def test_classify_trackmix() -> None:
     assert info["ptz"]["zoom"] is False
     assert info["ptz"]["disabled_entities"] == ["button.cam_ptz_zoom_in", "button.cam_ptz_zoom_out"]
     assert info["ptz"]["preset_entity"] == "select.cam_ptz_preset"
+    assert info["ptz"]["tilt"] is True
+    assert info["guard_entity"] == "button.cam_guard_go_to"
     assert info["battery"] is False
 
 
@@ -114,6 +116,8 @@ def test_classify_zoom_enabled() -> None:
 def test_classify_fixed_camera_and_doorbell() -> None:
     fixed = classify_entities([_ent("camera", "sub"), _ent("button", "guard_go_to")]).as_dict()
     assert fixed["ptz"]["supported"] is False
+    assert fixed["ptz"]["tilt"] is False
+    assert fixed["guard_entity"] == "button.cam_guard_go_to"
     assert fixed["camera_entity"] == "camera.cam_sub"
 
     doorbell = classify_entities(
@@ -292,6 +296,34 @@ async def test_ws_card_info_ptz_camera(
     assert info["ptz"]["entities"]["stop"] == "button.front_yard_ptz_stop"
     assert info["ptz"]["preset_entity"] == "select.front_yard_ptz_preset"
     assert info["battery"] is False
+    assert info["guard_configured"] is None
+    assert info["guard_entity"] == "button.front_yard_guard_go_to"
+    assert info["ptz"]["tilt"] is True
+    assert info["config_entry_id"] == entry_with_uids.entry_id
+    assert info["patrol"]["speed"] == 32
+    assert info["patrol"]["left_time"] == 0
+
+
+async def test_ws_card_info_patrol_options_do_not_reload(
+    hass: HomeAssistant, hass_ws_client, entry_with_uids: MockConfigEntry, mock_nvr: MagicMock,
+    reolink_core: dict[str, str],
+) -> None:
+    await _setup(hass, entry_with_uids)
+    runtime = entry_with_uids.runtime_data
+    hass.config_entries.async_update_entry(
+        entry_with_uids,
+        options={"patrol": {"0": {"left_time": 8, "right_time": 9, "speed": 20}}},
+    )
+    await hass.async_block_till_done()
+    assert entry_with_uids.runtime_data is runtime
+    ws = await hass_ws_client(hass)
+    msg = await _info(ws, entity_id=SPEAKER_A)
+    assert msg["success"], msg
+    patrol = msg["result"]["patrol"]
+    assert patrol["left_time"] == 8
+    assert patrol["right_time"] == 9
+    assert patrol["speed"] == 20
+    assert msg["result"]["guard_configured"] is None
 
 
 async def test_ws_card_info_battery_by_name(
@@ -335,6 +367,8 @@ async def test_ws_card_info_channel_and_override(
     assert msg["success"], msg
     assert msg["result"]["channel"] is None
     assert msg["result"]["name"] == "Garage"
+    assert msg["result"]["patrol"] is None
+    assert msg["result"]["guard_configured"] is None
 
 
 async def test_ws_card_info_without_core_integration(
