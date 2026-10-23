@@ -1049,7 +1049,7 @@ class AdvancedReolinkCard extends HTMLElement {
       return;
     }
     // Measure the outgoing camera first so the card never shrinks under the page.
-    this._lockCardHeight();
+    this._lockCardHeight(true);
     const wasLive = this._video.state !== "off" && this._video.state !== "error";
     // Gesture unlock is only for live video. Listen stays stopped after a tab switch.
     if (wasLive) this._ensurePlayCtx();
@@ -1179,11 +1179,11 @@ class AdvancedReolinkCard extends HTMLElement {
     return height;
   }
 
-  _lockCardHeight() {
+  _lockCardHeight(useRendered = false) {
     if (!this._config || this._inGrid()) return;
     const card = this.shadowRoot && this.shadowRoot.querySelector("ha-card");
     if (!card) return;
-    const natural = this._naturalCardHeight(card);
+    const natural = useRendered ? card.offsetHeight : this._naturalCardHeight(card);
     if (natural < 40 || (this._cardMinHeight && natural <= this._cardMinHeight + 1)) return;
     this._cardMinHeight = natural;
     const cs = getComputedStyle(card);
@@ -1194,6 +1194,8 @@ class AdvancedReolinkCard extends HTMLElement {
       const border = (parseFloat(cs.borderTopWidth) || 0) + (parseFloat(cs.borderBottomWidth) || 0);
       min = natural - pad - border;
     }
+    // ha-card animates all properties, which would grow the lock from zero.
+    card.style.transition = "none";
     card.style.minHeight = `${Math.ceil(Math.max(0, min))}px`;
   }
 
