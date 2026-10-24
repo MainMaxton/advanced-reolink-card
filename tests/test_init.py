@@ -3,26 +3,26 @@
 from __future__ import annotations
 
 from datetime import timedelta
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from custom_components.reolink_camera_audiohook.baichuan_talk import (
+from custom_components.advanced_reolink_card.baichuan_talk import (
     BaichuanAuthError,
     BaichuanConnectionError,
     BaichuanError,
     BaichuanTimeoutError,
     TalkNotSupported,
 )
-from custom_components.reolink_camera_audiohook.const import CONF_ENABLED_CHANNELS, DOMAIN
-from custom_components.reolink_camera_audiohook.diagnostics import (
+from custom_components.advanced_reolink_card.const import CONF_ENABLED_CHANNELS, DOMAIN
+from custom_components.advanced_reolink_card.diagnostics import (
     async_get_config_entry_diagnostics,
 )
-from custom_components.reolink_camera_audiohook.talk_manager import (
+from custom_components.advanced_reolink_card.talk_manager import (
     ChannelOfflineError,
     ChannelState,
 )
-from custom_components.reolink_camera_audiohook.tts_edge import TtsError
+from custom_components.advanced_reolink_card.tts_edge import TtsError
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
@@ -280,3 +280,61 @@ async def test_diagnostics_redacts_secrets(
         assert secret not in text
     assert diag["enabled_channels"] == [0, 1]
     assert diag["status"]["last_update_success"] is True
+
+
+async def test_rediscover_partial_scan_does_not_drop_cameras(
+    hass: HomeAssistant, mock_nvr: MagicMock, config_entry: MockConfigEntry
+) -> None:
+    """Background rediscovery with a truncated channel list must keep entities."""
+    from custom_components.advanced_reolink_card import _async_rediscover
+    from custom_components.advanced_reolink_card.baichuan_talk import ChannelInfo
+    from custom_components.advanced_reolink_card.const import CONF_CHANNELS
+
+    await _setup(hass, config_entry)
+    assert config_entry.runtime_data.enabled_channels == {0, 1}
+    assert hass.states.get(SPEAKER_A) is not None
+    assert hass.states.get(SPEAKER_B) is not None
+
+    # Partial rescan: only ch0 comes back (ch1 sleeping doorbell omitted).
+    partial = {
+        0: ChannelInfo(0, name="Camera A", model="Cam", online=True, sleeping=False, talk_checked=True),
+    }
+    partial[0].talk = mock_nvr.abilities.get(0)  # may be None; fine for merge
+    mock_nvr.discover = AsyncMock(return_value=(dict(config_entry.data["device"]), partial))
+
+    await _async_rediscover(hass, config_entry)
+    await hass.async_block_till_done()
+
+    stored = config_entry.data[CONF_CHANNELS]
+    assert {int(c["channel"]) for c in stored} >= {0, 1}
+    ch1 = next(c for c in stored if int(c["channel"]) == 1)
+    assert ch1["name"] == "Camera B"
+    assert ch1["online"] is False
+    # Entities must still be present (no shrink-reload).
+    assert config_entry.runtime_data.enabled_channels == {0, 1}
+    assert hass.states.get(SPEAKER_A) is not None
+    assert hass.states.get(SPEAKER_B) is not None
+
+
+async def test_rediscover_empty_or_failed_keeps_stored(
+    hass: HomeAssistant, mock_nvr: MagicMock, config_entry: MockConfigEntry
+) -> None:
+    from custom_components.advanced_reolink_card import _async_rediscover
+    from custom_components.advanced_reolink_card.baichuan_talk import BaichuanError
+    from custom_components.advanced_reolink_card.const import CONF_CHANNELS
+
+    await _setup(hass, config_entry)
+    before = list(config_entry.data[CONF_CHANNELS])
+
+    mock_nvr.discover = AsyncMock(return_value=(dict(config_entry.data["device"]), {}))
+    await _async_rediscover(hass, config_entry)
+    await hass.async_block_till_done()
+    assert config_entry.data[CONF_CHANNELS] == before
+    assert config_entry.runtime_data.enabled_channels == {0, 1}
+
+    mock_nvr.discover = AsyncMock(side_effect=BaichuanError("timeout"))
+    await _async_rediscover(hass, config_entry)
+    await hass.async_block_till_done()
+    assert config_entry.data[CONF_CHANNELS] == before
+    assert hass.states.get(SPEAKER_A) is not None
+    assert hass.states.get(SPEAKER_B) is not None

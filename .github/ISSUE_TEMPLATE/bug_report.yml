@@ -59,7 +59,7 @@ body:
     attributes:
       label: Diagnostics
       description: |
-        Settings → Devices & services → Reolink Camera AudioHook → ⋮ → Download diagnostics.
+        Settings → Devices & services → Advanced Reolink Card → ⋮ → Download diagnostics.
         Attach the file or paste it here. **Check that nothing private is left in it.**
       render: json
   - type: textarea
@@ -67,7 +67,7 @@ body:
     attributes:
       label: Debug log
       description: |
-        Enable debug logging for `custom_components.reolink_camera_audiohook`, reproduce
+        Enable debug logging for `custom_components.advanced_reolink_card`, reproduce
         the problem, and paste the relevant lines. **Redact IP addresses and names.**
       render: text
   - type: checkboxes

@@ -1,0 +1,461 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to your camera",
+        "description": "Setup reads the camera list and does not change the device.",
+        "data": {
+          "host": "[%key:common::config_flow::data::host%]",
+          "port": "Port",
+          "username": "[%key:common::config_flow::data::username%]",
+          "password": "[%key:common::config_flow::data::password%]"
+        },
+        "data_description": {
+          "host": "Address of the recorder, or of a single camera.",
+          "port": "Usually 9000.",
+          "username": "A user on the device that is allowed to talk.",
+          "password": "Password for that user."
+        }
+      },
+      "reauth_confirm": {
+        "title": "Sign in again",
+        "description": "{host} rejected the saved sign in. Enter it again.",
+        "data": {
+          "username": "[%key:common::config_flow::data::username%]",
+          "password": "[%key:common::config_flow::data::password%]"
+        },
+        "data_description": {
+          "username": "A user on the device.",
+          "password": "Password for that user."
+        }
+      },
+      "reconfigure": {
+        "title": "Update the connection",
+        "description": "Change the address, port, or sign in. Leave the password empty to keep the current one.",
+        "data": {
+          "host": "[%key:common::config_flow::data::host%]",
+          "port": "Port",
+          "username": "[%key:common::config_flow::data::username%]",
+          "password": "[%key:common::config_flow::data::password%]"
+        },
+        "data_description": {
+          "host": "Address of the recorder, or of a single camera.",
+          "port": "Usually 9000.",
+          "username": "A user on the device.",
+          "password": "Leave empty to keep the saved password."
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "[%key:common::config_flow::error::cannot_connect%]",
+      "invalid_auth": "[%key:common::config_flow::error::invalid_auth%]",
+      "timeout": "[%key:common::config_flow::error::timeout_connect%]",
+      "no_talk_channels": "Connected, but no camera on this device can talk.",
+      "unknown": "[%key:common::config_flow::error::unknown%]"
+    },
+    "abort": {
+      "already_configured": "[%key:common::config_flow::abort::already_configured_device%]",
+      "reauth_successful": "[%key:common::config_flow::abort::reauth_successful%]",
+      "reconfigure_successful": "[%key:common::config_flow::abort::reconfigure_successful%]",
+      "wrong_device": "That address is a different device. Add it as a new device."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Advanced Reolink Card options",
+        "description": "The camera list was checked when this page opened. Sleeping cameras are listed and wake when they need to speak. Cameras that cannot talk: {unsupported}.",
+        "data": {
+          "voice": "Default voice",
+          "volume": "Default volume",
+          "enabled_channels": "Cameras allowed to talk",
+          "live_talk_non_admin": "Let other people use live talk"
+        },
+        "data_description": {
+          "voice": "Any Microsoft Edge neural voice name.",
+          "volume": "100 percent plays the audio as it is. Higher values make it louder and may distort.",
+          "enabled_channels": "Only these cameras get a speaker, and actions refuse the rest.",
+          "live_talk_non_admin": "Live talk on the card is for administrators unless this is on."
+        }
+      }
+    }
+  },
+  "entity": {
+    "media_player": {
+      "speaker": {
+        "name": "Speaker",
+        "state_attributes": {
+          "channel": {
+            "name": "Camera number"
+          },
+          "sleeping": {
+            "name": "Asleep",
+            "state": {
+              "true": "Yes",
+              "false": "No"
+            }
+          },
+          "talk_support": {
+            "name": "Two way talk",
+            "state": {
+              "supported": "Supported",
+              "unsupported": "Not supported",
+              "unknown": "Not confirmed yet"
+            }
+          },
+          "sample_rate": {
+            "name": "Talk sample rate"
+          }
+        }
+      }
+    },
+    "notify": {
+      "speak": {
+        "name": "Speak",
+        "state_attributes": {
+          "channel": {
+            "name": "Camera number"
+          },
+          "sleeping": {
+            "name": "Asleep",
+            "state": {
+              "true": "Yes",
+              "false": "No"
+            }
+          },
+          "talk_support": {
+            "name": "Two way talk",
+            "state": {
+              "supported": "Supported",
+              "unsupported": "Not supported",
+              "unknown": "Not confirmed yet"
+            }
+          },
+          "sample_rate": {
+            "name": "Talk sample rate"
+          }
+        }
+      }
+    }
+  },
+  "exceptions": {
+    "invalid_auth": {
+      "message": "The device rejected the saved username or password."
+    },
+    "cannot_connect": {
+      "message": "Cannot reach {host}: {error}"
+    },
+    "not_a_speaker": {
+      "message": "{entity_id} is not an Advanced Reolink Card speaker."
+    },
+    "target_required": {
+      "message": "Choose a camera speaker or a camera number."
+    },
+    "entry_not_loaded": {
+      "message": "The device {entry_id} is not loaded."
+    },
+    "no_entry_loaded": {
+      "message": "No Advanced Reolink Card device is set up."
+    },
+    "multiple_entries": {
+      "message": "More than one device is set up. Choose the camera or the device as well as the camera number."
+    },
+    "channel_not_enabled": {
+      "message": "{name} is not allowed to talk. Turn it on in the options."
+    },
+    "channel_offline": {
+      "message": "{name} is offline."
+    },
+    "talk_not_supported": {
+      "message": "{name} cannot do two way talk."
+    },
+    "talk_timeout": {
+      "message": "{name} did not answer in time. It may be asleep or out of range. {error}"
+    },
+    "talk_failed": {
+      "message": "Talk on {name} failed. {error}"
+    },
+    "tts_failed": {
+      "message": "Speech failed. {error}"
+    },
+    "playback_failed": {
+      "message": "Could not prepare the audio. {error}"
+    },
+    "nothing_to_play": {
+      "message": "Nothing to play. Add a message or a media item."
+    },
+    "path_not_allowed": {
+      "message": "{path} is outside the folders Home Assistant is allowed to read."
+    },
+    "ptz_not_supported": {
+      "message": "{name} cannot pan, so it cannot patrol."
+    },
+    "patrol_not_configured": {
+      "message": "{name} needs a list of presets for this patrol."
+    },
+    "patrol_invalid_target": {
+      "message": "{name}: {error}"
+    },
+    "patrol_failed": {
+      "message": "Patrol on {name} failed. {error}"
+    },
+    "patrol_target_required": {
+      "message": "Choose a camera, a device, or a camera number."
+    },
+    "patrol_target_unknown": {
+      "message": "Could not match {target} to a camera."
+    },
+    "patrol_disabled": {
+      "message": "Patrol is turned off for {name}."
+    },
+    "patrol_guard_required": {
+      "message": "{name} needs a home position before this patrol can run. Open the camera and choose Set up patrol."
+    },
+    "patrol_value_range": {
+      "message": "{field} must be between {min} and {max}."
+    },
+    "patrol_arc_incomplete": {
+      "message": "Set a right limit as well (left {left_time}, right {right_time}), or set both to 0 for a full range sweep."
+    }
+  },
+  "services": {
+    "say": {
+      "name": "Say",
+      "description": "Speak a message through a camera speaker.",
+      "fields": {
+        "camera": {
+          "name": "Camera",
+          "description": "Speaker for the camera. Use this or a camera number."
+        },
+        "channel": {
+          "name": "Camera number",
+          "description": "Camera number, starting at 0. Use this or a camera."
+        },
+        "config_entry_id": {
+          "name": "Device",
+          "description": "Only needed with a camera number when more than one device is set up."
+        },
+        "message": {
+          "name": "Message",
+          "description": "Text to speak."
+        },
+        "voice": {
+          "name": "Voice",
+          "description": "Microsoft Edge voice name. Overrides the default."
+        },
+        "volume": {
+          "name": "Volume",
+          "description": "Loudness in percent. 100 leaves the audio as it is."
+        }
+      }
+    },
+    "play_file": {
+      "name": "Play audio",
+      "description": "Play an audio file or media item on a camera speaker.",
+      "fields": {
+        "camera": {
+          "name": "[%key:component::advanced_reolink_card::services::say::fields::camera::name%]",
+          "description": "[%key:component::advanced_reolink_card::services::say::fields::camera::description%]"
+        },
+        "channel": {
+          "name": "[%key:component::advanced_reolink_card::services::say::fields::channel::name%]",
+          "description": "[%key:component::advanced_reolink_card::services::say::fields::channel::description%]"
+        },
+        "config_entry_id": {
+          "name": "[%key:component::advanced_reolink_card::services::say::fields::config_entry_id::name%]",
+          "description": "[%key:component::advanced_reolink_card::services::say::fields::config_entry_id::description%]"
+        },
+        "media_content_id": {
+          "name": "Media",
+          "description": "A Home Assistant media item, a web address, or a local file in an allowed folder."
+        },
+        "volume": {
+          "name": "[%key:component::advanced_reolink_card::services::say::fields::volume::name%]",
+          "description": "[%key:component::advanced_reolink_card::services::say::fields::volume::description%]"
+        }
+      }
+    },
+    "start_patrol": {
+      "name": "Start patrol",
+      "description": "Patrol a camera that can pan. Uses a saved patrol, a list of presets, or a sweep between the left limit and the right limit. Empty options use the camera settings, then the defaults. The camera returns to the home position at the end.",
+      "fields": {
+        "camera": {
+          "name": "Camera",
+          "description": "A speaker from this integration, or a camera from the Reolink integration."
+        },
+        "device_id": {
+          "name": "Device",
+          "description": "A device from this integration, or a Reolink camera device."
+        },
+        "channel": {
+          "name": "Camera number",
+          "description": "Camera number, starting at 0."
+        },
+        "config_entry_id": {
+          "name": "Device",
+          "description": "Only needed with a camera number when more than one device is set up."
+        },
+        "patrol_id": {
+          "name": "Saved patrol",
+          "description": "Name or number of a patrol saved on the camera. Used when presets is empty."
+        },
+        "presets": {
+          "name": "Presets",
+          "description": "Preset names or numbers to visit, in order."
+        },
+        "dwell": {
+          "name": "Wait at each preset",
+          "description": "Seconds to wait at each preset. Default 10."
+        },
+        "duration": {
+          "name": "Duration",
+          "description": "Stop after this many seconds, then return to the home position."
+        },
+        "loops": {
+          "name": "Loops",
+          "description": "How many times to repeat the preset list or the sweep."
+        },
+        "return_preset": {
+          "name": "Return preset",
+          "description": "Preset to use when finished. If empty, the camera returns to the home position."
+        },
+        "mode": {
+          "name": "Mode",
+          "description": "Auto uses presets when you pass them, otherwise a patrol saved on the camera, otherwise a sweep. You can also choose native, presets, or sweep."
+        },
+        "sweep_time": {
+          "name": "Full range time",
+          "description": "Seconds for one side of a full range sweep. Used only when no limits are set."
+        },
+        "pause": {
+          "name": "Pause",
+          "description": "Seconds to hold at each end of a sweep. Default 2."
+        },
+        "speed": {
+          "name": "Sweep speed",
+          "description": "Sweep speed from 1 to 64. Default 32."
+        },
+        "tilt_levels": {
+          "name": "Tilt rows",
+          "description": "How many tilt rows to sweep. Default 1, which keeps the current tilt."
+        },
+        "tilt_step": {
+          "name": "Tilt step",
+          "description": "Seconds to tilt down between rows. Default 2."
+        },
+        "zoom_out_first": {
+          "name": "Zoom out first",
+          "description": "Zoom all the way out before the sweep."
+        },
+        "disable_tracking": {
+          "name": "Pause auto tracking",
+          "description": "Turn auto tracking off during the sweep and restore it afterwards."
+        },
+        "left_time": {
+          "name": "Left limit",
+          "description": "Seconds to pan left from the home position. Use 0 when the home position is the left limit."
+        },
+        "right_time": {
+          "name": "Right limit",
+          "description": "Seconds to pan right from the home position to the right limit."
+        },
+        "arc": {
+          "name": "Sweep limits",
+          "description": "Two numbers, left limit then right limit, in seconds."
+        },
+        "settle_time": {
+          "name": "Pause at the home position",
+          "description": "Seconds to wait at the home position before a limited sweep."
+        }
+      }
+    },
+    "stop_patrol": {
+      "name": "Stop patrol",
+      "description": "Stop a patrol that is running.",
+      "fields": {
+        "camera": {
+          "name": "Camera",
+          "description": "A speaker from this integration, or a camera from the Reolink integration."
+        },
+        "device_id": {
+          "name": "Device",
+          "description": "A device from this integration, or a Reolink camera device."
+        },
+        "channel": {
+          "name": "Camera number",
+          "description": "Camera number, starting at 0."
+        },
+        "config_entry_id": {
+          "name": "Device",
+          "description": "Only needed with a camera number when more than one device is set up."
+        }
+      }
+    },
+    "set_patrol_limits": {
+      "name": "Save patrol settings",
+      "description": "Save patrol settings for one camera. Only the fields you set are changed. Set both limits to 0 for a full range sweep.",
+      "fields": {
+        "camera": {
+          "name": "Camera",
+          "description": "A speaker from this integration, or a camera from the Reolink integration."
+        },
+        "device_id": {
+          "name": "Device",
+          "description": "A device from this integration, or a Reolink camera device."
+        },
+        "channel": {
+          "name": "Camera number",
+          "description": "Camera number, starting at 0."
+        },
+        "config_entry_id": {
+          "name": "Device",
+          "description": "Only needed with a camera number when more than one device is set up."
+        },
+        "left_time": {
+          "name": "Left limit",
+          "description": "Seconds to pan left from the home position. Use 0 when the home position is the left limit."
+        },
+        "right_time": {
+          "name": "Right limit",
+          "description": "Seconds to pan right from the home position to the right limit."
+        },
+        "arc": {
+          "name": "Sweep limits",
+          "description": "Two numbers, left limit then right limit, in seconds."
+        },
+        "settle_time": {
+          "name": "Pause at the home position",
+          "description": "Seconds to wait at the home position before a limited sweep."
+        },
+        "speed": {
+          "name": "Sweep speed",
+          "description": "Sweep speed from 1 to 64. Default 32."
+        },
+        "pause": {
+          "name": "Pause",
+          "description": "Seconds to hold at each end of a sweep. Default 2."
+        },
+        "tilt_levels": {
+          "name": "Tilt rows",
+          "description": "How many tilt rows to sweep. Default 1, which keeps the current tilt."
+        },
+        "tilt_step": {
+          "name": "Tilt step",
+          "description": "Seconds to tilt down between rows. Default 2."
+        },
+        "disable_tracking": {
+          "name": "Pause auto tracking",
+          "description": "Turn auto tracking off during the sweep and restore it afterwards."
+        },
+        "enabled": {
+          "name": "Patrol enabled",
+          "description": "Allow patrol on this camera."
+        },
+        "clear": {
+          "name": "Clear",
+          "description": "Remove the saved patrol settings for this camera."
+        }
+      }
+    }
+  }
+}

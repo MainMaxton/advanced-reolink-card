@@ -14,14 +14,14 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from custom_components.reolink_camera_audiohook import talk_manager as tm
-from custom_components.reolink_camera_audiohook.audio import (
+from custom_components.advanced_reolink_card import talk_manager as tm
+from custom_components.advanced_reolink_card.audio import (
     StreamResampler,
     _to_samples,
     float32_to_pcm,
     resample_linear,
 )
-from custom_components.reolink_camera_audiohook.const import CONF_LIVE_TALK_NON_ADMIN
+from custom_components.advanced_reolink_card.const import CONF_LIVE_TALK_NON_ADMIN
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -168,7 +168,7 @@ async def test_stream_rejects_bad_parameters() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Real AudioHookNvr against the mock NVR (protocol level)
+# Real AdvancedReolinkNvr against the mock NVR (protocol level)
 # ---------------------------------------------------------------------------
 @pytest.mark.enable_socket
 async def test_live_stream_against_mock_nvr(socket_enabled: None) -> None:
@@ -176,7 +176,7 @@ async def test_live_stream_against_mock_nvr(socket_enabled: None) -> None:
     server = await asyncio.start_server(mock.handle, "127.0.0.1", 0)
     port = server.sockets[0].getsockname()[1]
     async with server:
-        nvr = tm.AudioHookNvr("127.0.0.1", port, "mockuser", "mock-pass-123")
+        nvr = tm.AdvancedReolinkNvr("127.0.0.1", port, "mockuser", "mock-pass-123")
         stream = tm.LiveTalkStream(nvr, 1, input_rate=48000)  # sleeping camera, 48 kHz input
         task = asyncio.create_task(stream.run())
         while not stream.live:
@@ -196,7 +196,7 @@ async def test_live_stream_against_mock_nvr(socket_enabled: None) -> None:
 
 @pytest.mark.enable_socket
 async def test_open_talk_busy(socket_enabled: None) -> None:
-    nvr = tm.AudioHookNvr("127.0.0.1", 9, "mockuser", "x")
+    nvr = tm.AdvancedReolinkNvr("127.0.0.1", 9, "mockuser", "x")
     async with nvr._lock:  # noqa: SLF001 - simulate a message that is playing
         with pytest.raises(tm.TalkBusyError):
             async with nvr.open_talk(0, lock_timeout=0.05):
@@ -235,7 +235,7 @@ async def test_ws_start_audio_stop(
 ) -> None:
     await _setup(hass, config_entry)
     ws = await hass_ws_client(hass)
-    await ws.send_json_auto_id({"type": "reolink_camera_audiohook/talk/start", "entity_id": SPEAKER_A})
+    await ws.send_json_auto_id({"type": "advanced_reolink_card/talk/start", "entity_id": SPEAKER_A})
     result = await ws.receive_json()
     assert result["success"], result
     sub = result["id"]
@@ -245,13 +245,13 @@ async def test_ws_start_audio_stop(
     for i in range(0, len(PCM_1S), 3200):
         await ws.send_json_auto_id(
             {
-                "type": "reolink_camera_audiohook/talk/audio",
+                "type": "advanced_reolink_card/talk/audio",
                 "subscription": sub,
                 "data": base64.b64encode(PCM_1S[i : i + 3200]).decode(),
             }
         )
         assert (await ws.receive_json())["success"]
-    await ws.send_json_auto_id({"type": "reolink_camera_audiohook/talk/stop", "subscription": sub})
+    await ws.send_json_auto_id({"type": "advanced_reolink_card/talk/stop", "subscription": sub})
     events = await _events_until(ws, {"ended"})
     ended = events[-1]
     assert ended["reason"] == "client"
@@ -264,7 +264,7 @@ async def test_ws_binary_frames_and_empty_frame_stops(
 ) -> None:
     await _setup(hass, config_entry)
     ws = await hass_ws_client(hass)
-    await ws.send_json_auto_id({"type": "reolink_camera_audiohook/talk/start", "channel": 0})
+    await ws.send_json_auto_id({"type": "advanced_reolink_card/talk/start", "channel": 0})
     assert (await ws.receive_json())["success"]
     live = (await _events_until(ws, {"live"}))[-1]
     handler = live["binary_handler_id"]
@@ -281,7 +281,7 @@ async def test_ws_idle_timeout(
     await _setup(hass, config_entry)
     ws = await hass_ws_client(hass)
     with patch.object(tm, "LIVE_IDLE_TIMEOUT", 0.2):
-        await ws.send_json_auto_id({"type": "reolink_camera_audiohook/talk/start", "entity_id": SPEAKER_A})
+        await ws.send_json_auto_id({"type": "advanced_reolink_card/talk/start", "entity_id": SPEAKER_A})
         assert (await ws.receive_json())["success"]
         ended = (await _events_until(ws, {"ended"}))[-1]
     assert ended["reason"] == "idle" and talks[0].reset_ok
@@ -292,7 +292,7 @@ async def test_ws_unsubscribe_stops_session(
 ) -> None:
     await _setup(hass, config_entry)
     ws = await hass_ws_client(hass)
-    await ws.send_json_auto_id({"type": "reolink_camera_audiohook/talk/start", "entity_id": SPEAKER_A})
+    await ws.send_json_auto_id({"type": "advanced_reolink_card/talk/start", "entity_id": SPEAKER_A})
     sub = (await ws.receive_json())["id"]
     await _events_until(ws, {"live"})
     await ws.send_json_auto_id({"type": "unsubscribe_events", "subscription": sub})
@@ -309,7 +309,7 @@ async def test_ws_disconnect_and_unload_stop_sessions(
 ) -> None:
     await _setup(hass, config_entry)
     ws = await hass_ws_client(hass)
-    await ws.send_json_auto_id({"type": "reolink_camera_audiohook/talk/start", "entity_id": SPEAKER_A})
+    await ws.send_json_auto_id({"type": "advanced_reolink_card/talk/start", "entity_id": SPEAKER_A})
     assert (await ws.receive_json())["success"]
     await _events_until(ws, {"live"})
     await ws.close()
@@ -330,7 +330,7 @@ async def test_ws_refuses_non_admin(
 ) -> None:
     await _setup(hass, config_entry)
     ws = await hass_ws_client(hass, hass_read_only_access_token)
-    await ws.send_json_auto_id({"type": "reolink_camera_audiohook/talk/start", "entity_id": SPEAKER_A})
+    await ws.send_json_auto_id({"type": "advanced_reolink_card/talk/start", "entity_id": SPEAKER_A})
     result = await ws.receive_json()
     assert not result["success"] and result["error"]["code"] == "unauthorized"
     assert talks == []
@@ -352,7 +352,7 @@ async def test_ws_non_admin_allowed_by_option(
     )
     await _setup(hass, entry)
     ws = await hass_ws_client(hass, hass_read_only_access_token)
-    await ws.send_json_auto_id({"type": "reolink_camera_audiohook/talk/start", "entity_id": SPEAKER_A})
+    await ws.send_json_auto_id({"type": "advanced_reolink_card/talk/start", "entity_id": SPEAKER_A})
     assert (await ws.receive_json())["success"]
     await _events_until(ws, {"live"})
 
@@ -362,15 +362,15 @@ async def test_ws_disallowed_channel_and_unknown_entity(
 ) -> None:
     await _setup(hass, config_entry)
     ws = await hass_ws_client(hass)
-    await ws.send_json_auto_id({"type": "reolink_camera_audiohook/talk/start", "channel": 2})
+    await ws.send_json_auto_id({"type": "advanced_reolink_card/talk/start", "channel": 2})
     result = await ws.receive_json()
     assert not result["success"] and result["error"]["code"] == "channel_not_enabled"
     await ws.send_json_auto_id(
-        {"type": "reolink_camera_audiohook/talk/start", "entity_id": "media_player.nope"}
+        {"type": "advanced_reolink_card/talk/start", "entity_id": "media_player.nope"}
     )
     result = await ws.receive_json()
     assert not result["success"] and result["error"]["code"] == "not_found"
-    await ws.send_json_auto_id({"type": "reolink_camera_audiohook/talk/stop", "subscription": 999})
+    await ws.send_json_auto_id({"type": "advanced_reolink_card/talk/stop", "subscription": 999})
     assert (await ws.receive_json())["error"]["code"] == "not_found"
     assert talks == []
 
@@ -393,7 +393,7 @@ async def test_ws_session_errors(
     mock_nvr.open_talk = _fake_open_talk([], error=error)
     await _setup(hass, config_entry)
     ws = await hass_ws_client(hass)
-    await ws.send_json_auto_id({"type": "reolink_camera_audiohook/talk/start", "entity_id": SPEAKER_A})
+    await ws.send_json_auto_id({"type": "advanced_reolink_card/talk/start", "entity_id": SPEAKER_A})
     assert (await ws.receive_json())["success"]
     events = await _events_until(ws, {"error"})
     assert events[-1]["code"] == code

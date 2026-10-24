@@ -7,12 +7,12 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 import voluptuous as vol
 
-from custom_components.reolink_camera_audiohook.baichuan_talk import (
+from custom_components.advanced_reolink_card.baichuan_talk import (
     BaichuanAuthError,
     BaichuanConnectionError,
     BaichuanTimeoutError,
 )
-from custom_components.reolink_camera_audiohook.const import CONF_ENABLED_CHANNELS, DOMAIN
+from custom_components.advanced_reolink_card.const import CONF_ENABLED_CHANNELS, DOMAIN
 from homeassistant.config_entries import SOURCE_USER
 from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant
@@ -212,7 +212,7 @@ async def test_options_flow_lists_sleeping_and_defaults_to_all_talk_capable(
     key = next(k for k in schema if str(k) == CONF_ENABLED_CHANNELS)
     options = schema[key].config["options"]
     assert [o["value"] for o in options] == ["0", "1"]  # ch2 has no talk ability
-    assert options[1]["label"] == "Camera B (ch 1, asleep)"
+    assert options[1]["label"] == "Camera B, number 1, asleep"
     assert key.default() == ["0", "1"]
     assert result["description_placeholders"]["unsupported"] == "Camera C"
 
@@ -237,3 +237,57 @@ async def test_options_flow_uses_stored_channels_when_offline(
     schema = result["data_schema"].schema
     key = next(k for k in schema if str(k) == CONF_ENABLED_CHANNELS)
     assert [o["value"] for o in schema[key].config["options"]] == ["0", "1"]
+
+
+async def test_options_flow_has_no_patrol_step(
+    hass: HomeAssistant,
+    mock_flow_nvr: MagicMock,
+    mock_setup_entry: AsyncMock,
+    config_entry: MockConfigEntry,
+) -> None:
+    config_entry.add_to_hass(hass)
+    result = await hass.config_entries.options.async_init(config_entry.entry_id)
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "init"
+    fields = [str(k) for k in result["data_schema"].schema]
+    assert "configure_patrol" not in fields
+    assert "patrol_channel" not in fields
+    assert "left_time" not in fields
+    assert "right_time" not in fields
+
+
+async def test_options_flow_keeps_saved_patrol_limits(
+    hass: HomeAssistant,
+    mock_flow_nvr: MagicMock,
+    mock_setup_entry: AsyncMock,
+    config_entry: MockConfigEntry,
+) -> None:
+    """Limits saved by the card wizard survive an options flow save of other settings."""
+    config_entry.add_to_hass(hass)
+    saved = {
+        "1": {
+            "enabled": True,
+            "left_time": 0.0,
+            "right_time": 12.5,
+            "speed": 24,
+            "pause": 2.0,
+            "tilt_levels": 2,
+            "tilt_step": 2.0,
+            "disable_tracking": True,
+            "settle_time": 3.0,
+        }
+    }
+    hass.config_entries.async_update_entry(
+        config_entry,
+        options={"voice": "en-US-JennyNeural", "patrol": saved},
+    )
+    result = await hass.config_entries.options.async_init(config_entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {"voice": "en-US-GuyNeural", "volume": 80, CONF_ENABLED_CHANNELS: ["0"]},
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert config_entry.options["voice"] == "en-US-GuyNeural"
+    assert config_entry.options["volume"] == 80
+    assert config_entry.options[CONF_ENABLED_CHANNELS] == [0]
+    assert config_entry.options["patrol"] == saved
