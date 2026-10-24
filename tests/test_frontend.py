@@ -64,3 +64,7 @@ def test_card_file_has_multicam_hooks() -> None:
     assert "_startVideo()" in select
     assert '_stopTalk("camera switch")' in select
     assert "_render(" not in select
+    assert "_lockCardHeight(true)" in select
+    assert "_queueSettleCardHeight()" in select
+    assert "HEIGHT_SETTLE_MS" in src
+    assert "_releaseCardHeight" in src

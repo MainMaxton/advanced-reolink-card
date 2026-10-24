@@ -2,7 +2,7 @@
  * Live view, pan, listen and talk.
  * custom:audiohook-talk-card stays as an alias for older dashboards.
  */
-const CARD_VERSION = "0.5.1";
+const CARD_VERSION = "0.5.2";
 const DOMAIN = "advanced_reolink_card";
 const WS_PTZ_MOVE = "advanced_reolink_card/ptz/move";
 const WS_PTZ_STOP = "advanced_reolink_card/ptz/stop";
@@ -11,6 +11,7 @@ const WS_PTZ_SET_GUARD = "advanced_reolink_card/ptz/set_guard";
 const WS_PTZ_STATUS = "advanced_reolink_card/ptz/status";
 const TEST_SETTLE_S = 5; // time to reach the home position before a test sweep
 const HOME_RETURN_S = 4; // estimated goto_guard at the end of a test sweep
+const HEIGHT_SETTLE_MS = 200;
 const TARGET_RATE = 16000; // what we send: 16 kHz mono s16le
 const SEND_MS = 40; // send a frame every ~40 ms
 const DUCK_TAIL_MS = 1500; // half-duplex: keep playback muted this long after talking
@@ -640,7 +641,6 @@ class AdvancedReolinkCard extends HTMLElement {
   connectedCallback() {
     document.addEventListener("visibilitychange", this._onVisibility);
     this._watchCardWidth();
-    this._lockCardHeight();
   }
 
   disconnectedCallback() {
@@ -648,6 +648,7 @@ class AdvancedReolinkCard extends HTMLElement {
     this._rowObserver = null;
     this._cardWidthObserver?.disconnect();
     this._cardWidthObserver = null;
+    this._cancelHeightAnim();
     clearTimeout(this._holdTimer);
     document.removeEventListener("visibilitychange", this._onVisibility);
     this._stopTalk("card removed");
@@ -841,7 +842,9 @@ class AdvancedReolinkCard extends HTMLElement {
   _render() {
     if (!this._config) return;
     this._abandonPatrol();
+    this._cancelHeightAnim();
     this._cardMinHeight = 0;
+    this._heightLocked = false;
     this._seenCardWidth = null;
     this._holdingFrame = false;
     clearTimeout(this._holdTimer);
@@ -1090,6 +1093,7 @@ class AdvancedReolinkCard extends HTMLElement {
     if (this._hass) this._fetchInfo();
     this._scrollActiveTab();
     if (opts.focusTab) this._focusActiveTab();
+    this._queueSettleCardHeight();
   }
 
   _focusActiveTab() {
@@ -1177,6 +1181,10 @@ class AdvancedReolinkCard extends HTMLElement {
     this._holdTimer = setTimeout(hide, 280);
   }
 
+  _cardEl() {
+    return this.shadowRoot && this.shadowRoot.querySelector("ha-card");
+  }
+
   _naturalCardHeight(card) {
     const cs = getComputedStyle(card);
     const pad = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
@@ -1194,28 +1202,176 @@ class AdvancedReolinkCard extends HTMLElement {
     return height;
   }
 
-  _lockCardHeight(useRendered = false) {
-    if (!this._config || this._inGrid()) return;
-    const card = this.shadowRoot && this.shadowRoot.querySelector("ha-card");
-    if (!card) return;
-    const natural = useRendered ? card.offsetHeight : this._naturalCardHeight(card);
-    if (natural < 40 || (this._cardMinHeight && natural <= this._cardMinHeight + 1)) return;
-    this._cardMinHeight = natural;
+  _cssMinHeight(card, outer) {
     const cs = getComputedStyle(card);
-    let min = natural;
-    // min-height applies to the content box unless the card uses border-box.
+    let min = outer;
     if (cs.boxSizing !== "border-box") {
       const pad = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
       const border = (parseFloat(cs.borderTopWidth) || 0) + (parseFloat(cs.borderBottomWidth) || 0);
-      min = natural - pad - border;
+      min = outer - pad - border;
     }
+    return Math.ceil(Math.max(0, min));
+  }
+
+  _scrollRoot() {
+    let node = this;
+    while (node) {
+      const root = node.getRootNode && node.getRootNode();
+      const el = node instanceof Element ? node : root && root.host;
+      if (el && el.nodeType === 1 && el !== document.documentElement) {
+        const style = getComputedStyle(el);
+        const oy = style.overflowY;
+        if ((oy === "auto" || oy === "scroll" || oy === "overlay") && el.scrollHeight > el.clientHeight + 1) {
+          return el;
+        }
+      }
+      if (node.parentElement) node = node.parentElement;
+      else if (root && root.host) node = root.host;
+      else break;
+    }
+    return document.scrollingElement || document.documentElement;
+  }
+
+  _scrollBy(delta) {
+    if (!delta) return;
+    const root = this._scrollRoot();
+    if (!root) return;
+    if (root === document.documentElement || root === document.body || root === document.scrollingElement) {
+      window.scrollBy(0, delta);
+    } else {
+      root.scrollTop += delta;
+    }
+  }
+
+  _tabPinTop() {
+    const el = this._tabsEl || (this.shadowRoot && this.shadowRoot.querySelector(".header"));
+    return el ? el.getBoundingClientRect().top : 0;
+  }
+
+  _pinTabs(fn) {
+    const before = this._tabPinTop();
+    fn();
+    const after = this._tabPinTop();
+    const delta = after - before;
+    if (Math.abs(delta) >= 0.5) this._scrollBy(delta);
+  }
+
+  _cancelHeightAnim() {
+    clearTimeout(this._heightTimer);
+    this._heightTimer = null;
+    if (this._heightRo) {
+      this._heightRo.disconnect();
+      this._heightRo = null;
+    }
+    const card = this._cardEl();
+    if (card && this._heightOnEnd) {
+      card.removeEventListener("transitionend", this._heightOnEnd);
+      this._heightOnEnd = null;
+    }
+  }
+
+  _lockCardHeight(useRendered = false) {
+    if (!this._config || this._inGrid()) return;
+    const card = this._cardEl();
+    if (!card) return;
+    this._heightGen = (this._heightGen || 0) + 1;
+    this._cancelHeightAnim();
+    const natural = useRendered ? card.offsetHeight : this._naturalCardHeight(card);
+    if (natural < 40) return;
+    this._cardMinHeight = natural;
+    this._heightLocked = true;
     // ha-card animates all properties, which would grow the lock from zero.
     card.style.transition = "none";
-    card.style.minHeight = `${Math.ceil(Math.max(0, min))}px`;
+    card.style.overflowAnchor = "none";
+    card.style.minHeight = `${this._cssMinHeight(card, natural)}px`;
+  }
+
+  _queueSettleCardHeight() {
+    const gen = this._heightGen || 0;
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (gen !== this._heightGen) return;
+        this._settleCardHeight();
+      });
+    });
+  }
+
+  _settleCardHeight() {
+    if (!this._config || this._inGrid()) {
+      this._releaseCardHeight();
+      return;
+    }
+    const card = this._cardEl();
+    if (!card) return;
+    const from = card.offsetHeight;
+    const to = this._naturalCardHeight(card);
+    if (to < 40) {
+      this._releaseCardHeight();
+      return;
+    }
+    if (Math.abs(from - to) < 2) {
+      this._releaseCardHeight();
+      return;
+    }
+    const minTo = this._cssMinHeight(card, to);
+    if (this._reducedMotion()) {
+      this._pinTabs(() => {
+        card.style.transition = "none";
+        card.style.minHeight = `${minTo}px`;
+      });
+      this._releaseCardHeight();
+      return;
+    }
+    this._cancelHeightAnim();
+    card.style.transition = "none";
+    card.style.overflowAnchor = "none";
+    const pinEl = this._tabsEl || (this.shadowRoot && this.shadowRoot.querySelector(".header"));
+    let last = pinEl ? pinEl.getBoundingClientRect().top : 0;
+    if (typeof ResizeObserver !== "undefined") {
+      this._heightRo = new ResizeObserver(() => {
+        if (!pinEl) return;
+        const now = pinEl.getBoundingClientRect().top;
+        const delta = now - last;
+        if (Math.abs(delta) >= 0.5) this._scrollBy(delta);
+        last = pinEl.getBoundingClientRect().top;
+      });
+      this._heightRo.observe(card);
+    }
+    const finish = () => {
+      if (this._heightOnEnd) {
+        card.removeEventListener("transitionend", this._heightOnEnd);
+        this._heightOnEnd = null;
+      }
+      this._releaseCardHeight();
+    };
+    this._heightOnEnd = (ev) => {
+      if (ev && ev.propertyName && ev.propertyName !== "min-height") return;
+      finish();
+    };
+    requestAnimationFrame(() => {
+      card.style.transition = `min-height ${HEIGHT_SETTLE_MS}ms ease`;
+      card.style.minHeight = `${minTo}px`;
+      card.addEventListener("transitionend", this._heightOnEnd);
+      clearTimeout(this._heightTimer);
+      this._heightTimer = setTimeout(finish, HEIGHT_SETTLE_MS + 80);
+    });
+  }
+
+  _releaseCardHeight() {
+    this._cancelHeightAnim();
+    const card = this._cardEl();
+    if (card) {
+      card.style.transition = "none";
+      card.style.minHeight = "";
+      card.style.overflowAnchor = "";
+      card.style.transition = "";
+    }
+    this._cardMinHeight = 0;
+    this._heightLocked = false;
   }
 
   _watchCardWidth() {
-    const card = this.shadowRoot && this.shadowRoot.querySelector("ha-card");
+    const card = this._cardEl();
     if (!card || typeof ResizeObserver === "undefined") return;
     if (!this._cardWidthObserver) {
       this._cardWidthObserver = new ResizeObserver((entries) => {
@@ -1223,10 +1379,7 @@ class AdvancedReolinkCard extends HTMLElement {
         const w = Math.round((rect && rect.width) || 0);
         if (!w) return;
         if (this._seenCardWidth === w) return;
-        const first = this._seenCardWidth == null;
         this._seenCardWidth = w;
-        if (!first) this._cardMinHeight = 0;
-        this._lockCardHeight();
       });
     }
     this._cardWidthObserver.disconnect();
@@ -1450,7 +1603,6 @@ class AdvancedReolinkCard extends HTMLElement {
     }
     this._statusEl.className = `status ${kind}`;
     this._statusEl.textContent = text || "";
-    this._lockCardHeight();
   }
 
   _updatePresets() {
