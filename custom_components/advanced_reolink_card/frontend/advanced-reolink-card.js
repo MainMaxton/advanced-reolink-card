@@ -647,6 +647,7 @@ class AdvancedReolinkCard extends HTMLElement {
   }
 
   disconnectedCallback() {
+    this._dropResidual();
     this._rowObserver?.disconnect();
     this._rowObserver = null;
     this._cardWidthObserver?.disconnect();
@@ -1279,6 +1280,7 @@ class AdvancedReolinkCard extends HTMLElement {
     if (!card) return;
     this._heightGen = (this._heightGen || 0) + 1;
     this._cancelHeightAnim();
+    this._dropResidual();
     const natural = useRendered ? card.offsetHeight : this._naturalCardHeight(card);
     if (natural < 40) return;
     this._cardMinHeight = natural;
@@ -1307,22 +1309,17 @@ class AdvancedReolinkCard extends HTMLElement {
     const card = this._cardEl();
     if (!card) return;
     const from = card.offsetHeight;
-    const to = this._naturalCardHeight(card);
+    const natural = this._naturalCardHeight(card);
+    // Never shrink by more than the page has below the viewport, or the browser jumps the scroll.
+    const to = natural < from ? Math.max(natural, from - this._roomBelow()) : natural;
+    this._keepHeight = to > natural + 1;
     if (to < 40) {
       this._releaseCardHeight();
       return;
     }
-    if (Math.abs(from - to) < 2) {
-      this._releaseCardHeight();
-      return;
-    }
-    const minTo = this._cssMinHeight(card, to);
-    if (this._reducedMotion()) {
-      this._pinTabs(() => {
-        card.style.transition = "none";
-        card.style.minHeight = `${minTo}px`;
-      });
-      this._releaseCardHeight();
+    if (Math.abs(from - to) < 2 || this._reducedMotion()) {
+      if (this._keepHeight) this._holdResidualHeight(card, to);
+      else this._pinTabs(() => this._releaseCardHeight());
       return;
     }
     this._cancelHeightAnim();
@@ -1345,7 +1342,8 @@ class AdvancedReolinkCard extends HTMLElement {
         card.removeEventListener("transitionend", this._heightOnEnd);
         this._heightOnEnd = null;
       }
-      this._releaseCardHeight();
+      if (this._keepHeight) this._holdResidualHeight(card, to);
+      else this._releaseCardHeight();
     };
     this._heightOnEnd = (ev) => {
       if (ev && ev.propertyName && ev.propertyName !== "min-height") return;
@@ -1358,6 +1356,39 @@ class AdvancedReolinkCard extends HTMLElement {
       clearTimeout(this._heightTimer);
       this._heightTimer = setTimeout(finish, HEIGHT_SETTLE_MS + 80);
     });
+  }
+
+  _dropResidual() {
+    if (!this._residualScroll) return;
+    window.removeEventListener("scroll", this._residualScroll);
+    this._residualScroll = null;
+  }
+
+  _roomBelow() {
+    const doc = document.scrollingElement || document.documentElement;
+    return Math.max(0, doc.scrollHeight - window.scrollY - window.innerHeight);
+  }
+
+  _holdResidualHeight(card, height) {
+    this._cancelHeightAnim();
+    card.style.transition = "none";
+    card.style.minHeight = `${this._cssMinHeight(card, height)}px`;
+    this._cardMinHeight = height;
+    this._heightLocked = true;
+    if (this._residualScroll) return;
+    this._residualScroll = () => {
+      const el = this._cardEl();
+      if (!el || !this._heightLocked || this._heightOnEnd) return;
+      const natural = this._naturalCardHeight(el);
+      const next = Math.max(natural, el.offsetHeight - this._roomBelow());
+      if (next <= natural + 1) {
+        this._dropResidual();
+        this._releaseCardHeight();
+      } else if (next < el.offsetHeight - 1) {
+        el.style.minHeight = `${this._cssMinHeight(el, next)}px`;
+      }
+    };
+    window.addEventListener("scroll", this._residualScroll, { passive: true });
   }
 
   _releaseCardHeight() {
