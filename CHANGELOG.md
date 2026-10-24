@@ -21,6 +21,11 @@
 ### Fixed
 - White half circle under the live video in the patrol wizard.
 
+### Documentation
+- README rewritten around the multi-camera card and the patrol wizard, with
+  current screenshots. Old options screenshots that predate the card-only
+  patrol setup were removed.
+
 ## 0.5.1 - 2026-10-23
 
 ### Changed
@@ -64,7 +69,8 @@
 - Guided patrol limit setup: Patrol limits on the card PTZ controls
   (administrators, PTZ cameras of this integration) times the left and right pan
   from the guard position, optionally sets tilt, can test one sweep, then saves
-  with `set_patrol_limits`. Manual fields in Configure stay as the fallback.
+  with `set_patrol_limits`. Manual fields in Configure stay as the fallback
+  (removed in 0.5.2: patrol is now set only on the card).
   Admin websocket commands: `advanced_reolink_card/ptz/move`, `ptz/stop`,
   `ptz/guard` and `ptz/status`.
 
