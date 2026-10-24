@@ -50,6 +50,15 @@ def test_card_file_has_multicam_hooks() -> None:
     assert 'aria-label="Set up patrol"' in src
     assert "advanced_reolink_card/ptz/set_guard" in src
     assert "advanced_reolink_card/ptz/move" in src
+    assert 'role="progressbar"' in src
+    assert "aria-valuetext" in src
+    assert "_estimateSweepPhases" in src
+    assert "HOME_RETURN_S" in src
+    assert "Start test sweep" in src
+    assert 'controlslist="nodownload nofullscreen noremoteplayback noplaybackrate"' in src
+    assert "tilts down a little and sweeps again" in src
+    assert "tilting down" in src
+    assert "media.hidden = wiz.step === 2 || wiz.step === 4" in src
     select = src.split("  _selectCamera(index, opts = {}) {", 1)[1].split("  _focusActiveTab()", 1)[0]
     assert "_startListen" not in select
     assert "_startVideo()" in select

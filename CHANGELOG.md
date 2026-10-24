@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.5.2 (2026-10-24)
+
+### Added
+- Live video in the patrol wizard Test step while the test sweep runs.
+- Segmented progress bar for the test: one segment per sweep phase (pan legs,
+  tilt down between levels, tilt back up, pause, return home), sized by
+  estimated duration. Current phase label, time remaining, and a plan line
+  such as "2 sweeps, tilting down 2 s between them". Stop and Cancel halt the
+  sweep and the bar.
+
+### Changed
+- Patrol is set only on the card. The integration options flow no longer has a
+  patrol step. Saved limits stay when you save other options.
+- Tilt passes are explained on the Speed step: after each sweep the camera
+  tilts down a little and sweeps again, then tilts back up at the end.
+- Camera switch locks height only during the swap, then eases to the new
+  camera's natural height so a shorter camera does not leave a gap.
+
+### Fixed
+- White half circle under the live video in the patrol wizard.
+
 ## 0.5.1 - 2026-10-23
 
 ### Changed

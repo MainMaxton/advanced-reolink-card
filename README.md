@@ -42,9 +42,11 @@ works through an NVR with any number of channels, or directly with a standalone 
   to move, zoom, preset chips), **listen** to the camera microphone and **talk**.
   Listening stays quiet while you talk, so you do not hear yourself. The matching
   camera, pan buttons and presets are found automatically. A `cameras` list puts
-  several cameras on one card. Tabs stay on one scrolling row, and only the
-  active camera streams. The **Patrol** button in the card header measures the
-  left limit and the right limit.
+  several cameras on one card with tabs (one scrolling row) and a swipe on the
+  video. Only the active camera streams. A grid view can show every camera at
+  once. The **Patrol** button opens a guided wizard: live preview, a test sweep
+  with a progress bar, and save. Patrol is set on the card, not in integration
+  options.
 - **Battery cameras and doorbells**: asleep cameras stay selectable and are
   **woken up** automatically before they speak.
 - **Local and lightweight**: talk is pure Python, no Node.js, no cloud relay, and
@@ -54,7 +56,7 @@ works through an NVR with any number of channels, or directly with a standalone 
   `TalkReset`, even after errors; translated errors, reauth, reconfigure and
   diagnostics are included.
 
-> **Status:** 0.5.1. Tested on a Reolink NVR with TrackMix PoE, CX820 and Video
+> **Status:** 0.5.2. Tested on a Reolink NVR with TrackMix PoE, CX820 and Video
 > Doorbell cameras (16 kHz ADPCM talk). Not affiliated with or endorsed by Reolink.
 
 ## Requirements
@@ -152,10 +154,9 @@ are picked up.
   the selected cameras, and the actions refuse every other channel.
 - **Allow non-admin users to use live talk**: off by default, so only
   administrators can use the live talk card.
-- **Set up patrol**: continue to a camera that can pan, then its patrol settings
-  (left limit, right limit, sweep speed, pause, tilt, pause at the home position,
-  auto tracking, enabled). The **Patrol** button on the card measures the limits for you. See
-  [Patrol on the card](#patrol-on-the-card).
+
+Patrol limits are set on the card. See [Patrol on the card](#patrol-on-the-card).
+Saved patrol values stay when you save these options.
 
 **Reconfigure** (⋮ → *Reconfigure*) changes the address, port or credentials
 without removing the entry. If the device rejects the stored password, Home
@@ -500,7 +501,9 @@ PTZ zoom buttons are **disabled by default** in the Reolink integration. Enable
   the HLS fallback is several seconds behind and is not suitable for an intercom.
 - **Phones.** In the iOS app/Safari, iOS may lower the playback volume or switch it
   to the earpiece while the microphone is in use; use a headset or the volume
-  buttons if listening gets quiet while talking.
+  buttons if listening gets quiet while talking. If the card looks out of date,
+  Companion app: Settings, Companion app, Debugging, Reset frontend cache. Then
+  check the `ADVANCED-REOLINK-CARD` version badge in the console.
 
 The old card type `custom:audiohook-talk-card` still works as a deprecated alias
 (it logs a warning in the browser console); switch dashboards to
@@ -616,6 +619,7 @@ support.
 | Card: no PTZ pad on a PTZ camera | The card only shows PTZ when the core *PTZ left/right/up/down/stop* buttons are enabled for that camera. Zoom needs *PTZ zoom in/out* enabled (disabled by default). |
 | Card: *Listening needs a live stream from Home Assistant.* | Listening uses Home Assistant's built in stream (HA OS and Container). On Core installs add a stream server. |
 | Card: no sound when listening | Make sure the camera's *Record audio* switch (Reolink integration) is on: without it the camera stream carries no audio. Check the volume slider and the phone's media volume. |
+| Card looks stale on a phone | Companion app: Settings, Companion app, Debugging, Reset frontend cache. Then check the `ADVANCED-REOLINK-CARD` version badge in the console. |
 | Talk card: *Microphone permission was denied* | Allow the microphone for the Home Assistant site in the browser (or for the app in the phone settings). |
 | Talk card: *busy* | A message is playing on that NVR; try again when it has finished. |
 | *Text-to-speech failed* | Home Assistant needs internet for edge-tts; or use `tts.speak` with a local engine. |
@@ -728,8 +732,8 @@ are above 0 it first pans left for `left_time`, then crosses
 | `sweep_time` | 25 s | Seconds per side-to-side pass (about a full TrackMix pan at speed 32). Full-range sweeps only |
 | `pause` | 2 s | Hold at each end |
 | `speed` | 32 | PTZ speed 1-64 |
-| `tilt_levels` | 1 | Extra passes at lower tilts |
-| `tilt_step` | 2 s | Tilt-down time between levels |
+| `tilt_levels` | 1 | How many pan sweeps. After each sweep the camera tilts down and sweeps again. It tilts back up at the end. 1 keeps the current tilt. |
+| `tilt_step` | 2 s | Seconds to tilt down between sweeps |
 | `zoom_out_first` | false | Zoom fully out (6 s ZoomDec) first |
 | `disable_tracking` | false | Pause auto-tracking during the sweep, restore it afterwards |
 | `duration`, `loops`, `return_preset` | - | As above |
@@ -769,9 +773,10 @@ a hard HA crash mid-sweep would leave it off).
 
 ### Patrol settings
 
-Each camera that can pan can store its own patrol settings. Open **Settings →
-Devices & services → Advanced Reolink Card → Configure**, turn on **Set up
-patrol**, pick the camera, and set:
+Each camera that can pan can store patrol settings. Set them with the **Patrol**
+button on the card, or with `advanced_reolink_card.set_patrol_limits`. Integration
+options do not include patrol. Values already saved stay when you change voice,
+volume, or talk cameras.
 
 | Setting | Default | Range | Meaning |
 |---|---|---|---|
@@ -780,8 +785,8 @@ patrol**, pick the camera, and set:
 | Right limit (`right_time`) | 0 | 0 to 300 s | Seconds to pan right from the home position to the right limit. |
 | Sweep speed (`speed`) | 32 | 1 to 64 | Speed for every move. The limits were measured at this speed. |
 | Pause at each end (`pause`) | 2 s | 0 to 600 s | Hold at each end |
-| Tilt rows (`tilt_levels`) | 1 | 1 to 10 | Rows of passes. 1 keeps the current tilt. |
-| Tilt step (`tilt_step`) | 2 s | 0 to 60 s | Seconds to tilt down between rows |
+| Tilt rows (`tilt_levels`) | 1 | 1 to 10 | How many pan sweeps. After each sweep the camera tilts down and sweeps again. It tilts back up at the end. 1 keeps the current tilt. |
+| Tilt step (`tilt_step`) | 2 s | 0 to 60 s | Seconds to tilt down between sweeps |
 | Pause at the home position (`settle_time`) | 3 s | 0 to 60 s | Wait after arriving home before the first move |
 | Pause auto tracking (`disable_tracking`) | off | | Pause auto tracking for the sweep, then restore it |
 
@@ -795,18 +800,19 @@ With a right limit above 0 the sweep is:
 2. If `left_time` is above 0, pan left for that long, then pause. If it is 0,
    the camera is already at the left limit.
 3. Pan right for `left_time + right_time`, pause, then pan left for the same
-   time, until `duration`, `loops` or `stop_patrol`.
+   time. If there are extra tilt rows, tilt down and sweep again, then tilt
+   back up.
 4. Stop and return to the home position (or `return_preset`).
 
 The times are measured at the saved sweep speed. A limited sweep needs a home
-position. The **Patrol** button on the card stores it. The number fields on the
-Configure page stay available if you already know the times.
+position. The **Patrol** button on the card stores it.
 
 ### Patrol on the card
 
 Administrators see a **Patrol** button in the card header on cameras that can pan, when the card
 knows which device the camera belongs to. The button is hidden in the grid,
-because pan and tilt are hidden there.
+because pan and tilt are hidden there. This is the only place in the UI to set
+patrol.
 
 The wizard does not store an angle. It stores the home position on the camera,
 then the seconds of pan from there.
@@ -816,13 +822,15 @@ then the seconds of pan from there.
    aim as the home position (`advanced_reolink_card/ptz/set_guard`).
 2. **Right limit.** The same view and pad. The card adds up how long you hold
    right, and subtracts left, at the sweep speed. **Set right limit** stores
-   that span. If the camera can tilt, **Add a tilt pass** shows tilt rows and
-   tilt step.
+   that span.
 3. **Sweep speed.** A slider from slow to fast. The line **About N seconds per
-   pass** scales the measured span by the speed ratio.
-4. **Test sweep.** **Start test sweep** runs one pass from the left limit to the
-   right limit and back (`start_patrol`, `mode: sweep`, `loops: 1`) with the
-   unsaved values. **Stop** calls `stop_patrol`.
+   pass** scales the measured span by the speed ratio. If the camera can tilt,
+   **Add a tilt pass** sets how many sweeps and the tilt step. After each sweep
+   the camera tilts down a little and sweeps again. It tilts back up at the end.
+4. **Test sweep.** Live view stays on. **Start test sweep** runs one loop
+   (`start_patrol`, `mode: sweep`, `loops: 1`) with the unsaved values. A
+   segmented bar shows each phase (pan, tilt down, tilt up, back to start) and
+   the time left. **Stop** and **Cancel** stop the sweep and the bar.
 5. **Save.** A summary, then **Save**, which calls `set_patrol_limits` with
    `left_time` 0 and `right_time` set to the span at the chosen speed. The
    wizard shows a success line and closes.

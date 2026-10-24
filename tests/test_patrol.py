@@ -8,7 +8,12 @@ from typing import Any
 import pytest
 
 from custom_components.advanced_reolink_card.http_api import PtzInfo
-from custom_components.advanced_reolink_card.patrol import PatrolManager, PatrolRequest
+from custom_components.advanced_reolink_card.patrol import (
+    HOME_RETURN_S,
+    PatrolManager,
+    PatrolRequest,
+    sweep_phase_plan,
+)
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 
@@ -350,6 +355,109 @@ async def test_sweep_tilt_passes(
     assert moves == ["ZoomDec", "Left", "Right", "Left", "Down", "Right", "Left", "Up"]
     ups = [c for c in client.calls if c[0] == "ptz_ctrl" and c[2]["op"] == "Up"]
     assert len(ups) == 1
+
+
+def test_sweep_phase_plan_wizard_arc() -> None:
+    """Card test: home is the left limit, one loop, settle then right/left then home."""
+    phases = sweep_phase_plan(
+        PatrolRequest(
+            channel=0,
+            mode="sweep",
+            left_time=0,
+            right_time=10,
+            loops=1,
+            settle_time=5,
+            pause=0,
+            tilt_levels=1,
+            tilt_step=0,
+        )
+    )
+    assert [(p["label"], p["duration"]) for p in phases] == [
+        ("To home", 5),
+        ("Pan right", 10),
+        ("Pan left", 10),
+        ("Back to start", HOME_RETURN_S),
+    ]
+
+
+def test_sweep_phase_plan_tilt_passes() -> None:
+    phases = sweep_phase_plan(
+        PatrolRequest(
+            channel=0,
+            mode="sweep",
+            left_time=0,
+            right_time=8,
+            loops=1,
+            settle_time=5,
+            pause=0,
+            tilt_levels=2,
+            tilt_step=2,
+        )
+    )
+    assert [(p["key"], p["label"], p["duration"]) for p in phases] == [
+        ("settle", "To home", 5),
+        ("pan_right", "Pan right", 8),
+        ("pan_left", "Pan left", 8),
+        ("tilt_down", "Tilt down, pass 2", 2),
+        ("pan_right", "Pan right", 8),
+        ("pan_left", "Pan left", 8),
+        ("tilt_up", "Tilt up", 2),
+        ("home", "Back to start", HOME_RETURN_S),
+    ]
+
+
+def test_sweep_phase_plan_skips_zero_pause_and_includes_first_left() -> None:
+    phases = sweep_phase_plan(
+        PatrolRequest(
+            channel=0,
+            mode="sweep",
+            left_time=3,
+            right_time=4,
+            loops=1,
+            settle_time=2,
+            pause=1.5,
+            tilt_levels=1,
+        )
+    )
+    labels = [p["label"] for p in phases]
+    assert labels == [
+        "To home",
+        "Pan left",
+        "Pause",
+        "Pan right",
+        "Pause",
+        "Pan left",
+        "Pause",
+        "Back to start",
+    ]
+    assert phases[1]["duration"] == 3
+    assert phases[3]["duration"] == 7  # left + right
+
+
+async def test_sweep_start_returns_phase_plan(
+    hass: HomeAssistant, online_flag: dict[str, bool | None]
+) -> None:
+    client = FakeClient({3: _ptz(presets={}, patrols={})})
+    mgr = _manager(hass, client, online_flag)
+    result = await mgr.async_start(
+        PatrolRequest(
+            channel=3,
+            mode="sweep",
+            left_time=0,
+            right_time=6,
+            loops=1,
+            settle_time=5,
+            pause=0,
+        ),
+        wait=False,
+    )
+    assert result.reason == "started"
+    assert result.mode == "sweep"
+    payload = result.as_dict()
+    assert payload["phases"][0]["label"] == "To home"
+    assert payload["phases"][-1]["label"] == "Back to start"
+    assert payload["duration"] == 5 + 6 + 6 + HOME_RETURN_S
+    await mgr.async_stop(3, native_stop=False)
 
 
 async def test_sweep_offline_stops_without_return_home(

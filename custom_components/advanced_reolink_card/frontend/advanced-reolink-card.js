@@ -10,6 +10,7 @@ const WS_PTZ_GUARD = "advanced_reolink_card/ptz/guard";
 const WS_PTZ_SET_GUARD = "advanced_reolink_card/ptz/set_guard";
 const WS_PTZ_STATUS = "advanced_reolink_card/ptz/status";
 const TEST_SETTLE_S = 5; // time to reach the home position before a test sweep
+const HOME_RETURN_S = 4; // estimated goto_guard at the end of a test sweep
 const TARGET_RATE = 16000; // what we send: 16 kHz mono s16le
 const SEND_MS = 40; // send a frame every ~40 ms
 const DUCK_TAIL_MS = 1500; // half-duplex: keep playback muted this long after talking
@@ -246,6 +247,20 @@ const STYLE = `
   .patrol-dialog .act[disabled] { opacity: 0.4; cursor: not-allowed; }
   .pmedia { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: var(--ha-card-border-radius, 12px); overflow: hidden; flex: none; }
   .pmedia video, .pmedia .pslot, .pmedia .pslot > * { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+  .pmedia video { pointer-events: none; background: #000; }
+  .pmedia video::-webkit-media-controls, .pmedia video::-webkit-media-controls-enclosure,
+  .pmedia video::-webkit-media-controls-overlay-play-button, .pmedia video::-webkit-media-controls-start-playback-button,
+  .pmedia video::-webkit-media-controls-overlay-enclosure { display: none !important; opacity: 0 !important; }
+  .pbar-wrap { display: flex; flex-direction: column; gap: 6px; }
+  .pbar { display: flex; gap: 3px; height: 10px; width: 100%; }
+  .pbar .seg { position: relative; min-width: 3px; height: 100%; background: var(--divider-color, #e0e0e0); border-radius: 4px; overflow: hidden; }
+  .pbar .seg .fill { position: absolute; left: 0; top: 0; bottom: 0; width: 0%; background: var(--primary-color); }
+  .pbar-read { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 0.85em; color: var(--secondary-text-color); font-variant-numeric: tabular-nums; }
+  .pbar-read .pbar-label { color: var(--primary-text-color); font-weight: 500; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pplan { font-size: 0.85em; color: var(--secondary-text-color); }
+  @media (prefers-reduced-motion: reduce) {
+    .pbar .seg .fill { transition: none; }
+  }
   .pspan { font-variant-numeric: tabular-nums; font-weight: 500; }
   .speedrow { display: flex; align-items: center; gap: 8px; }
   .speedrow span { flex: none; color: var(--secondary-text-color); font-size: 0.85em; }
@@ -1362,7 +1377,7 @@ class AdvancedReolinkCard extends HTMLElement {
       this._videoBox.hidden = !c.video || this._inGrid();
       const v = this._video;
       const on = v.state !== "off";
-      this._playBtn.hidden = on;
+      this._playBtn.hidden = on || !!this._patrolEl;
       this._stopVideoBtn.hidden = !on;
       this._videoEl.hidden = !(on && v.kind === "webrtc");
       this._stillEl.hidden = !(on && v.kind === "image");
@@ -2470,7 +2485,7 @@ class AdvancedReolinkCard extends HTMLElement {
       { short: "Left", title: "Left limit", hint: "Aim the camera at the left edge, then set the left limit as the home position." },
       { short: "Right", title: "Right limit", hint: "Hold right to the right edge. Hold left if you go too far." },
       { short: "Speed", title: "Sweep speed", hint: "Choose how fast each pass moves." },
-      { short: "Test", title: "Test sweep", hint: "Run one pass from the left limit to the right limit and back." },
+      { short: "Test", title: "Test sweep", hint: "Watch one sweep from the left limit to the right limit and back." },
       { short: "Save", title: "Save", hint: "Save this patrol for this camera." },
     ];
   }
@@ -2548,7 +2563,7 @@ class AdvancedReolinkCard extends HTMLElement {
         <h2 id="patrol-title"></h2>
         <p class="phint"></p>
         <div class="pmedia">
-          <video class="pvideo" muted playsinline autoplay disablepictureinpicture></video>
+          <video class="pvideo" muted playsinline autoplay disablepictureinpicture controlslist="nodownload nofullscreen noremoteplayback noplaybackrate" hidden></video>
           <div class="pslot" hidden></div>
         </div>
         <div class="pbody"></div>
@@ -2608,6 +2623,7 @@ class AdvancedReolinkCard extends HTMLElement {
     this._patrolHolding = null;
     clearInterval(this._patrolTick);
     this._patrolTick = null;
+    this._stopTestBar();
     this._wiz = null;
     const el = this._patrolEl;
     this._patrolEl = null;
@@ -2641,12 +2657,33 @@ class AdvancedReolinkCard extends HTMLElement {
   async _ensurePatrolVideo() {
     const el = this._patrolEl;
     if (!el || !this._hass) return;
+    if (this._patrolPipe && !this._patrolPipe.closed) return;
+    const slotBusy = el.querySelector(".pslot") && !el.querySelector(".pslot").hidden && el.querySelector(".pslot").childElementCount;
+    if (slotBusy) return;
+    if (this._patrolVideoBusy) return;
+    this._patrolVideoBusy = true;
+    try {
+      await this._fillPatrolVideo();
+    } finally {
+      this._patrolVideoBusy = false;
+    }
+  }
+
+  async _fillPatrolVideo() {
+    const el = this._patrolEl;
+    if (!el || !this._hass) return;
     const vid = el.querySelector("video.pvideo");
+    const showVid = () => {
+      if (vid) vid.hidden = false;
+    };
     const mirror = () => {
       if (!this._patrolEl || !vid || !this._videoEl?.srcObject) return;
       if (vid.srcObject !== this._videoEl.srcObject) {
         vid.srcObject = this._videoEl.srcObject;
+        showVid();
         vid.play?.().catch(() => {});
+      } else {
+        showVid();
       }
     };
     if (this._video.kind === "webrtc" && this._videoEl?.srcObject) {
@@ -2687,6 +2724,7 @@ class AdvancedReolinkCard extends HTMLElement {
           if (!this._patrolStream) this._patrolStream = new MediaStream();
           this._patrolStream.addTrack(track);
           v.srcObject = this._patrolStream;
+          v.hidden = false;
           v.play?.().catch(() => {});
         },
         onError: (message) => {
@@ -2773,21 +2811,21 @@ class AdvancedReolinkCard extends HTMLElement {
     el.querySelector("#patrol-title").textContent = wiz.saved ? "Patrol saved" : step.title;
     el.querySelector(".phint").textContent = wiz.saved ? "Patrol saved." : step.hint;
     const media = el.querySelector(".pmedia");
-    if (media) media.hidden = wiz.step > 1;
+    if (media) media.hidden = wiz.step === 2 || wiz.step === 4;
     let body = "";
     if (wiz.step === 0) {
       body = `${this._padHtml()}<div class="pactions">${_wizButton("Set left limit", { primary: true, go: "set-left", disabled: wiz.busy })}</div>`;
     } else if (wiz.step === 1) {
+      body = `${this._padHtml()}<p class="pspan">${_esc(this._spanLabel(wiz.span))}</p><div class="pactions">${_wizButton("Set right limit", { primary: true, go: "set-right", disabled: !(wiz.span > 0) || wiz.busy })}</div>`;
+    } else if (wiz.step === 2) {
       const tilt = this._canTilt()
         ? `<label class="check"><input class="tilt-on" type="checkbox"${wiz.tiltOn ? " checked" : ""}> Add a tilt pass</label>${wiz.tiltOn
-          ? `<div class="tiltbox"><label>Tilt rows<input class="tl" type="number" min="1" max="10" step="1" value="${wiz.tiltLevels}"></label><label>Tilt step<input class="ts" type="number" min="0" max="60" step="0.5" value="${wiz.tiltStep}"></label></div>`
+          ? `<div class="tiltbox"><label>Tilt rows<input class="tl" type="number" min="1" max="10" step="1" value="${wiz.tiltLevels}"></label><label>Tilt step<input class="ts" type="number" min="0" max="60" step="0.5" value="${wiz.tiltStep}"></label></div><p class="phint">After each sweep the camera tilts down a little and sweeps again, to cover more ground. It tilts back up at the end.</p>`
           : ""}`
         : "";
-      body = `${this._padHtml()}<p class="pspan">${_esc(this._spanLabel(wiz.span))}</p><div class="pactions">${_wizButton("Set right limit", { primary: true, go: "set-right", disabled: !(wiz.span > 0) || wiz.busy })}</div>${tilt}`;
-    } else if (wiz.step === 2) {
-      body = `<div class="speedrow"><span>Slow</span>${this._sliderHtml()}<span>Fast</span></div><p class="pread">${_esc(this._passLabel())}</p>`;
+      body = `<div class="speedrow"><span>Slow</span>${this._sliderHtml()}<span>Fast</span></div><p class="pread">${_esc(this._passLabel())}</p>${tilt}`;
     } else if (wiz.step === 3) {
-      body = `<div class="pactions">${_wizButton("Start test sweep", { primary: true, go: "test", disabled: wiz.testing })}${_wizButton("Stop", { go: "stop", disabled: !wiz.testing })}</div>`;
+      body = `${this._testBarHtml()}${this._testActionsHtml()}`;
     } else {
       const secs = this._fmtSeconds(this._passSeconds());
       const unit = secs === "1" ? "second" : "seconds";
@@ -2846,6 +2884,8 @@ class AdvancedReolinkCard extends HTMLElement {
         tiltStep.value = String(this._wiz.tiltStep);
       });
     }
+    if (wiz.step === 3) this._syncTestBar();
+    if (wiz.step === 0 || wiz.step === 1 || wiz.step === 3) this._ensurePatrolVideo();
   }
 
   _bindGo(root) {
@@ -3029,6 +3069,245 @@ class AdvancedReolinkCard extends HTMLElement {
     };
   }
 
+  _normalizePhases(raw) {
+    if (!Array.isArray(raw) || !raw.length) return null;
+    const out = [];
+    for (const item of raw) {
+      if (!item) continue;
+      const duration = Number(item.duration);
+      if (!Number.isFinite(duration) || duration <= 0) continue;
+      const label = String(item.label || item.key || "Sweep");
+      out.push({ key: String(item.key || ""), label, duration });
+    }
+    return out.length ? out : null;
+  }
+
+  _estimateSweepPhases(data) {
+    const phases = [];
+    const add = (key, label, seconds) => {
+      const duration = Number(seconds);
+      if (!Number.isFinite(duration) || duration <= 0) return;
+      phases.push({ key, label, duration });
+    };
+    const right = Math.max(0, Number(data.right_time) || 0);
+    const left = Math.max(0, Number(data.left_time) || 0);
+    const arc = right > 0;
+    const sweepTime = arc ? left + right : Math.max(1, Number(data.sweep_time) || 25);
+    const firstTime = arc ? left : sweepTime;
+    const pause = Math.max(0, Number(data.pause) || 0);
+    const rows = Math.max(1, Math.round(Number(data.tilt_levels)) || 1);
+    const tiltStep = Math.max(0, Number(data.tilt_step) || 0);
+    const settle = data.settle_time == null ? TEST_SETTLE_S : Math.max(0, Number(data.settle_time) || 0);
+    const loops = data.loops == null ? 1 : Math.max(1, Math.round(Number(data.loops)) || 1);
+    if (data.zoom_out_first) add("zoom_out", "Zoom out", 6);
+    if (arc) add("settle", "To home", settle);
+    if (!arc || firstTime > 0) {
+      add("pan_left", "Pan left", firstTime);
+      add("pause", "Pause", pause);
+    }
+    for (let loop = 0; loop < loops; loop++) {
+      for (let level = 0; level < rows; level++) {
+        if (level > 0 && tiltStep > 0) add("tilt_down", `Tilt down, pass ${level + 1}`, tiltStep);
+        add("pan_right", "Pan right", sweepTime);
+        add("pause", "Pause", pause);
+        add("pan_left", "Pan left", sweepTime);
+        add("pause", "Pause", pause);
+      }
+      if (rows > 1 && tiltStep > 0) add("tilt_up", "Tilt up", tiltStep * (rows - 1));
+    }
+    add("home", "Back to start", HOME_RETURN_S);
+    return phases;
+  }
+
+  _testPhases() {
+    return (this._wiz && this._wiz.testPhases) || this._estimateSweepPhases(this._sweepData());
+  }
+
+  _testActionsHtml() {
+    const wiz = this._wiz;
+    return `<div class="pactions">${_wizButton("Start test sweep", { primary: true, go: "test", disabled: wiz.testing })}${_wizButton("Stop", { go: "stop", disabled: !wiz.testing })}</div>`;
+  }
+
+  _testPlanLine() {
+    const data = this._sweepData();
+    const rows = Math.max(1, Number(data.tilt_levels) || 1);
+    const step = Math.max(0, Number(data.tilt_step) || 0);
+    const sweeps = `${rows} ${rows === 1 ? "sweep" : "sweeps"}`;
+    if (rows > 1 && step > 0) {
+      return `${sweeps}, tilting down ${this._fmtSeconds(step)} s between them`;
+    }
+    return sweeps;
+  }
+
+  _testBarHtml() {
+    const phases = this._testPhases();
+    const segs = phases
+      .map((p) => `<div class="seg" style="flex:${p.duration} 1 0" data-key="${_esc(p.key)}"><div class="fill"></div></div>`)
+      .join("");
+    const running = !!(this._wiz.testing || this._wiz.testEnded);
+    const label = running ? (this._wiz.testLabel || phases[0]?.label || "Test sweep") : "Ready";
+    return `<div class="pbar-wrap">
+      <p class="pplan">${_esc(this._testPlanLine())}</p>
+      <div class="pbar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-valuetext="${_esc(label)}" aria-label="Test sweep">${segs}</div>
+      <div class="pbar-read"><span class="pbar-label">${_esc(label)}</span><span class="pbar-eta"></span></div>
+    </div>`;
+  }
+
+  _testTotal(phases) {
+    return (phases || []).reduce((sum, p) => sum + p.duration, 0);
+  }
+
+  _stopTestBar() {
+    if (this._testRaf) {
+      cancelAnimationFrame(this._testRaf);
+      this._testRaf = null;
+    }
+    clearInterval(this._testTick);
+    this._testTick = null;
+    clearTimeout(this._testTimer);
+    this._testTimer = null;
+  }
+
+  _armTestDone(phases) {
+    clearTimeout(this._testTimer);
+    if (!this._wiz) return;
+    const startedAt = this._wiz.testStartedAt || this._nowMs();
+    const remainMs = this._testTotal(phases) * 1000 - (this._nowMs() - startedAt);
+    this._testTimer = setTimeout(() => this._finishTestBar(), Math.max(50, remainMs + 50));
+  }
+
+  _runTestBarLoop() {
+    if (!this._wiz || !this._wiz.testing) return;
+    const reduced = this._reducedMotion();
+    if (this._testRaf || this._testTick) return;
+    if (reduced) {
+      this._testTick = setInterval(() => {
+        if (!this._wiz || !this._wiz.testing) return;
+        if (this._syncTestBar()) this._finishTestBar();
+      }, 250);
+      return;
+    }
+    const loop = () => {
+      if (!this._wiz || !this._wiz.testing) {
+        this._testRaf = null;
+        return;
+      }
+      if (this._syncTestBar({ fillOnly: true })) {
+        this._testRaf = null;
+        this._finishTestBar();
+        return;
+      }
+      this._testRaf = requestAnimationFrame(loop);
+    };
+    this._testRaf = requestAnimationFrame(loop);
+    this._testTick = setInterval(() => {
+      if (this._wiz && this._wiz.testing) this._syncTestBar({ textOnly: true });
+    }, 250);
+  }
+
+  _startTestBar(phases) {
+    if (!this._wiz) return;
+    this._stopTestBar();
+    this._wiz.testPhases = phases;
+    this._wiz.testStartedAt = this._nowMs();
+    this._wiz.testLabel = phases[0] ? phases[0].label : "Test sweep";
+    this._syncTestBar();
+    this._runTestBarLoop();
+    this._armTestDone(phases);
+  }
+
+  _finishTestBar() {
+    if (!this._wiz || !this._wiz.testing) return;
+    this._stopTestBar();
+    this._wiz.testing = false;
+    this._patrolTesting = false;
+    this._wiz.testLabel = "Done";
+    this._wiz.testEnded = true;
+    this._wiz.msg = "Test sweep done.";
+    if (this._patrolEl) this._paintPatrol();
+  }
+
+  _syncTestBar(opts) {
+    const textOnly = !!(opts && opts.textOnly);
+    const fillOnly = !!(opts && opts.fillOnly);
+    const el = this._patrolEl;
+    const wiz = this._wiz;
+    if (!el || !wiz) return true;
+    const bar = el.querySelector(".pbar");
+    if (!bar) return true;
+    const phases = this._testPhases();
+    const total = this._testTotal(phases);
+    const fills = bar.querySelectorAll(".seg .fill");
+    const labelEl = el.querySelector(".pbar-label");
+    const etaEl = el.querySelector(".pbar-eta");
+    if (!wiz.testing && !wiz.testEnded) {
+      if (!textOnly) {
+        fills.forEach((fill) => { fill.style.width = "0%"; });
+        bar.setAttribute("aria-valuenow", "0");
+        bar.setAttribute("aria-valuetext", "Ready");
+      }
+      if (!fillOnly) {
+        if (labelEl) labelEl.textContent = "Ready";
+        if (etaEl) etaEl.textContent = total ? `${this._fmtSeconds(total)} s` : "";
+      }
+      return false;
+    }
+    const elapsed = wiz.testStartedAt != null ? Math.max(0, (this._nowMs() - wiz.testStartedAt) / 1000) : 0;
+    const clamped = total ? Math.min(total, elapsed) : 0;
+    let t = clamped;
+    let currentLabel = phases.length ? phases[phases.length - 1].label : "Test sweep";
+    for (let i = 0; i < phases.length; i++) {
+      const dur = phases[i].duration;
+      let pct = 0;
+      if (t >= dur) pct = 100;
+      else if (t > 0 && dur > 0) pct = (t / dur) * 100;
+      if (!textOnly && fills[i]) fills[i].style.width = `${pct}%`;
+      if (t < dur) {
+        currentLabel = phases[i].label;
+        t = 0;
+      } else {
+        t -= dur;
+      }
+    }
+    const done = total > 0 && elapsed >= total;
+    if (done) currentLabel = "Done";
+    wiz.testLabel = currentLabel;
+    const pctNow = total ? Math.round((clamped / total) * 100) : 0;
+    if (!fillOnly) {
+      bar.setAttribute("aria-valuenow", String(pctNow));
+      bar.setAttribute("aria-valuetext", currentLabel);
+      if (labelEl) labelEl.textContent = currentLabel;
+      if (etaEl) {
+        etaEl.textContent = done || !wiz.testing ? (done ? "0 s left" : "") : `${this._fmtSeconds(Math.max(0, total - clamped))} s left`;
+      }
+    } else {
+      bar.setAttribute("aria-valuenow", String(pctNow));
+    }
+    return done;
+  }
+
+  async _callStartPatrol(data) {
+    const hass = this._hass;
+    if (!hass) throw new Error("Home Assistant is not connected");
+    if (hass.connection && typeof hass.connection.sendMessagePromise === "function") {
+      const msg = await hass.connection.sendMessagePromise({
+        type: "call_service",
+        domain: DOMAIN,
+        service: "start_patrol",
+        service_data: data,
+        return_response: true,
+      });
+      return (msg && msg.response) || {};
+    }
+    if (!hass.callService) throw new Error("Home Assistant is not connected");
+    const result = hass.callService(DOMAIN, "start_patrol", data, {}, false, true);
+    if (result && typeof result.then === "function") {
+      const msg = await result;
+      return (msg && msg.response) || {};
+    }
+    return {};
+  }
+
   async _startTest() {
     if (!this._wiz || this._wiz.testing || !this._info) return;
     const right = this._passSeconds();
@@ -3037,28 +3316,27 @@ class AdvancedReolinkCard extends HTMLElement {
       this._paintPatrol();
       return;
     }
+    const data = this._sweepData();
+    const fallback = this._estimateSweepPhases(data);
     this._wiz.testing = true;
+    this._wiz.testEnded = false;
     this._patrolTesting = true;
     this._wiz.msg = "Test sweep running.";
+    this._wiz.testPhases = fallback;
     this._paintPatrol();
-    const data = this._sweepData();
-    // The action returns once the sweep starts, so estimate when it ends.
-    const rows = Math.max(1, data.tilt_levels);
-    const secs = TEST_SETTLE_S + rows * 2 * right + (rows - 1) * data.tilt_step + 4;
-    clearTimeout(this._testTimer);
-    this._testTimer = setTimeout(() => {
-      this._testTimer = null;
-      if (!this._wiz || !this._wiz.testing) return;
-      this._wiz.testing = false;
-      this._patrolTesting = false;
-      this._wiz.msg = "Test sweep done.";
-      if (this._patrolEl) this._paintPatrol();
-    }, secs * 1000);
+    this._startTestBar(fallback);
     try {
-      await this._callAction("start_patrol", data);
+      const resp = await this._callStartPatrol(data);
+      if (!this._wiz || !this._wiz.testing) return;
+      const planned = this._normalizePhases(resp && resp.phases);
+      if (planned) {
+        this._wiz.testPhases = planned;
+        this._paintPatrol();
+        this._armTestDone(planned);
+        this._syncTestBar();
+      }
     } catch (err) {
-      clearTimeout(this._testTimer);
-      this._testTimer = null;
+      this._stopTestBar();
       if (!this._wiz) return;
       this._wiz.testing = false;
       this._patrolTesting = false;
@@ -3070,9 +3348,11 @@ class AdvancedReolinkCard extends HTMLElement {
   async _stopTest() {
     if (!this._info) return;
     const was = !!(this._wiz && this._wiz.testing);
-    clearTimeout(this._testTimer);
-    this._testTimer = null;
-    if (this._wiz) this._wiz.testing = false;
+    this._stopTestBar();
+    if (this._wiz) {
+      this._wiz.testing = false;
+      this._wiz.testEnded = false;
+    }
     this._patrolTesting = false;
     try {
       await this._callAction("stop_patrol", {

@@ -239,88 +239,55 @@ async def test_options_flow_uses_stored_channels_when_offline(
     assert [o["value"] for o in schema[key].config["options"]] == ["0", "1"]
 
 
-async def test_options_flow_patrol_per_ptz_camera(
+async def test_options_flow_has_no_patrol_step(
     hass: HomeAssistant,
     mock_flow_nvr: MagicMock,
     mock_setup_entry: AsyncMock,
     config_entry: MockConfigEntry,
 ) -> None:
-    from unittest.mock import patch
-
     config_entry.add_to_hass(hass)
-    hass.config_entries.async_update_entry(
-        config_entry, options={"voice": "en-US-JennyNeural", "patrol": {"2": {"speed": 9}}}
-    )
-    with patch(
-        "custom_components.advanced_reolink_card.config_flow.async_ptz_channels",
-        AsyncMock(return_value=[1]),
-    ):
-        result = await hass.config_entries.options.async_init(config_entry.entry_id)
-        assert result["step_id"] == "init"
-        result = await hass.config_entries.options.async_configure(
-            result["flow_id"], {CONF_ENABLED_CHANNELS: ["0", "1"], "configure_patrol": True}
-        )
-    assert result["step_id"] == "patrol_camera"
-    key = next(iter(result["data_schema"].schema))
-    # only the PTZ channel is offered
-    assert [o["value"] for o in result["data_schema"].schema[key].config["options"]] == ["1"]
-    assert config_entry.data["ptz_channels"] == [1]  # cached for offline use
-
-    result = await hass.config_entries.options.async_configure(result["flow_id"], {"patrol_channel": "1"})
-    assert result["step_id"] == "patrol_settings"
+    result = await hass.config_entries.options.async_init(config_entry.entry_id)
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "init"
     fields = [str(k) for k in result["data_schema"].schema]
-    assert fields == [
-        "enabled", "left_time", "right_time", "speed", "pause",
-        "tilt_levels", "tilt_step", "settle_time", "disable_tracking",
-    ]
-    # validation: one-sided arc
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"], {"left_time": 10, "right_time": 0}
-    )
-    assert result["errors"] == {"base": "patrol_arc_incomplete"}
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"], {"left_time": 10, "right_time": 8, "speed": 16, "disable_tracking": True}
-    )
-    assert result["type"] is FlowResultType.CREATE_ENTRY
-    opts = config_entry.options
-    assert opts["patrol"]["1"]["left_time"] == 10 and opts["patrol"]["1"]["speed"] == 16
-    assert opts["patrol"]["1"]["disable_tracking"] is True
-    assert opts["patrol"]["2"] == {"speed": 9}  # other camera kept
-    assert opts[CONF_ENABLED_CHANNELS] == [0, 1]
+    assert "configure_patrol" not in fields
+    assert "patrol_channel" not in fields
+    assert "left_time" not in fields
+    assert "right_time" not in fields
 
 
-async def test_options_flow_keeps_patrol_without_patrol_step(
+async def test_options_flow_keeps_saved_patrol_limits(
     hass: HomeAssistant,
     mock_flow_nvr: MagicMock,
     mock_setup_entry: AsyncMock,
     config_entry: MockConfigEntry,
 ) -> None:
+    """Limits saved by the card wizard survive an options flow save of other settings."""
     config_entry.add_to_hass(hass)
-    hass.config_entries.async_update_entry(config_entry, options={"patrol": {"1": {"speed": 9}}})
+    saved = {
+        "1": {
+            "enabled": True,
+            "left_time": 0.0,
+            "right_time": 12.5,
+            "speed": 24,
+            "pause": 2.0,
+            "tilt_levels": 2,
+            "tilt_step": 2.0,
+            "disable_tracking": True,
+            "settle_time": 3.0,
+        }
+    }
+    hass.config_entries.async_update_entry(
+        config_entry,
+        options={"voice": "en-US-JennyNeural", "patrol": saved},
+    )
     result = await hass.config_entries.options.async_init(config_entry.entry_id)
     result = await hass.config_entries.options.async_configure(
-        result["flow_id"], {CONF_ENABLED_CHANNELS: ["0"]}
+        result["flow_id"],
+        {"voice": "en-US-GuyNeural", "volume": 80, CONF_ENABLED_CHANNELS: ["0"]},
     )
     assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert config_entry.options["patrol"] == {"1": {"speed": 9}}
-
-
-async def test_options_flow_patrol_offline_uses_cached_and_aborts_without_ptz(
-    hass: HomeAssistant,
-    mock_flow_nvr: MagicMock,
-    mock_setup_entry: AsyncMock,
-    config_entry: MockConfigEntry,
-) -> None:
-    from unittest.mock import patch
-
-    config_entry.add_to_hass(hass)
-    with patch(
-        "custom_components.advanced_reolink_card.config_flow.async_ptz_channels",
-        AsyncMock(side_effect=OSError("down")),
-    ):
-        result = await hass.config_entries.options.async_init(config_entry.entry_id)
-        result = await hass.config_entries.options.async_configure(
-            result["flow_id"], {CONF_ENABLED_CHANNELS: ["0"], "configure_patrol": True}
-        )
-    assert result["type"] is FlowResultType.ABORT
-    assert result["reason"] == "no_ptz_channels"
+    assert config_entry.options["voice"] == "en-US-GuyNeural"
+    assert config_entry.options["volume"] == 80
+    assert config_entry.options[CONF_ENABLED_CHANNELS] == [0]
+    assert config_entry.options["patrol"] == saved

@@ -69,54 +69,15 @@
           "voice": "Default voice",
           "volume": "Default volume",
           "enabled_channels": "Cameras allowed to talk",
-          "live_talk_non_admin": "Let other people use live talk",
-          "configure_patrol": "Set up patrol"
+          "live_talk_non_admin": "Let other people use live talk"
         },
         "data_description": {
           "voice": "Any Microsoft Edge neural voice name.",
           "volume": "100 percent plays the audio as it is. Higher values make it louder and may distort.",
           "enabled_channels": "Only these cameras get a speaker, and actions refuse the rest.",
-          "live_talk_non_admin": "Live talk on the card is for administrators unless this is on.",
-          "configure_patrol": "Next, pick a camera that can pan and set its patrol."
-        }
-      },
-      "patrol_camera": {
-        "title": "Choose a camera",
-        "description": "Only cameras that can pan are listed.",
-        "data": {
-          "patrol_channel": "Camera"
-        }
-      },
-      "patrol_settings": {
-        "title": "Patrol for {camera}",
-        "description": "Defaults for patrol on {camera}. The card measures the left limit and the right limit. An automation can override these. Set both limits to 0 to sweep the full range.",
-        "data": {
-          "enabled": "Patrol enabled",
-          "left_time": "Left limit",
-          "right_time": "Right limit",
-          "speed": "Sweep speed",
-          "pause": "Pause at each end",
-          "tilt_levels": "Tilt rows",
-          "tilt_step": "Tilt step",
-          "settle_time": "Pause at the home position",
-          "disable_tracking": "Pause auto tracking during patrol"
-        },
-        "data_description": {
-          "enabled": "When off, patrol refuses this camera.",
-          "left_time": "Seconds to pan left from the home position. Use 0 when the home position is the left limit.",
-          "right_time": "Seconds to pan right from the home position to the right limit.",
-          "speed": "From 1 to 64. The limits were measured at this sweep speed.",
-          "tilt_levels": "How many tilt rows to use. 1 keeps the current tilt.",
-          "tilt_step": "Seconds to tilt down between rows."
+          "live_talk_non_admin": "Live talk on the card is for administrators unless this is on."
         }
       }
-    },
-    "error": {
-      "patrol_value_range": "A value is outside its allowed range.",
-      "patrol_arc_incomplete": "Set a right limit as well, or clear the left limit."
-    },
-    "abort": {
-      "no_ptz_channels": "This device has no cameras that can pan."
     }
   },
   "entity": {

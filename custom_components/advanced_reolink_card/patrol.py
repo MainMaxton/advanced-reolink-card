@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import logging
 import time
 from typing import Any
@@ -27,6 +27,8 @@ DEFAULT_SWEEP_PAUSE_S = 2.0
 DEFAULT_SWEEP_SPEED = 32
 DEFAULT_TILT_STEP_S = 2.0
 ZOOM_OUT_TIME_S = 6.0
+# Estimated time for the final goto_guard after a sweep (no position API).
+HOME_RETURN_S = 4.0
 MODES = ("auto", "native", "presets", "sweep")
 # The patrol wizard pans with these ops so a measured span matches a sweep.
 PTZ_DIRECTION_OPS: dict[str, str] = {
@@ -75,14 +77,63 @@ class PatrolResult:
     channel: int
     steps: int = 0
     reason: str = "completed"
+    phases: list[dict[str, Any]] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
-        return {
+        out: dict[str, Any] = {
             "mode": self.mode,
             "channel": self.channel,
             "steps": self.steps,
             "reason": self.reason,
         }
+        if self.phases:
+            out["phases"] = self.phases
+            out["duration"] = round(sum(float(p["duration"]) for p in self.phases), 3)
+        return out
+
+
+def sweep_phase_plan(request: PatrolRequest) -> list[dict[str, Any]]:
+    """Estimated sweep phases in the order ``PatrolManager._sweep`` runs them."""
+    phases: list[dict[str, Any]] = []
+
+    def add(key: str, label: str, seconds: float) -> None:
+        duration = float(seconds)
+        if duration <= 0:
+            return
+        phases.append({"key": key, "label": label, "duration": duration})
+
+    if request.arc:
+        first_time = float(request.left_time)
+        sweep_time = float(request.left_time) + float(request.right_time)
+    else:
+        sweep_time = max(1.0, float(request.sweep_time))
+        first_time = sweep_time
+    pause = max(0.0, float(request.pause))
+    levels = max(1, int(request.tilt_levels))
+    tilt_step = max(0.0, float(request.tilt_step))
+    loops = 1 if request.loops is None else max(1, int(request.loops))
+
+    if request.zoom_out_first:
+        add("zoom_out", "Zoom out", ZOOM_OUT_TIME_S)
+    if request.arc:
+        add("settle", "To home", max(0.0, float(request.settle_time)))
+    if not request.arc or first_time > 0:
+        add("pan_left", "Pan left", first_time)
+        add("pause", "Pause", pause)
+
+    for _loop in range(loops):
+        for level in range(levels):
+            if level > 0 and tilt_step > 0:
+                add("tilt_down", f"Tilt down, pass {level + 1}", tilt_step)
+            add("pan_right", "Pan right", sweep_time)
+            add("pause", "Pause", pause)
+            add("pan_left", "Pan left", sweep_time)
+            add("pause", "Pause", pause)
+        if levels > 1 and tilt_step > 0:
+            add("tilt_up", "Tilt up", tilt_step * (levels - 1))
+
+    add("home", "Back to start", HOME_RETURN_S)
+    return phases
 
 
 @dataclass
@@ -296,8 +347,13 @@ class PatrolManager:
         self._tasks[request.channel] = task
         if wait:
             return await task
+        phases = sweep_phase_plan(request) if plan.mode == "sweep" else []
         return PatrolResult(
-            mode=plan.mode, channel=request.channel, steps=0, reason="started"
+            mode=plan.mode,
+            channel=request.channel,
+            steps=0,
+            reason="started",
+            phases=phases,
         )
 
     async def _native(
