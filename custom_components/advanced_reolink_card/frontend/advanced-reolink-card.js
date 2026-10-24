@@ -230,6 +230,9 @@ const STYLE = `
   .presult:empty { display: none; }
   .presult { color: var(--secondary-text-color); font-size: 0.9em; }
   .padrow { display: flex; align-items: center; justify-content: center; gap: 16px; }
+  .pbody { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+  .pbody > * { margin: 0; }
+  .pfoot { margin-top: 4px; }
   .patrol-dialog .dpad { display: grid; grid-template-columns: repeat(3, 44px); grid-template-rows: repeat(3, 44px); gap: 4px; }
   .patrol-dialog .dpad button, .patrol-dialog .zoom button { all: unset; box-sizing: border-box; cursor: pointer; user-select: none;
     touch-action: none; display: flex; align-items: center; justify-content: center; border-radius: 12px;
