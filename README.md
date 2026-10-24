@@ -41,7 +41,7 @@ Not affiliated with or endorsed by Reolink.
 
 - **Tabs by default.** One camera at a time, with tabs above the video. Tabs stay
   on one row and scroll sideways when there are many.
-- **Seamless switching.** Tap a tab or swipe on the video. The card keeps its
+- **Smooth switching.** Tap a tab or swipe on the video. The card keeps its
   height and the last frame while the next camera connects, then eases to the new
   camera's size. Only the active camera streams.
 - **Optional grid.** A button next to the tabs shows every camera at once. The
