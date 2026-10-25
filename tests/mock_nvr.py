@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import struct
 
-from custom_components.reolink_camera_audiohook import audio, baichuan_talk as bt
+from custom_components.advanced_reolink_card import audio, baichuan_talk as bt
 
 TALK_ABILITY_XML = """<?xml version="1.0" encoding="UTF-8" ?>
 <body>

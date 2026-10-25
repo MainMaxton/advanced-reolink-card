@@ -1,0 +1,360 @@
+say:
+  fields:
+    camera:
+      example: media_player.camera_speaker
+      selector:
+        entity:
+          filter:
+            integration: advanced_reolink_card
+            domain: media_player
+    channel:
+      example: 0
+      selector:
+        number:
+          min: 0
+          max: 255
+          mode: box
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: advanced_reolink_card
+    message:
+      required: true
+      example: "Hello, please leave the parcel by the door"
+      selector:
+        text:
+          multiline: true
+    voice:
+      example: en-US-JennyNeural
+      selector:
+        text:
+    volume:
+      example: 100
+      selector:
+        number:
+          min: 0
+          max: 200
+          step: 5
+          unit_of_measurement: "%"
+          mode: slider
+
+play_file:
+  fields:
+    camera:
+      example: media_player.camera_speaker
+      selector:
+        entity:
+          filter:
+            integration: advanced_reolink_card
+            domain: media_player
+    channel:
+      example: 0
+      selector:
+        number:
+          min: 0
+          max: 255
+          mode: box
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: advanced_reolink_card
+    media_content_id:
+      required: true
+      example: "media-source://media_source/local/doorbell.mp3"
+      selector:
+        text:
+    volume:
+      example: 100
+      selector:
+        number:
+          min: 0
+          max: 200
+          step: 5
+          unit_of_measurement: "%"
+          mode: slider
+
+start_patrol:
+  fields:
+    camera:
+      example: camera.front_yard_fluent
+      selector:
+        entity:
+          filter:
+            - integration: advanced_reolink_card
+              domain: media_player
+            - integration: reolink
+              domain: camera
+    device_id:
+      selector:
+        device:
+          filter:
+            - integration: advanced_reolink_card
+            - integration: reolink
+    channel:
+      example: 3
+      selector:
+        number:
+          min: 0
+          max: 255
+          mode: box
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: advanced_reolink_card
+    patrol_id:
+      example: 0
+      selector:
+        text:
+    presets:
+      example: '["Gate", "Driveway", "Door"]'
+      selector:
+        object:
+    dwell:
+      default: 10
+      example: 15
+      selector:
+        number:
+          min: 0.5
+          max: 3600
+          step: 0.5
+          unit_of_measurement: seconds
+          mode: box
+    duration:
+      example: 300
+      selector:
+        number:
+          min: 1
+          max: 86400
+          step: 1
+          unit_of_measurement: seconds
+          mode: box
+    loops:
+      example: 2
+      selector:
+        number:
+          min: 1
+          max: 1000
+          mode: box
+    return_preset:
+      example: Home
+      selector:
+        text:
+    mode:
+      default: auto
+      selector:
+        select:
+          options:
+            - auto
+            - native
+            - presets
+            - sweep
+    left_time:
+      example: 12
+      selector:
+        number:
+          min: 0
+          max: 300
+          step: 0.5
+          unit_of_measurement: seconds
+          mode: box
+    right_time:
+      example: 10
+      selector:
+        number:
+          min: 0
+          max: 300
+          step: 0.5
+          unit_of_measurement: seconds
+          mode: box
+    arc:
+      example: "[12, 10]"
+      selector:
+        object:
+    settle_time:
+      example: 3
+      selector:
+        number:
+          min: 0
+          max: 60
+          step: 0.5
+          unit_of_measurement: seconds
+          mode: box
+    sweep_time:
+      example: 25
+      selector:
+        number:
+          min: 1
+          max: 600
+          step: 1
+          unit_of_measurement: seconds
+          mode: box
+    pause:
+      example: 2
+      selector:
+        number:
+          min: 0
+          max: 600
+          step: 0.5
+          unit_of_measurement: seconds
+          mode: box
+    speed:
+      example: 32
+      selector:
+        number:
+          min: 1
+          max: 64
+          mode: slider
+    tilt_levels:
+      example: 1
+      selector:
+        number:
+          min: 1
+          max: 10
+          mode: box
+    tilt_step:
+      example: 2
+      selector:
+        number:
+          min: 0
+          max: 60
+          step: 0.5
+          unit_of_measurement: seconds
+          mode: box
+    zoom_out_first:
+      default: false
+      selector:
+        boolean:
+    disable_tracking:
+      selector:
+        boolean:
+
+stop_patrol:
+  fields:
+    camera:
+      example: camera.front_yard_fluent
+      selector:
+        entity:
+          filter:
+            - integration: advanced_reolink_card
+              domain: media_player
+            - integration: reolink
+              domain: camera
+    device_id:
+      selector:
+        device:
+          filter:
+            - integration: advanced_reolink_card
+            - integration: reolink
+    channel:
+      example: 3
+      selector:
+        number:
+          min: 0
+          max: 255
+          mode: box
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: advanced_reolink_card
+
+set_patrol_limits:
+  fields:
+    camera:
+      example: camera.front_yard_fluent
+      selector:
+        entity:
+          filter:
+            - integration: advanced_reolink_card
+              domain: media_player
+            - integration: reolink
+              domain: camera
+    device_id:
+      selector:
+        device:
+          filter:
+            - integration: advanced_reolink_card
+            - integration: reolink
+    channel:
+      example: 3
+      selector:
+        number:
+          min: 0
+          max: 255
+          mode: box
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: advanced_reolink_card
+    left_time:
+      example: 12
+      selector:
+        number:
+          min: 0
+          max: 300
+          step: 0.5
+          unit_of_measurement: seconds
+          mode: box
+    right_time:
+      example: 10
+      selector:
+        number:
+          min: 0
+          max: 300
+          step: 0.5
+          unit_of_measurement: seconds
+          mode: box
+    arc:
+      example: "[12, 10]"
+      selector:
+        object:
+    settle_time:
+      example: 3
+      selector:
+        number:
+          min: 0
+          max: 60
+          step: 0.5
+          unit_of_measurement: seconds
+          mode: box
+    speed:
+      example: 32
+      selector:
+        number:
+          min: 1
+          max: 64
+          mode: slider
+    pause:
+      example: 2
+      selector:
+        number:
+          min: 0
+          max: 600
+          step: 0.5
+          unit_of_measurement: seconds
+          mode: box
+    tilt_levels:
+      example: 1
+      selector:
+        number:
+          min: 1
+          max: 10
+          mode: box
+    tilt_step:
+      example: 2
+      selector:
+        number:
+          min: 0
+          max: 60
+          step: 0.5
+          unit_of_measurement: seconds
+          mode: box
+    disable_tracking:
+      selector:
+        boolean:
+    enabled:
+      selector:
+        boolean:
+    clear:
+      default: false
+      selector:
+        boolean:

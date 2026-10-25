@@ -1,0 +1,27 @@
+{
+  "domain": "advanced_reolink_card",
+  "name": "Advanced Reolink Card",
+  "after_dependencies": [
+    "frontend",
+    "http"
+  ],
+  "codeowners": [
+    "@MainMaxton"
+  ],
+  "config_flow": true,
+  "dependencies": [
+    "ffmpeg",
+    "media_source"
+  ],
+  "documentation": "https://github.com/MainMaxton/advanced-reolink-card",
+  "integration_type": "hub",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/MainMaxton/advanced-reolink-card/issues",
+  "loggers": [
+    "custom_components.advanced_reolink_card"
+  ],
+  "requirements": [
+    "edge-tts>=7.0.0"
+  ],
+  "version": "0.5.2"
+}

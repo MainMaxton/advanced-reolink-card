@@ -16,7 +16,7 @@ Please **do not open a public issue** for security problems.
 
 Report them privately through GitHub's private vulnerability reporting: open the
 **Security** tab of this repository and choose **Report a vulnerability**
-(<https://github.com/MainMaxton/reolink-camera-audiohook/security/advisories/new>).
+(<https://github.com/MainMaxton/advanced-reolink-card/security/advisories/new>).
 
 Please include:
 
