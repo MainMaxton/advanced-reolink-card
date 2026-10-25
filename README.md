@@ -59,7 +59,8 @@ Not affiliated with or endorsed by Reolink.
 
 **Patrol wizard**
 
-- A **Patrol** button in the card header opens a five step setup: left limit,
+- A **Guard** button in the card header, to the left of **Patrol**, returns the
+  camera to its guard position. **Patrol** opens a five step setup: left limit,
   right limit, speed (with optional tilt passes), a test with live preview and a
   progress bar, then save.
 - Patrol is set **only on the card**. It is not part of the integration options.
@@ -280,9 +281,10 @@ longer if a battery camera has to wake.
 
 ## Patrol wizard
 
-Administrators see a **Patrol** button in the card header on cameras that can
-pan. It is hidden in the grid. This is the only place to set up patrol; the
-integration options do not include it.
+Administrators see **Guard** and **Patrol** in the card header on cameras that
+can pan. Guard returns the camera to its guard position. Both are hidden in the
+grid. This is the only place to set up patrol; the integration options do not
+include it.
 
 The wizard does not store an angle. It stores a home position on the camera, then
 the seconds of pan from there.
@@ -395,7 +397,7 @@ optional `volume` from 0 to 200 percent. `say` also takes `voice`.
 | *Invalid authentication* | The Reolink username and password. After a password change, use **Reconfigure**. |
 | *No camera found for live view* | Set up Home Assistant's Reolink integration for the same device and keep its Fluent camera entity enabled, or set `camera_entity`. |
 | No pan and tilt pad | The Reolink *PTZ left, right, up, down and stop* buttons must be enabled for that camera. Zoom also needs *PTZ zoom in* and *PTZ zoom out*. |
-| No Patrol button | It shows only for administrators, on cameras that can pan, and not in the grid. |
+| No Patrol or Guard button | They show only for administrators, on cameras that can pan, and not in the grid. |
 | Talk button says it needs a secure page | Open Home Assistant over HTTPS or use the companion app. |
 | *Microphone permission was denied* | Allow the microphone for Home Assistant in the browser or phone settings. |
 | No sound when listening | Turn on the camera's *Record audio* switch in the Reolink integration, and check the volume slider and phone volume. |

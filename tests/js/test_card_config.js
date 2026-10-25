@@ -432,6 +432,165 @@ equal(padHost.style.paddingBottom, "", "cleared host pad removes padding");
 equal(padHost._heightPad, 0, "cleared host pad is zero");
 assert(!padHost.listening, "cleared host pad drops the scroll listener");
 
+const headerStart = src.indexOf('<div class="header">');
+const headerEnd = src.indexOf("${this._multi", headerStart);
+const header = src.slice(headerStart, headerEnd);
+assert(header.includes('class="guard-open"'), "guard button is in the header");
+assert(header.indexOf("guard-open") < header.indexOf("patrol-open"), "guard button is before Patrol");
+assert(header.includes('aria-label="Return to guard"'), "guard aria-label is Return to guard");
+assert(header.includes('title="Return to guard"'), "guard title is Return to guard");
+assert(header.includes(">Guard</span>"), "guard label is Guard");
+assert(header.includes("mdi:shield-home"), "guard button has an icon");
+const ptzStart = src.indexOf('<div class="ptz"');
+const ptzBlock = src.slice(ptzStart, src.indexOf("ptznote", ptzStart));
+assert(!ptzBlock.includes("guard-open"), "guard is not under the PTZ pad");
+assert(ptzBlock.includes('class="presets"'), "presets row stays under the pad");
+assert(src.includes("button.patrol-open, button.guard-open"), "guard shares the patrol pill style");
+assert(
+  src.includes("button.patrol-open ha-icon, button.guard-open ha-icon"),
+  "guard icon size matches patrol"
+);
+const updateSrc = methodSource("_update");
+assert(
+  updateSrc.includes("const showPatrol = this._patrolSetupAvailable()"),
+  "guard visibility reuses patrol availability"
+);
+assert(updateSrc.includes("this._guardBtn.hidden = !showPatrol"), "guard hides with patrol");
+assert(updateSrc.includes("this._patrolBtn.hidden = !showPatrol"), "patrol keeps the same visibility flag");
+assert(!methodSource("_selectCamera").includes("_render("), "camera switch still does not rebuild the header");
+
+const guardCtx = {};
+vm.runInNewContext(
+  `const WS_PTZ_GUARD = "advanced_reolink_card/ptz/guard";
+this._returnToGuard = function() ${methodFn("_returnToGuard")};
+this._patrolSetupAvailable = function() ${methodFn("_patrolSetupAvailable")};`,
+  guardCtx,
+  { filename: "guard-button.js" }
+);
+
+function deferredCall() {
+  const box = { ok: null, fail: null, fin: [] };
+  const promise = {
+    then(fn) {
+      box.ok = fn;
+      return promise;
+    },
+    catch(fn) {
+      box.fail = fn;
+      return promise;
+    },
+    finally(fn) {
+      box.fin.push(fn);
+      return promise;
+    },
+  };
+  return {
+    promise,
+    settle(value, isErr) {
+      if (isErr) {
+        if (box.fail) box.fail(value);
+      } else if (box.ok) box.ok(value);
+      for (const fn of box.fin) fn();
+    },
+  };
+}
+
+function freshGuard() {
+  const calls = [];
+  let pending = null;
+  const host = {
+    _guardBusy: false,
+    grid: false,
+    ptz: true,
+    key: "cam",
+    _info: { channel: 1, config_entry_id: "entry-1" },
+    _config: { entity: "media_player.cam" },
+    _guardBtn: { disabled: false },
+    status: null,
+    calls,
+    _hass: {
+      user: { is_admin: true },
+      callWS(msg) {
+        calls.push(msg);
+        pending = deferredCall();
+        return pending.promise;
+      },
+    },
+    _inGrid() {
+      return this.grid;
+    },
+    _ptzAvailable() {
+      return this.ptz;
+    },
+    _targetKey() {
+      return this.key;
+    },
+    _setStatus(text, kind = "") {
+      this.status = { text, kind };
+    },
+    pending() {
+      return pending;
+    },
+  };
+  host._returnToGuard = guardCtx._returnToGuard;
+  host._patrolSetupAvailable = guardCtx._patrolSetupAvailable;
+  return host;
+}
+
+const guardShown = freshGuard();
+assert(guardShown._patrolSetupAvailable(), "PTZ admin camera can show guard");
+guardShown.ptz = false;
+assert(!guardShown._patrolSetupAvailable(), "non-PTZ hides guard");
+guardShown.ptz = true;
+guardShown.grid = true;
+assert(!guardShown._patrolSetupAvailable(), "grid hides guard");
+guardShown.grid = false;
+guardShown._hass = { user: { is_admin: false } };
+assert(!guardShown._patrolSetupAvailable(), "non-admin hides guard");
+guardShown._hass = { user: { is_admin: true } };
+guardShown._info = { channel: 1 };
+assert(!guardShown._patrolSetupAvailable(), "missing config entry hides guard");
+assert(guardShown._returnToGuard() === undefined, "hidden guard does not send a command");
+equal(guardShown.calls.length, 0, "no guard command when it cannot work");
+
+const flying = freshGuard();
+const sent = flying._returnToGuard();
+assert(sent && typeof sent.then === "function", "guard press returns the websocket call");
+assert(flying._returnToGuard() === undefined, "a second press while in flight does nothing");
+equal(flying.calls.length, 1, "only one guard command is sent");
+equal(
+  flying.calls[0],
+  { type: "advanced_reolink_card/ptz/guard", channel: 1, config_entry_id: "entry-1" },
+  "guard command uses the PTZ target fields"
+);
+assert(flying._guardBtn.disabled === true, "guard button is disabled while the call is in flight");
+assert(flying._guardBusy === true, "guard call is marked in flight");
+flying.pending().settle({ guard_configured: false });
+equal(flying.status, { text: "No guard position is set.", kind: "" }, "unset guard shows a plain status");
+assert(flying._guardBusy === false, "guard call clears the in-flight flag");
+assert(flying._guardBtn.disabled === false, "guard button accepts another press after the call");
+
+const moved = freshGuard();
+moved._returnToGuard();
+moved.pending().settle({ guard_configured: true });
+equal(moved.status, { text: "Returning to guard.", kind: "" }, "a set guard position reports the move");
+
+const failedCall = freshGuard();
+failedCall._returnToGuard();
+failedCall.pending().settle(new Error("Sign in failed"), true);
+equal(failedCall.status, { text: "Sign in failed", kind: "error" }, "guard errors use the status line");
+const bare = freshGuard();
+bare._returnToGuard();
+bare.pending().settle({}, true);
+equal(bare.status, { text: "Could not return to guard.", kind: "error" }, "guard errors have a plain fallback");
+
+const switched = freshGuard();
+switched._returnToGuard();
+switched.key = "other";
+switched.pending().settle({ guard_configured: false });
+assert(switched.status === null, "a late guard result does not overwrite the camera you switched to");
+assert(switched._guardBusy === false, "switching away still clears the in-flight flag");
+
 if (failed) {
   console.error(`${failed} assertion(s) failed`);
   process.exit(1);

@@ -48,6 +48,15 @@ def test_card_file_has_multicam_hooks() -> None:
     assert "Set up patrol" in src
     assert "mdi:map-marker-path" in src
     assert 'aria-label="Set up patrol"' in src
+    header = src.split('<div class="header">', 1)[1].split("${this._multi", 1)[0]
+    assert 'class="guard-open"' in header
+    assert header.index("guard-open") < header.index("patrol-open")
+    assert 'aria-label="Return to guard"' in header
+    assert 'title="Return to guard"' in header
+    assert ">Guard</span>" in header
+    assert "type: WS_PTZ_GUARD" in src
+    assert "const showPatrol = this._patrolSetupAvailable()" in src
+    assert "this._guardBtn.hidden = !showPatrol" in src
     assert "advanced_reolink_card/ptz/set_guard" in src
     assert "advanced_reolink_card/ptz/move" in src
     assert 'role="progressbar"' in src

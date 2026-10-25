@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.4 (2026-10-25)
+
+### Added
+- Guard button in the card header, to the left of Patrol. On a camera that can
+  pan it returns the camera to its guard position. It is hidden for cameras
+  that cannot pan, in the grid, and for users who are not administrators.
+
 ## 0.5.3 (2026-10-25)
 
 ### Fixed

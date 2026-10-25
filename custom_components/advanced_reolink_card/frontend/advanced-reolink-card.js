@@ -2,7 +2,7 @@
  * Live view, pan, listen and talk.
  * custom:audiohook-talk-card stays as an alias for older dashboards.
  */
-const CARD_VERSION = "0.5.3";
+const CARD_VERSION = "0.5.4";
 const DOMAIN = "advanced_reolink_card";
 const WS_PTZ_MOVE = "advanced_reolink_card/ptz/move";
 const WS_PTZ_STOP = "advanced_reolink_card/ptz/stop";
@@ -163,14 +163,15 @@ class WebRtcPipe {
 const STYLE = `
   :host { display: block; }
   ha-card { position: relative; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
-  .header { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .header { display: flex; align-items: center; flex-wrap: nowrap; gap: 8px; min-width: 0; }
   .header .icon { flex: none; }
   .name { font-size: 1.15em; font-weight: 500; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .battery { flex: none; color: var(--secondary-text-color); --mdc-icon-size: 20px; }
-  button.patrol-open { all: unset; box-sizing: border-box; cursor: pointer; flex: none; display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+  button.patrol-open, button.guard-open { all: unset; box-sizing: border-box; cursor: pointer; flex: none; display: inline-flex; align-items: center; justify-content: center; gap: 4px;
     height: 36px; padding: 0 10px 0 8px; border-radius: 18px; font: inherit; font-size: 14px; font-weight: 500; line-height: 1; white-space: nowrap;
     background: var(--primary-color); color: var(--text-primary-color, #fff); }
-  button.patrol-open ha-icon { --mdc-icon-size: 18px; width: 18px; height: 18px; }
+  button.patrol-open ha-icon, button.guard-open ha-icon { --mdc-icon-size: 18px; width: 18px; height: 18px; }
+  button.guard-open[disabled] { opacity: 0.55; cursor: default; }
   .status { font-size: 0.9em; color: var(--secondary-text-color); min-height: 1.2em; }
   .status.error { color: var(--error-color, #db4437); }
   .status.live { color: var(--success-color, #43a047); font-weight: 500; }
@@ -302,7 +303,7 @@ const STYLE = `
   .video button.play ha-icon { --mdc-icon-size: 56px; }
   .video button.stopvideo { all: unset; position: absolute; top: 8px; right: 8px; cursor: pointer; width: 36px; height: 36px; border-radius: 18px; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.5); color: #fff; }
   .video button:focus-visible, .ptz button:focus-visible, .presets button.chip:focus-visible, button.listen:focus-visible, .tabs button[role="tab"]:focus-visible,
-  .viewtoggle:focus-visible, .tile-open:focus-visible, .gridstart:focus-visible, button.patrol-open:focus-visible, .patrol-dialog button:focus-visible,
+  .viewtoggle:focus-visible, .tile-open:focus-visible, .gridstart:focus-visible, button.patrol-open:focus-visible, button.guard-open:focus-visible, .patrol-dialog button:focus-visible,
   .patrol-dialog .act:focus-visible { outline: 3px solid var(--accent-color, #ff9800); outline-offset: 2px; }
   .ptz { display: flex; align-items: center; justify-content: center; gap: 20px; flex-wrap: wrap; }
   .dpad { display: grid; grid-template-columns: repeat(3, 48px); grid-template-rows: repeat(3, 48px); gap: 4px; }
@@ -580,6 +581,7 @@ class AdvancedReolinkCard extends HTMLElement {
     this._patrolTesting = false;
     this._wiz = null;
     this._patrolCloseTimer = null;
+    this._guardBusy = false;
     this._onVisibility = () => {
       if (!document.hidden) return;
       this._abandonPatrol();
@@ -894,6 +896,7 @@ class AdvancedReolinkCard extends HTMLElement {
         <div class="header">
           <ha-icon class="icon" icon="${_esc(c.icon || "mdi:cctv")}"></ha-icon>
           <div class="name"></div>
+          <button type="button" class="guard-open" aria-label="Return to guard" title="Return to guard" hidden><ha-icon icon="mdi:shield-home"></ha-icon><span>Guard</span></button>
           <button type="button" class="patrol-open" aria-label="Set up patrol" hidden><ha-icon icon="mdi:map-marker-path"></ha-icon><span>Patrol</span></button>
           <ha-icon class="battery" icon="mdi:battery-outline" title="Battery camera" hidden></ha-icon>
         </div>
@@ -964,6 +967,7 @@ class AdvancedReolinkCard extends HTMLElement {
     this._audioEl = $("audio.sink");
     this._viewBtn = $(".viewtoggle");
     this._gridStartBtn = $(".gridstart");
+    this._guardBtn = $(".guard-open");
     this._patrolBtn = $(".patrol-open");
     if (this._videoBox && this._multi && !grid) {
       this._videoBox.setAttribute("role", "tabpanel");
@@ -1521,6 +1525,7 @@ class AdvancedReolinkCard extends HTMLElement {
     if (this._ptzEl) {
       for (const b of this.shadowRoot.querySelectorAll(".ptz button[data-ptz]")) this._bindPtz(b);
     }
+    if (this._guardBtn) this._guardBtn.addEventListener("click", () => this._returnToGuard());
     if (this._patrolBtn) this._patrolBtn.addEventListener("click", () => this._openPatrol());
     if (this._viewBtn) this._viewBtn.addEventListener("click", () => this._toggleView());
     if (this._gridStartBtn) this._gridStartBtn.addEventListener("click", () => this._bootGrid(null));
@@ -1599,7 +1604,12 @@ class AdvancedReolinkCard extends HTMLElement {
       if (this._nameEl.textContent !== name) this._nameEl.textContent = name;
     }
     if (this._batteryEl) this._batteryEl.hidden = !this._battery();
-    if (this._patrolBtn) this._patrolBtn.hidden = !this._patrolSetupAvailable();
+    const showPatrol = this._patrolSetupAvailable();
+    if (this._guardBtn) {
+      this._guardBtn.hidden = !showPatrol;
+      this._guardBtn.disabled = !!this._guardBusy;
+    }
+    if (this._patrolBtn) this._patrolBtn.hidden = !showPatrol;
     if (this._videoBox && this._multi && !this._inGrid()) {
       this._videoBox.setAttribute("aria-labelledby", `arc-tab-${this._activeIndex}`);
     }
@@ -2666,6 +2676,33 @@ class AdvancedReolinkCard extends HTMLElement {
     if (!info || info.channel == null || info.channel === "" || !info.config_entry_id) return false;
     if (this._hass?.user && this._hass.user.is_admin === false) return false;
     return true;
+  }
+
+  _returnToGuard() {
+    if (this._guardBusy || !this._patrolSetupAvailable() || !this._hass || !this._info) return;
+    const key = this._targetKey(this._config || {});
+    this._guardBusy = true;
+    if (this._guardBtn) this._guardBtn.disabled = true;
+    const finish = () => {
+      this._guardBusy = false;
+      if (this._guardBtn) this._guardBtn.disabled = false;
+    };
+    return this._hass
+      .callWS({
+        type: WS_PTZ_GUARD,
+        channel: this._info.channel,
+        config_entry_id: this._info.config_entry_id,
+      })
+      .then((res) => {
+        if (this._targetKey(this._config || {}) !== key) return;
+        if (res && res.guard_configured === false) this._setStatus("No guard position is set.", "");
+        else this._setStatus("Returning to guard.", "");
+      })
+      .catch((err) => {
+        if (this._targetKey(this._config || {}) !== key) return;
+        this._setStatus((err && err.message) || "Could not return to guard.", "error");
+      })
+      .finally(finish);
   }
 
   _patrolSpeed() {
