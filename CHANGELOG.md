@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.6 (2026-10-25)
+
+### Fixed
+- Listening was silent on iPhone. Audio now plays through the page audio
+  element, unmuted on the tap. If the browser blocks sound, the button says
+  "Tap to hear".
+
 ## 0.5.5 (2026-10-25)
 
 ### Changed

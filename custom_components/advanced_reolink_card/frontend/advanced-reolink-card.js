@@ -2,7 +2,7 @@
  * Live view, pan, listen and talk.
  * custom:audiohook-talk-card stays as an alias for older dashboards.
  */
-const CARD_VERSION = "0.5.5";
+const CARD_VERSION = "0.5.6";
 const DOMAIN = "advanced_reolink_card";
 const WS_PTZ_MOVE = "advanced_reolink_card/ptz/move";
 const WS_PTZ_STOP = "advanced_reolink_card/ptz/stop";
@@ -334,6 +334,9 @@ const STYLE = `
   button.listen.live { background: var(--success-color, #43a047); color: #fff; }
   button.listen.connecting { background: var(--warning-color, #ffa600); color: #fff; }
   button.listen.error { background: var(--disabled-color, #9e9e9e); color: #fff; }
+  button.listen.blocked { background: var(--accent-color, #ff9800); color: #fff; }
+  /* Not display:none. iOS will not play an audio element that is hidden that way. */
+  audio.sink { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
   input.volume { flex: 1; accent-color: var(--primary-color); }
   button.talk {
     all: unset; box-sizing: border-box; cursor: pointer; user-select: none; -webkit-user-select: none;
@@ -563,6 +566,7 @@ class AdvancedReolinkCard extends HTMLElement {
     this._video = { state: "off", kind: null, message: "" };
     this._listen = { state: "off", message: "" };
     this._listening = false;
+    this._listenBlocked = false;
     this._ducked = false;
     this._status = { text: "", kind: "" };
     this._cameras = [];
@@ -673,9 +677,8 @@ class AdvancedReolinkCard extends HTMLElement {
     this._stopAllStreams("card removed");
     clearTimeout(this._duckTimer);
     this._ducked = false;
-    if (this._playCtx) this._playCtx.close().catch(() => {});
-    this._playCtx = null;
-    this._gain = null;
+    this._audioStream = null;
+    this._unlockedEl = null;
   }
 
   _targetKey(c) {
@@ -940,7 +943,7 @@ class AdvancedReolinkCard extends HTMLElement {
         </button>
         ${union.meter ? '<div class="meter" role="meter" aria-label="Microphone level"><div></div></div>' : ""}
         <div class="note https" hidden>${HTTPS_NOTE}</div>` : ""}
-        <audio class="sink" playsinline hidden></audio>
+        <audio class="sink" playsinline muted></audio>
         <div class="status" role="status" aria-live="polite"></div>
         <div class="presets-menu" id="arc-presets" role="menu" aria-label="Presets" hidden></div>
       </ha-card>`;
@@ -1000,6 +1003,7 @@ class AdvancedReolinkCard extends HTMLElement {
       adopt.pipe.stop();
     }
     this._watchCardWidth();
+    this._resumeSink();
   }
 
   _fillTabs() {
@@ -1094,8 +1098,7 @@ class AdvancedReolinkCard extends HTMLElement {
     // Measure the outgoing camera first so the card never shrinks under the page.
     this._lockCardHeight(true);
     const wasLive = this._video.state !== "off" && this._video.state !== "error";
-    // Gesture unlock is only for live video. Listen stays stopped after a tab switch.
-    if (wasLive) this._ensurePlayCtx();
+    // Listen stays stopped after a tab switch. The next Listen tap starts sound.
     if (wasLive) this._captureHoldFrame();
     this._stopTalk("camera switch");
     clearTimeout(this._duckTimer);
@@ -1106,6 +1109,7 @@ class AdvancedReolinkCard extends HTMLElement {
     this._video = { state: "off", kind: null, message: "" };
     this._listen = { state: "off", message: "" };
     this._listening = false;
+    this._listenBlocked = false;
     this._status = { text: "", kind: "" };
     this._markActiveTab();
     if (wasLive && this._config.video) this._startVideo();
@@ -1516,6 +1520,7 @@ class AdvancedReolinkCard extends HTMLElement {
           ev.preventDefault();
           return;
         }
+        this._unlockSink();
         this._startVideo();
       });
     }
@@ -1525,11 +1530,11 @@ class AdvancedReolinkCard extends HTMLElement {
       this._videoEl.addEventListener("loadeddata", () => this._videoLive());
     }
     if (this._stillEl) this._stillEl.addEventListener("load", () => this._videoLive());
-    if (this._listenBtn) this._listenBtn.addEventListener("click", () => (this._listening ? this._stopListen("client") : this._startListen()));
+    if (this._listenBtn) this._listenBtn.addEventListener("click", () => this._onListenClick());
     if (this._volumeEl) {
       this._volumeEl.addEventListener("input", () => {
         this._volume = Number(this._volumeEl.value) / 100;
-        this._applyGain();
+        this._applySink();
       });
     }
     if (this._ptzEl) {
@@ -1661,10 +1666,12 @@ class AdvancedReolinkCard extends HTMLElement {
     if (this._listenRow) this._listenRow.hidden = !c.listen || this._inGrid();
     if (this._listenBtn) {
       const l = this._listen;
-      this._listenBtn.className = `listen ${l.state === "waking" ? "connecting" : l.state}`;
+      const blocked = !!(this._listening && this._listenBlocked);
+      const stateClass = l.state === "waking" ? "connecting" : l.state;
+      this._listenBtn.className = blocked ? "listen blocked" : `listen ${stateClass}`;
       this._listenBtn.setAttribute("aria-pressed", this._listening ? "true" : "false");
-      this._listenBtn.querySelector("ha-icon").setAttribute("icon", this._listening ? "mdi:volume-high" : "mdi:volume-off");
-      this._listenBtn.querySelector(".llabel").textContent =
+      this._listenBtn.querySelector("ha-icon").setAttribute("icon", this._listening && !blocked ? "mdi:volume-high" : "mdi:volume-off");
+      this._listenBtn.querySelector(".llabel").textContent = blocked ? "Tap to hear" :
         l.state === "connecting" ? "Connecting" : l.state === "waking" ? "Waking the camera" :
         this._listening ? (this._ducked && c.duplex !== "full" ? "Muted while talking" : "Listening") : "Listen";
     }
@@ -1959,29 +1966,6 @@ class AdvancedReolinkCard extends HTMLElement {
       .catch((err) => this._setStatus((err && err.message) || "Could not move to that preset.", "error"));
   }
 
-  /* Must run synchronously in the tap, before any await, or autoplay blocks audio. */
-  _ensurePlayCtx() {
-    if (this._playCtx === undefined || this._playCtx?.state === "closed") {
-      const AC = window.AudioContext || window.webkitAudioContext;
-      try {
-        this._playCtx = AC ? new AC() : null;
-      } catch (_err) {
-        this._playCtx = null;
-      }
-      if (this._playCtx) {
-        this._gain = this._playCtx.createGain();
-        this._gain.gain.value = 0;
-        this._gain.connect(this._playCtx.destination);
-      }
-    }
-    if (this._playCtx && this._playCtx.state === "suspended") this._playCtx.resume().catch(() => {});
-    // Unlock the media element in the same gesture (iOS).
-    if (this._audioEl && !this._audioUnlocked) {
-      this._audioUnlocked = true;
-      this._audioEl.play?.().catch(() => {});
-    }
-  }
-
   async _capabilities(entityId) {
     try {
       const caps = await this._hass.callWS({ type: "camera/capabilities", entity_id: entityId });
@@ -2048,6 +2032,7 @@ class AdvancedReolinkCard extends HTMLElement {
   _onTrack(pipe, track) {
     if (this._pipe !== pipe) return;
     if (track.kind === "video" && this._videoEl) {
+      // Video track only. The video element stays muted. Sound is the sink.
       this._videoEl.srcObject = new MediaStream([track]);
       this._videoEl.play?.().catch(() => {});
     } else if (track.kind === "audio") {
@@ -2068,79 +2053,119 @@ class AdvancedReolinkCard extends HTMLElement {
     }
     if (this._listening) {
       this._listening = false;
+      this._listenBlocked = false;
       this._listen = { state: "error", message };
+      this._applySink();
     }
     this._setStatus(message, "error");
   }
 
-  _attachAudio(track) {
-    this._detachAudio();
-    const stream = new MediaStream([track]);
+  _sinkMuted() {
+    if (!this._listening) return true;
+    return !!(this._ducked && this._config?.duplex !== "full");
+  }
+
+  _applySink() {
     const el = this._audioEl;
-    if (el) {
-      el.srcObject = stream;
-      // Chrome needs a media-element sink for remote WebRTC audio; gain does the playback.
-      el.muted = !!this._playCtx;
-      el.play?.().catch(() => {});
-    }
-    if (this._playCtx && this._gain) {
-      try {
-        this._audioSrc = this._playCtx.createMediaStreamSource(stream);
-        this._audioSrc.connect(this._gain);
-      } catch (_err) {
-        this._audioSrc = null;
-        if (el) el.muted = false;
+    if (!el) return;
+    el.muted = this._sinkMuted();
+    try { el.volume = this._volume; } catch (_e) { /* iOS volume is read-only */ }
+    this._update();
+  }
+
+  /* Latest play() wins, so an older rejection cannot cover a later success. */
+  _notePlay(pending) {
+    if (!pending || typeof pending.then !== "function") return;
+    const token = (this._playToken || 0) + 1;
+    this._playToken = token;
+    pending.then(
+      () => {
+        if (token !== this._playToken || !this._listening || !this._listenBlocked) return;
+        this._listenBlocked = false;
+        this._update();
+      },
+      () => {
+        if (token !== this._playToken || !this._listening) return;
+        // Nothing is loaded yet. The tap still counts, and the track's play() reports a real block.
+        if (!this._audioEl || !this._audioEl.srcObject) return;
+        this._listenBlocked = true;
+        this._update();
       }
+    );
+  }
+
+  _playElement(el) {
+    try {
+      return typeof el.play === "function" ? el.play() : null;
+    } catch (err) {
+      return Promise.reject(err);
     }
-    this._applyGain();
+  }
+
+  /* Unmute and play. Call from the tap, before any wait. */
+  _playSink() {
+    const el = this._audioEl;
+    if (!el) return;
+    this._unlockedEl = el;
+    el.muted = false;
+    try { el.volume = this._volume; } catch (_e) { /* iOS volume is read-only */ }
+    this._notePlay(this._playElement(el));
+  }
+
+  /* Live view tap: unlock this element, and stay quiet unless Listen is on. */
+  _unlockSink() {
+    const el = this._audioEl;
+    if (!el || this._unlockedEl === el) return;
+    this._unlockedEl = el;
+    el.muted = this._sinkMuted();
+    try { el.volume = this._volume; } catch (_e) { /* iOS volume is read-only */ }
+    const pending = this._playElement(el);
+    if (this._listening) this._notePlay(pending);
+    else if (pending && typeof pending.catch === "function") pending.catch(() => {});
+  }
+
+  _attachAudio(track) {
+    const stream = new MediaStream([track]);
+    this._audioStream = stream;
+    const el = this._audioEl;
+    if (!el) return;
+    el.srcObject = stream;
+    this._applySink();
+    const pending = this._playElement(el);
+    if (this._listening) this._notePlay(pending);
+    else if (pending && typeof pending.catch === "function") pending.catch(() => {});
   }
 
   _detachAudio() {
-    if (this._audioSrc) {
-      try { this._audioSrc.disconnect(); } catch (_e) {}
-    }
-    this._audioSrc = null;
+    this._audioStream = null;
     if (this._audioEl) this._audioEl.srcObject = null;
   }
 
-  _effectiveVolume() {
-    const muted = this._ducked && this._config.duplex !== "full";
-    return this._listening && !muted ? this._volume : 0;
-  }
-
-  _applyGain() {
-    const vol = this._effectiveVolume();
-    if (this._gain && this._audioSrc) {
-      const t = this._playCtx.currentTime;
-      try {
-        this._gain.gain.cancelScheduledValues(t);
-        this._gain.gain.setTargetAtTime(vol, t, 0.03);
-      } catch (_e) {
-        this._gain.gain.value = vol;
-      }
-    } else if (this._audioEl) {
-      this._audioEl.muted = vol === 0;
-      try { this._audioEl.volume = vol; } catch (_e) { /* iOS: read-only */ }
-    }
-    this._update();
+  /* A redraw builds a new audio element. Keep it in step with Listen. */
+  _resumeSink() {
+    const el = this._audioEl;
+    if (!el) return;
+    if (this._audioStream && el.srcObject !== this._audioStream) el.srcObject = this._audioStream;
+    this._applySink();
+    if (!this._listening || this._unlockedEl === el) return;
+    this._notePlay(this._playElement(el));
   }
 
   _setDucked(ducked) {
     clearTimeout(this._duckTimer);
     if (ducked) {
       this._ducked = true;
-      this._applyGain();
+      this._applySink();
     } else if (this._ducked) {
       this._duckTimer = setTimeout(() => {
         this._ducked = false;
-        this._applyGain();
+        this._applySink();
       }, DUCK_TAIL_MS);
     }
   }
 
   async _startVideo() {
     if (!this._hass || (this._video.state !== "off" && this._video.state !== "error")) return;
-    this._ensurePlayCtx();
     this._status = { text: "", kind: "" };
     this._video = { state: this._pipeConnecting(), kind: null, message: "" };
     this._update();
@@ -2240,22 +2265,42 @@ class AdvancedReolinkCard extends HTMLElement {
     this._update();
   }
 
+  _onListenClick() {
+    if (this._listening && this._listenBlocked) {
+      this._playSink();
+      return;
+    }
+    if (this._listening) {
+      this._stopListen("client");
+      return;
+    }
+    this._startListen();
+  }
+
   async _startListen() {
     if (!this._hass) return;
-    this._ensurePlayCtx();
+    // Still inside the tap. iOS only allows sound that starts in this turn.
+    this._listening = true;
+    this._listenBlocked = false;
+    const haveStream = !!(this._audioEl && this._audioEl.srcObject);
+    this._listen = { state: haveStream ? "live" : this._pipeConnecting(), message: "" };
+    this._playSink();
     if (!this._cameraEntity() && this._infoPromise && this._info === undefined) await this._infoPromise;
+    if (!this._listening) return;
     const cam = this._cameraEntity();
     if (!cam) {
+      this._listening = false;
+      this._listenBlocked = false;
       this._listen = { state: "error", message: "" };
+      this._applySink();
       this._setStatus("No camera found for listening.", "error");
       return;
     }
-    this._listening = true;
     this._setStatus("");
     if (this._pipe && !this._pipe.closed && this._pipe.entityId === cam) {
       // Live view already runs over WebRTC: use its audio track.
-      this._listen = { state: this._audioSrc || this._audioEl?.srcObject ? "live" : this._pipeConnecting(), message: "" };
-      this._applyGain();
+      this._listen = { state: this._audioEl?.srcObject ? "live" : this._pipeConnecting(), message: "" };
+      this._applySink();
       this._armTimeout(this._pipe);
       return;
     }
@@ -2265,7 +2310,9 @@ class AdvancedReolinkCard extends HTMLElement {
     if (!this._listening) return;
     if (!types.includes("web_rtc") || typeof RTCPeerConnection === "undefined") {
       this._listening = false;
+      this._listenBlocked = false;
       this._listen = { state: "error", message: "" };
+      this._applySink();
       this._setStatus("Listening needs a live stream from Home Assistant.", "error");
       return;
     }
@@ -2275,8 +2322,9 @@ class AdvancedReolinkCard extends HTMLElement {
 
   _stopListen(_reason) {
     this._listening = false;
+    this._listenBlocked = false;
     this._listen = { state: "off", message: "" };
-    this._applyGain();
+    this._applySink();
     const videoUsesPipe = this._video.kind === "webrtc" && this._video.state !== "off";
     if (!videoUsesPipe) this._closePipe();
     this._update();
@@ -2547,6 +2595,7 @@ class AdvancedReolinkCard extends HTMLElement {
       this._detachAudio();
       if (this._videoEl) this._videoEl.srcObject = null;
       this._listening = false;
+      this._listenBlocked = false;
       this._listen = { state: "off", message: "" };
       clearInterval(this._stillTimer);
       this._stillTimer = null;
@@ -2597,6 +2646,7 @@ class AdvancedReolinkCard extends HTMLElement {
     this._video = { state: "off", kind: null, message: "" };
     this._listen = { state: "off", message: "" };
     this._listening = false;
+    this._listenBlocked = false;
     this._status = { text: "", kind: "" };
     const resumeOther = (kind === "stream" || kind === "image") && state === "live";
     this._render();

@@ -54,9 +54,12 @@ Not affiliated with or endorsed by Reolink.
   hold to move, release to stop.
 - **Presets** in the card header, next to Guard and Patrol, on a camera that has
   them. The marker button opens a menu of preset names. The list is read from
-  the camera and updates when you add or remove a preset. The last preset you
+  Home Assistant and updates as soon as its preset list changes. The Reolink
+  integration only reads presets from the camera at startup, so after saving a
+  new preset on the camera, reload the Reolink integration. The last preset you
   used stays selected. The button is hidden when the camera has none.
-- **Listen** to the camera microphone, with a volume slider.
+- **Listen** to the camera microphone, with a volume slider. On iPhone, tap
+  Listen to allow sound; volume follows the phone buttons there.
 - **Hold to talk** through the camera speaker. Talk is half duplex by default:
   listening is muted while you talk, so you do not hear yourself.
 
@@ -278,6 +281,7 @@ longer if a battery camera has to wake.
   or when the connection drops.
 - With `duplex: half` (the default), listening is muted while you talk and for
   about 1.5 seconds after.
+- On iPhone, tap Listen to allow sound; volume follows the phone buttons there.
 
 <table>
   <tr>
@@ -408,7 +412,7 @@ optional `volume` from 0 to 200 percent. `say` also takes `voice`.
 | No Presets button | The camera needs at least one preset, and pan and tilt must be on. It is hidden in the grid. The names come from the camera's preset list in Home Assistant. |
 | Talk button says it needs a secure page | Open Home Assistant over HTTPS or use the companion app. |
 | *Microphone permission was denied* | Allow the microphone for Home Assistant in the browser or phone settings. |
-| No sound when listening | Turn on the camera's *Record audio* switch in the Reolink integration, and check the volume slider and phone volume. |
+| No sound when listening | Turn on the camera's *Record audio* switch in the Reolink integration, and check the volume slider and phone volume. On an iPhone, tap Listen. If the button says *Tap to hear*, tap it again. Volume follows the phone buttons there. |
 | Talk says the camera is busy | A message is already playing on that NVR. Try again when it ends. |
 | The test sweep does not reach the edges | Open the wizard and set the right limit again. If auto tracking takes over, save `disable_tracking: true` with `set_patrol_limits`. |
 | The card looks out of date on a phone | In the companion app: Settings, Companion app, Debugging, Reset frontend cache. |

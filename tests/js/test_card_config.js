@@ -294,7 +294,7 @@ assert(selectBody.includes("_lockCardHeight(true)"), "camera switch locks height
 assert(selectBody.includes("_queueSettleCardHeight()"), "camera switch then settles to the new camera");
 
 function methodSource(name) {
-  const re = new RegExp(`  ${name}\\([^)]*\\) \\{`);
+  const re = new RegExp(`  (?:async )?${name}\\([^)]*\\) \\{`);
   const match = re.exec(src);
   assert(match, `${name} exists`);
   let i = match.index + match[0].length;
@@ -983,6 +983,318 @@ sameList._updatePresets();
 const firstItem = sameList._presetMenu.querySelectorAll("button.preset-option")[0];
 sameList._updatePresets();
 assert(sameList._presetMenu.querySelectorAll("button.preset-option")[0] === firstItem, "an unchanged list does not rebuild the menu");
+
+const startListenSrc = methodSource("_startListen");
+assert(startListenSrc.includes("_playSink()"), "Listen plays through the sink element");
+assert(
+  startListenSrc.indexOf("_playSink()") < startListenSrc.indexOf("await"),
+  "sink play() happens before any await"
+);
+assert(methodSource("_onListenClick").includes("_playSink()"), "a blocked Listen tap retries play()");
+assert(methodSource("_onListenClick").indexOf("_playSink()") < methodSource("_onListenClick").indexOf("_stopListen"), "retry play() is not the stop path");
+assert(methodSource("_bindInput").includes("_onListenClick"), "the Listen button uses the tap handler");
+const bindSrc = methodSource("_bindInput");
+assert(bindSrc.includes("_unlockSink()"), "the live view tap unlocks the sink");
+assert(bindSrc.indexOf("_unlockSink()") < bindSrc.indexOf("_startVideo()"), "the sink is unlocked before live view starts");
+assert(methodSource("_render").includes("this._resumeSink()"), "a redraw restores the listen sink");
+assert(!src.includes("_playCtx"), "listen does not keep a playback AudioContext");
+assert(!src.includes("_audioUnlocked"), "unlock is per element, not a one time flag");
+assert(!src.includes("createMediaStreamSource(stream)"), "remote audio is not routed through Web Audio");
+assert(methodSource("_startCapture").includes("createMediaStreamSource"), "talk capture still uses an AudioContext");
+assert(methodSource("disconnectedCallback").includes("_audioStream = null"), "disconnect drops the sink stream");
+assert(!methodSource("disconnectedCallback").includes("_playCtx"), "disconnect does not touch a playback context");
+assert(src.includes("<video muted"), "the video element stays muted");
+assert(src.includes('<audio class="sink" playsinline muted>'), "the sink element starts muted");
+assert(methodSource("_selectCamera").includes('_stopAllStreams("camera switch")'), "camera switch stops listening");
+assert(!methodSource("_selectCamera").includes("_startListen"), "camera switch does not start listen");
+
+const listenTimers = [];
+const listenCtx = {
+  setTimeout(fn) {
+    listenTimers.push(fn);
+    return listenTimers.length;
+  },
+  clearTimeout(id) {
+    if (!id) return;
+    listenTimers[id - 1] = null;
+  },
+};
+function bindListen(name, params, asyncFn) {
+  const head = asyncFn ? "async function" : "function";
+  return "this." + name + " = " + head + "(" + params + ") " + methodFn(name) + ";\n";
+}
+const listenScript = [
+  "const DUCK_TAIL_MS = 1500;",
+  "class MediaStream { constructor(tracks) { this.tracks = tracks; } }",
+  bindListen("_sinkMuted", ""),
+  bindListen("_applySink", ""),
+  bindListen("_notePlay", "pending"),
+  bindListen("_playElement", "el"),
+  bindListen("_playSink", ""),
+  bindListen("_unlockSink", ""),
+  bindListen("_attachAudio", "track"),
+  bindListen("_detachAudio", ""),
+  bindListen("_resumeSink", ""),
+  bindListen("_setDucked", "ducked"),
+  bindListen("_stopListen", "reason"),
+  bindListen("_onListenClick", ""),
+  bindListen("_setStatus", "text, kind = \"\""),
+  bindListen("_update", ""),
+  bindListen("_startListen", "", true),
+].join("\n");
+vm.runInNewContext(listenScript, listenCtx, { filename: "listen-sink.js" });
+
+function makeAudio() {
+  return {
+    muted: true,
+    volume: 1,
+    srcObject: null,
+    playCalls: 0,
+    playMode: "ok",
+    duringTurn: false,
+    play() {
+      this.playCalls += 1;
+      this.duringTurn = !!listenTurn;
+      const mode = this.playMode;
+      return {
+        then(ok, err) {
+          if (mode === "reject") {
+            const failure = new Error("not allowed");
+            failure.name = "NotAllowedError";
+            if (typeof err === "function") err(failure);
+          } else if (typeof ok === "function") ok();
+          return this;
+        },
+      };
+    },
+  };
+}
+
+function makeListenButton() {
+  const icon = {
+    attrs: {},
+    setAttribute(name, value) { this.attrs[name] = String(value); },
+    getAttribute(name) { return this.attrs[name] || null; },
+  };
+  const label = { textContent: "Listen" };
+  return {
+    className: "listen",
+    attrs: {},
+    label,
+    setAttribute(name, value) { this.attrs[name] = String(value); },
+    getAttribute(name) { return this.attrs[name] || null; },
+    querySelector(sel) {
+      if (sel === "ha-icon") return icon;
+      if (sel === ".llabel") return label;
+      return null;
+    },
+  };
+}
+
+let listenTurn = false;
+
+function freshListen() {
+  const host = {
+    _hass: { id: 1 },
+    _config: { listen: true, talk: false, duplex: "half", volume: 80, video: true },
+    _volume: 0.8,
+    _listening: false,
+    _listenBlocked: false,
+    _listen: { state: "off", message: "" },
+    _ducked: false,
+    _status: { text: "", kind: "" },
+    _video: { state: "off", kind: null, message: "" },
+    _audioEl: makeAudio(),
+    _listenBtn: makeListenButton(),
+    _listenRow: { hidden: false },
+    _statusEl: { className: "", textContent: "" },
+    _volumeEl: { value: "80" },
+    shadowRoot: { activeElement: null },
+    _pipe: null,
+    _info: { ok: true },
+    _unlockedEl: null,
+    _audioStream: null,
+    _playToken: 0,
+    _multi: false,
+    _inGrid() { return false; },
+    _patrolSetupAvailable() { return false; },
+    _pipeConnecting() { return "connecting"; },
+    _cameraEntity() { return "camera.front"; },
+    _closePipe() { this.closedPipe = true; },
+    _armTimeout() {},
+    _snapshotOnly() { return false; },
+    _capabilities() { return { then() { return this; } }; },
+    _openPipe() { return { then() { return this; } }; },
+  };
+  for (const name of Object.keys(listenCtx)) {
+    if (name.startsWith("_")) host[name] = listenCtx[name];
+  }
+  return host;
+}
+
+const early = freshListen();
+early._audioEl.muted = true;
+early._info = undefined;
+early._cameraEntity = () => null;
+early._infoPromise = { then() { return this; } };
+listenTurn = true;
+early._onListenClick();
+listenTurn = false;
+assert(early._audioEl.playCalls === 1, "clicking Listen calls play() before any await");
+assert(early._audioEl.muted === false, "clicking Listen sets the sink muted=false before any await");
+assert(early._audioEl.duringTurn === true, "play() runs inside the Listen click");
+assert(early._listening === true, "Listen stays on while camera info is still loading");
+assert(early._listen.state === "connecting", "Listen shows connecting before the info wait");
+
+const heard = freshListen();
+heard._audioEl.srcObject = { id: "live" };
+heard._pipe = { closed: false, entityId: "camera.front" };
+listenTurn = true;
+heard._onListenClick();
+listenTurn = false;
+assert(heard._audioEl.duringTurn === true, "play() runs inside the Listen click");
+assert(heard._audioEl.muted === false, "Listen unmutes a stream that is already attached");
+assert(heard._audioEl.playCalls === 1, "Listen calls play() once when the stream is already attached");
+assert(heard._listening === true, "Listen stays on after a successful play()");
+assert(heard._listenBtn.label.textContent === "Listening", "a playing stream says Listening");
+heard._onListenClick();
+assert(heard._listening === false, "a second tap stops listening");
+assert(heard._audioEl.muted === true, "stopping from the button mutes the sink");
+
+const blocked = freshListen();
+blocked._audioEl.playMode = "reject";
+blocked._audioEl.srcObject = { id: "live" };
+blocked._pipe = { closed: false, entityId: "camera.front" };
+blocked._onListenClick();
+assert(blocked._listening === true, "a rejected play() keeps listening on");
+assert(blocked._listenBtn.label.textContent === "Tap to hear", "a rejected play() shows Tap to hear");
+assert(blocked._listenBtn.className.split(/\s+/).includes("blocked"), "blocked listen has its own class");
+assert(blocked._listenBtn.className.split(/\s+/).includes("listen"), "the blocked button keeps the listen class");
+const afterReject = blocked._audioEl.playCalls;
+blocked._audioEl.playMode = "ok";
+listenTurn = true;
+blocked._onListenClick();
+listenTurn = false;
+assert(blocked._audioEl.playCalls === afterReject + 1, "the next tap calls play() again");
+assert(blocked._audioEl.duringTurn === true, "the retry calls play() inside the tap");
+assert(blocked._listening === true, "Tap to hear does not stop listening");
+assert(blocked._listenBtn.label.textContent === "Listening", "play() resolving goes back to Listening");
+assert(!blocked._listenBtn.className.split(/\s+/).includes("blocked"), "a successful play() clears the blocked class");
+assert(blocked._audioEl.muted === false, "the retry leaves the sink unmuted");
+
+const noMedia = freshListen();
+noMedia._audioEl.playMode = "reject";
+noMedia._audioEl.srcObject = null;
+noMedia._onListenClick();
+assert(noMedia._listening === true, "Listen still starts when the first play() has no stream");
+assert(noMedia._listenBtn.label.textContent === "Connecting", "a play() with no stream yet is not Tap to hear");
+assert(!noMedia._listenBtn.className.split(/\s+/).includes("blocked"), "an empty sink is not a blocked listen");
+
+const attached = freshListen();
+attached._listening = true;
+attached._listen = { state: "connecting", message: "" };
+attached._config.volume = 80;
+attached._volume = Math.max(0, Math.min(100, Number(attached._config.volume))) / 100;
+attached._audioEl.muted = true;
+attached._audioEl.volume = 0;
+attached._attachAudio({ kind: "audio" });
+assert(attached._audioEl.muted === false, "attaching an audio track while listening leaves the sink unmuted");
+assert(attached._audioEl.volume === 0.8, "config volume 80 is element volume 0.8");
+assert(attached._audioEl.srcObject && attached._audioEl.srcObject.tracks[0].kind === "audio", "the sink plays the remote audio track");
+attached._stopListen("client");
+assert(attached._listening === false, "stopping listen clears listening");
+assert(attached._audioEl.muted === true, "stopping listen mutes the sink");
+assert(attached.closedPipe === true, "stopping listen closes an audio-only stream");
+
+const keepVideo = freshListen();
+keepVideo._listening = true;
+keepVideo._video = { state: "live", kind: "webrtc" };
+keepVideo._audioEl.muted = false;
+keepVideo._stopListen("client");
+assert(keepVideo._audioEl.muted === true, "stopping listen mutes even when video stays up");
+assert(!keepVideo.closedPipe, "stopping listen keeps the live video stream");
+
+const duck = freshListen();
+duck._listening = true;
+duck._listen = { state: "live", message: "" };
+duck._audioEl.muted = false;
+duck._audioEl.volume = 0.8;
+duck._setDucked(true);
+assert(duck._audioEl.muted === true, "ducking mutes the sink");
+assert(duck._audioEl.volume === 0.8, "ducking mutes without clearing the volume");
+duck._setDucked(false);
+assert(duck._audioEl.muted === true, "half duplex stays muted until the tail ends");
+const tail = listenTimers[listenTimers.length - 1];
+assert(typeof tail === "function", "unduck waits on a timer");
+tail();
+assert(duck._ducked === false, "the tail clears ducking");
+assert(duck._audioEl.muted === false, "unducking unmutes the sink");
+
+const full = freshListen();
+full._config = { listen: true, talk: false, duplex: "full", volume: 80, video: true };
+full._listening = true;
+full._listen = { state: "live", message: "" };
+full._setDucked(true);
+assert(full._audioEl.muted === false, "full duplex does not mute while talking");
+
+const redraw = freshListen();
+redraw._listening = true;
+redraw._listen = { state: "live", message: "" };
+redraw._unlockedEl = redraw._audioEl;
+redraw._audioStream = { id: "keep" };
+const rebuilt = makeAudio();
+rebuilt.muted = true;
+rebuilt.volume = 0;
+rebuilt.playMode = "reject";
+redraw._audioEl = rebuilt;
+redraw._resumeSink();
+assert(rebuilt.muted === false, "a re-render while listening does not leave the sink muted");
+assert(rebuilt.volume === 0.8, "a re-render keeps the listen volume");
+assert(rebuilt.srcObject === redraw._audioStream, "a re-render keeps the audio stream on the new sink");
+assert(redraw._unlockedEl !== rebuilt, "a re-render does not mark the new element unlocked");
+assert(redraw._listenBtn.label.textContent === "Tap to hear", "a redraw outside a tap can ask for another tap");
+rebuilt.playMode = "ok";
+listenTurn = true;
+redraw._onListenClick();
+listenTurn = false;
+assert(redraw._listening === true, "the tap after a redraw does not stop listening when sound was blocked");
+assert(redraw._unlockedEl === rebuilt, "the next tap unlocks the new sink element");
+assert(rebuilt.muted === false, "the new sink stays unmuted while listening");
+assert(redraw._listenBtn.label.textContent === "Listening", "the new sink says Listening once play() works");
+
+const liveTap = freshListen();
+liveTap._listening = false;
+liveTap._unlockedEl = null;
+liveTap._audioEl.muted = false;
+liveTap._unlockSink();
+assert(liveTap._audioEl.muted === true, "starting live view keeps the sink muted");
+assert(liveTap._audioEl.playCalls === 1, "starting live view calls play() on the sink");
+assert(liveTap._unlockedEl === liveTap._audioEl, "the live view tap records the unlocked element");
+liveTap._unlockSink();
+assert(liveTap._audioEl.playCalls === 1, "the same sink element is unlocked once");
+const replaced = makeAudio();
+replaced.muted = false;
+liveTap._audioEl = replaced;
+liveTap._unlockSink();
+assert(replaced.playCalls === 1, "a replaced sink is unlocked on the next live view tap");
+assert(replaced.muted === true, "that unlock stays muted until Listen");
+
+const readOnly = freshListen();
+readOnly._listening = true;
+readOnly._listen = { state: "live", message: "" };
+let crashed = false;
+Object.defineProperty(readOnly._audioEl, "volume", {
+  configurable: true,
+  get() { return 1; },
+  set() { throw new Error("read-only"); },
+});
+try {
+  readOnly._applySink();
+} catch (_err) {
+  crashed = true;
+}
+assert(!crashed, "a read-only volume does not crash");
+assert(readOnly._audioEl.muted === false, "listening still unmutes when volume cannot be set");
 
 if (failed) {
   console.error(`${failed} assertion(s) failed`);
