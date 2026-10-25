@@ -48,6 +48,27 @@ def test_card_file_has_multicam_hooks() -> None:
     assert "Set up patrol" in src
     assert "mdi:map-marker-path" in src
     assert 'aria-label="Set up patrol"' in src
+    header = src.split('<div class="header">', 1)[1].split("${this._multi", 1)[0]
+    assert 'class="guard-open"' in header
+    assert header.index("guard-open") < header.index("patrol-open")
+    assert 'aria-label="Return to guard"' in header
+    assert 'title="Return to guard"' in header
+    assert ">Guard</span>" in header
+    assert 'class="presets-open"' in header
+    assert header.index("presets-open") < header.index("guard-open")
+    assert 'aria-label="Presets"' in header
+    assert 'title="Presets"' in header
+    assert 'aria-haspopup="menu"' in header
+    assert ">Presets<" not in header
+    ptz = src.split('<div class="ptz"', 1)[1].split("ptznote", 1)[0]
+    assert 'class="presets"' not in ptz
+    assert "button.chip" not in src
+    assert 'class="presets-menu"' in src
+    assert 'role="menu"' in src
+    assert "button.preset-option" in src
+    assert "type: WS_PTZ_GUARD" in src
+    assert "const showPatrol = this._patrolSetupAvailable()" in src
+    assert "this._guardBtn.hidden = !showPatrol" in src
     assert "advanced_reolink_card/ptz/set_guard" in src
     assert "advanced_reolink_card/ptz/move" in src
     assert 'role="progressbar"' in src
@@ -68,3 +89,13 @@ def test_card_file_has_multicam_hooks() -> None:
     assert "_queueSettleCardHeight()" in select
     assert "HEIGHT_SETTLE_MS" in src
     assert "_releaseCardHeight" in src
+    settle = src.split("  _settleCardHeight() {", 1)[1].split("  _releaseCardHeight()", 1)[0]
+    assert "const minTo = this._cssMinHeight(card, to)" in settle
+    assert "this._naturalCardHeight(card)" in settle
+    assert "hostPadForHeight" in settle
+    assert "_setHostPad" in settle
+    assert "_holdResidualHeight" not in settle
+    assert "_keepHeight" not in src
+    assert "_holdResidualHeight" not in src
+    assert "this.style.paddingBottom" in src
+    assert "_clearHostPad()" in src.split("disconnectedCallback()", 1)[1].split("  _targetKey", 1)[0]

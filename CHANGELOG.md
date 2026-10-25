@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.5.6 (2026-10-25)
+
+### Fixed
+- Listening was silent on iPhone. Audio now plays through the page audio
+  element, unmuted on the tap. If the browser blocks sound, the button says
+  "Tap to hear".
+
+## 0.5.5 (2026-10-25)
+
+### Changed
+- Presets sit in the card header, beside Guard and Patrol, instead of a chip
+  row under the pan and tilt pad. The Presets button opens a menu of names.
+  The last preset you used stays selected.
+- The menu reads the camera's preset list from Home Assistant and updates when
+  that list changes, including while the menu is open. A camera with no presets
+  does not show the button.
+- With the chip row gone, the pan and tilt pad is only as tall as its controls.
+
+## 0.5.4 (2026-10-25)
+
+### Added
+- Guard button in the card header, to the left of Patrol. On a camera that can
+  pan it returns the camera to its guard position. It is hidden for cameras
+  that cannot pan, in the grid, and for users who are not administrators.
+
+## 0.5.3 (2026-10-25)
+
+### Fixed
+- Switching to a camera without pan and tilt no longer leaves a blank pad-sized
+  gap. The card eases to that camera's own height after the swap. If you are
+  already at the bottom of the page, spare height is held below the card so the
+  tab row stays put, and it is released as you scroll up.
+
 ## 0.5.2 (2026-10-24)
 
 ### Added

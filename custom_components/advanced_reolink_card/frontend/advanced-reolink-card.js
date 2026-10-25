@@ -2,7 +2,7 @@
  * Live view, pan, listen and talk.
  * custom:audiohook-talk-card stays as an alias for older dashboards.
  */
-const CARD_VERSION = "0.5.2";
+const CARD_VERSION = "0.5.6";
 const DOMAIN = "advanced_reolink_card";
 const WS_PTZ_MOVE = "advanced_reolink_card/ptz/move";
 const WS_PTZ_STOP = "advanced_reolink_card/ptz/stop";
@@ -12,6 +12,12 @@ const WS_PTZ_STATUS = "advanced_reolink_card/ptz/status";
 const TEST_SETTLE_S = 5; // time to reach the home position before a test sweep
 const HOME_RETURN_S = 4; // estimated goto_guard at the end of a test sweep
 const HEIGHT_SETTLE_MS = 200;
+
+/* Spare height on the host, not inside ha-card, so a shorter camera does not clamp scroll. */
+function hostPadForHeight(from, to, currentPad, roomBelow) {
+  return Math.max(0, Math.ceil((from || 0) + (currentPad || 0) - Math.max(0, roomBelow || 0) - (to || 0)));
+}
+
 const TARGET_RATE = 16000; // what we send: 16 kHz mono s16le
 const SEND_MS = 40; // send a frame every ~40 ms
 const DUCK_TAIL_MS = 1500; // half-duplex: keep playback muted this long after talking
@@ -157,14 +163,29 @@ class WebRtcPipe {
 const STYLE = `
   :host { display: block; }
   ha-card { position: relative; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
-  .header { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .header { display: flex; align-items: center; flex-wrap: nowrap; gap: 8px; min-width: 0; }
   .header .icon { flex: none; }
   .name { font-size: 1.15em; font-weight: 500; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .battery { flex: none; color: var(--secondary-text-color); --mdc-icon-size: 20px; }
-  button.patrol-open { all: unset; box-sizing: border-box; cursor: pointer; flex: none; display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+  button.patrol-open, button.guard-open { all: unset; box-sizing: border-box; cursor: pointer; flex: none; display: inline-flex; align-items: center; justify-content: center; gap: 4px;
     height: 36px; padding: 0 10px 0 8px; border-radius: 18px; font: inherit; font-size: 14px; font-weight: 500; line-height: 1; white-space: nowrap;
     background: var(--primary-color); color: var(--text-primary-color, #fff); }
-  button.patrol-open ha-icon { --mdc-icon-size: 18px; width: 18px; height: 18px; }
+  button.patrol-open ha-icon, button.guard-open ha-icon { --mdc-icon-size: 18px; width: 18px; height: 18px; }
+  button.guard-open[disabled] { opacity: 0.55; cursor: default; }
+  button.presets-open { all: unset; box-sizing: border-box; cursor: pointer; flex: none; display: inline-flex; align-items: center; justify-content: center;
+    width: 36px; height: 36px; padding: 0; border-radius: 18px; background: var(--primary-color); color: var(--text-primary-color, #fff); }
+  button.presets-open ha-icon { --mdc-icon-size: 18px; width: 18px; height: 18px; }
+  .presets-menu { position: absolute; z-index: 5; top: 56px; right: 16px; box-sizing: border-box; display: flex; flex-direction: column;
+    min-width: 160px; max-width: calc(100% - 16px); max-height: 240px; margin: 0; padding: 4px 0; overflow-x: hidden; overflow-y: auto;
+    overscroll-behavior: contain; background: var(--card-background-color, #fff); color: var(--primary-text-color);
+    border: 1px solid var(--divider-color, rgba(0, 0, 0, 0.12)); border-radius: 12px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.08), 0 12px 24px rgba(0, 0, 0, 0.16); }
+  .presets-menu button.preset-option { all: unset; box-sizing: border-box; cursor: pointer; display: flex; align-items: center; gap: 12px;
+    width: 100%; min-height: 48px; padding: 8px 16px; font: inherit; font-size: 14px; line-height: 1.2; text-align: left; color: var(--primary-text-color); }
+  .presets-menu button.preset-option ha-icon { --mdc-icon-size: 20px; width: 20px; height: 20px; flex: none; color: var(--primary-color); visibility: hidden; }
+  .presets-menu button.preset-option span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .presets-menu button.preset-option[aria-checked="true"] { background: color-mix(in srgb, var(--primary-color) 12%, transparent); color: var(--primary-color); font-weight: 500; }
+  .presets-menu button.preset-option[aria-checked="true"] ha-icon { visibility: visible; }
   .status { font-size: 0.9em; color: var(--secondary-text-color); min-height: 1.2em; }
   .status.error { color: var(--error-color, #db4437); }
   .status.live { color: var(--success-color, #43a047); font-weight: 500; }
@@ -295,9 +316,10 @@ const STYLE = `
   .video button.play { all: unset; position: absolute; inset: 0; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; color: #fff; }
   .video button.play ha-icon { --mdc-icon-size: 56px; }
   .video button.stopvideo { all: unset; position: absolute; top: 8px; right: 8px; cursor: pointer; width: 36px; height: 36px; border-radius: 18px; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.5); color: #fff; }
-  .video button:focus-visible, .ptz button:focus-visible, .presets button.chip:focus-visible, button.listen:focus-visible, .tabs button[role="tab"]:focus-visible,
-  .viewtoggle:focus-visible, .tile-open:focus-visible, .gridstart:focus-visible, button.patrol-open:focus-visible, .patrol-dialog button:focus-visible,
+  .video button:focus-visible, .ptz button:focus-visible, button.presets-open:focus-visible, .presets-menu button.preset-option:focus-visible, button.listen:focus-visible, .tabs button[role="tab"]:focus-visible,
+  .viewtoggle:focus-visible, .tile-open:focus-visible, .gridstart:focus-visible, button.patrol-open:focus-visible, button.guard-open:focus-visible, .patrol-dialog button:focus-visible,
   .patrol-dialog .act:focus-visible { outline: 3px solid var(--accent-color, #ff9800); outline-offset: 2px; }
+  .presets-menu button.preset-option:focus-visible { outline-offset: -2px; }
   .ptz { display: flex; align-items: center; justify-content: center; gap: 20px; flex-wrap: wrap; }
   .dpad { display: grid; grid-template-columns: repeat(3, 48px); grid-template-rows: repeat(3, 48px); gap: 4px; }
   .ptz button[data-ptz] { all: unset; box-sizing: border-box; cursor: pointer; user-select: none; -webkit-user-select: none; touch-action: none; -webkit-touch-callout: none;
@@ -306,25 +328,15 @@ const STYLE = `
   .ptz button[data-ptz="up"] { grid-area: 1 / 2; } .ptz button[data-ptz="left"] { grid-area: 2 / 1; }
   .ptz button[data-ptz="right"] { grid-area: 2 / 3; } .ptz button[data-ptz="down"] { grid-area: 3 / 2; }
   .zoom { display: flex; flex-direction: column; gap: 4px; } .zoom button { width: 48px; height: 48px; }
-  .presets { display: flex; flex: 1 0 100%; flex-wrap: nowrap; align-items: center; gap: 8px; overflow-x: auto; overflow-y: hidden;
-    white-space: nowrap; scrollbar-width: none; height: 40px; max-height: 40px; margin: 0; padding: 0 2px; box-sizing: border-box;
-    --fade-left: 0px; --fade-right: 0px;
-    -webkit-mask-image: linear-gradient(to right, transparent 0, #000 var(--fade-left), #000 calc(100% - var(--fade-right)), transparent 100%);
-    mask-image: linear-gradient(to right, transparent 0, #000 var(--fade-left), #000 calc(100% - var(--fade-right)), transparent 100%); }
-  .presets::-webkit-scrollbar { display: none; height: 0; width: 0; }
-  .presets button.chip { all: unset; box-sizing: border-box; cursor: pointer; flex: none; display: inline-flex; align-items: center; gap: 6px;
-    height: 32px; max-width: 100%; padding: 0 12px; border-radius: 16px; border: 1px solid var(--divider-color, #ccc);
-    background: transparent; color: var(--primary-text-color); font: inherit; white-space: nowrap; }
-  .presets button.chip ha-icon { --mdc-icon-size: 18px; flex: none; color: var(--primary-color); }
-  .presets button.chip span { overflow: hidden; text-overflow: ellipsis; }
-  .presets button.chip[aria-selected="true"] { background: var(--primary-color); color: var(--text-primary-color, #fff); border-color: transparent; }
-  .presets button.chip[aria-selected="true"] ha-icon { color: var(--text-primary-color, #fff); }
   .listenrow { display: flex; align-items: center; gap: 12px; }
   button.listen { all: unset; box-sizing: border-box; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 0 16px; min-height: 48px; border-radius: 24px;
     background: var(--secondary-background-color, #eee); color: var(--primary-text-color); }
   button.listen.live { background: var(--success-color, #43a047); color: #fff; }
   button.listen.connecting { background: var(--warning-color, #ffa600); color: #fff; }
   button.listen.error { background: var(--disabled-color, #9e9e9e); color: #fff; }
+  button.listen.blocked { background: var(--accent-color, #ff9800); color: #fff; }
+  /* Not display:none. iOS will not play an audio element that is hidden that way. */
+  audio.sink { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
   input.volume { flex: 1; accent-color: var(--primary-color); }
   button.talk {
     all: unset; box-sizing: border-box; cursor: pointer; user-select: none; -webkit-user-select: none;
@@ -345,7 +357,8 @@ const STYLE = `
   .meter > div { height: 100%; width: 0%; background: var(--success-color, #43a047); transition: width 60ms linear; }
   @media (hover: hover) {
     .tabs button[role="tab"]:hover { background: color-mix(in srgb, var(--primary-text-color) 8%, transparent); }
-    .presets button.chip:hover:not([aria-selected="true"]) { background: color-mix(in srgb, var(--primary-text-color) 6%, transparent); }
+    .presets-menu button.preset-option:hover { background: color-mix(in srgb, var(--primary-text-color) 8%, transparent); }
+    .presets-menu button.preset-option[aria-checked="true"]:hover { background: color-mix(in srgb, var(--primary-color) 18%, transparent); }
     .ptz button[data-ptz]:hover:not(.active),
     .patrol-dialog .dpad button:hover:not(.active),
     .patrol-dialog .zoom button:hover:not(.active) {
@@ -553,6 +566,7 @@ class AdvancedReolinkCard extends HTMLElement {
     this._video = { state: "off", kind: null, message: "" };
     this._listen = { state: "off", message: "" };
     this._listening = false;
+    this._listenBlocked = false;
     this._ducked = false;
     this._status = { text: "", kind: "" };
     this._cameras = [];
@@ -574,6 +588,8 @@ class AdvancedReolinkCard extends HTMLElement {
     this._patrolTesting = false;
     this._wiz = null;
     this._patrolCloseTimer = null;
+    this._guardBusy = false;
+    this._presetOpen = false;
     this._onVisibility = () => {
       if (!document.hidden) return;
       this._abandonPatrol();
@@ -647,7 +663,8 @@ class AdvancedReolinkCard extends HTMLElement {
   }
 
   disconnectedCallback() {
-    this._dropResidual();
+    this._closePresets(false);
+    this._clearHostPad();
     this._rowObserver?.disconnect();
     this._rowObserver = null;
     this._cardWidthObserver?.disconnect();
@@ -660,9 +677,8 @@ class AdvancedReolinkCard extends HTMLElement {
     this._stopAllStreams("card removed");
     clearTimeout(this._duckTimer);
     this._ducked = false;
-    if (this._playCtx) this._playCtx.close().catch(() => {});
-    this._playCtx = null;
-    this._gain = null;
+    this._audioStream = null;
+    this._unlockedEl = null;
   }
 
   _targetKey(c) {
@@ -748,6 +764,7 @@ class AdvancedReolinkCard extends HTMLElement {
         this._info = null;
         this._infoError = this._infoErrorCache[key];
         this._update();
+        this._updatePresets();
       });
     if (key === this._targetKey(this._config)) this._infoPromise = this._infoPromises[key];
   }
@@ -845,8 +862,10 @@ class AdvancedReolinkCard extends HTMLElement {
 
   _render() {
     if (!this._config) return;
+    this._closePresets(false);
     this._abandonPatrol();
     this._cancelHeightAnim();
+    this._clearHostPad();
     this._cardMinHeight = 0;
     this._heightLocked = false;
     this._seenCardWidth = null;
@@ -887,6 +906,8 @@ class AdvancedReolinkCard extends HTMLElement {
         <div class="header">
           <ha-icon class="icon" icon="${_esc(c.icon || "mdi:cctv")}"></ha-icon>
           <div class="name"></div>
+          <button type="button" class="presets-open" aria-label="Presets" title="Presets" aria-haspopup="menu" aria-controls="arc-presets" aria-expanded="false" hidden><ha-icon icon="mdi:map-marker"></ha-icon></button>
+          <button type="button" class="guard-open" aria-label="Return to guard" title="Return to guard" hidden><ha-icon icon="mdi:shield-home"></ha-icon><span>Guard</span></button>
           <button type="button" class="patrol-open" aria-label="Set up patrol" hidden><ha-icon icon="mdi:map-marker-path"></ha-icon><span>Patrol</span></button>
           <ha-icon class="battery" icon="mdi:battery-outline" title="Battery camera" hidden></ha-icon>
         </div>
@@ -909,7 +930,6 @@ class AdvancedReolinkCard extends HTMLElement {
         <div class="ptz" hidden>
           <div class="dpad">${dir("up")}${dir("left")}${dir("right")}${dir("down")}</div>
           <div class="zoom" hidden>${dir("zoom_in")}${dir("zoom_out")}</div>
-          <div class="presets" role="listbox" aria-label="Presets" hidden></div>
         </div>
         <div class="note ptznote" hidden></div>` : ""}
         ${showListen ? `
@@ -923,8 +943,9 @@ class AdvancedReolinkCard extends HTMLElement {
         </button>
         ${union.meter ? '<div class="meter" role="meter" aria-label="Microphone level"><div></div></div>' : ""}
         <div class="note https" hidden>${HTTPS_NOTE}</div>` : ""}
-        <audio class="sink" playsinline hidden></audio>
+        <audio class="sink" playsinline muted></audio>
         <div class="status" role="status" aria-live="polite"></div>
+        <div class="presets-menu" id="arc-presets" role="menu" aria-label="Presets" hidden></div>
       </ha-card>`;
     const $ = (sel) => this.shadowRoot.querySelector(sel);
     this._iconEl = $(".header > .icon");
@@ -943,7 +964,6 @@ class AdvancedReolinkCard extends HTMLElement {
     this._overlayEl = $(".video .overlay");
     this._ptzEl = $(".ptz");
     this._zoomEl = $(".zoom");
-    this._presetEl = $(".presets");
     this._ptzNoteEl = $(".ptznote");
     this._listenRow = $(".listenrow");
     this._listenBtn = $("button.listen");
@@ -957,7 +977,10 @@ class AdvancedReolinkCard extends HTMLElement {
     this._audioEl = $("audio.sink");
     this._viewBtn = $(".viewtoggle");
     this._gridStartBtn = $(".gridstart");
+    this._guardBtn = $(".guard-open");
     this._patrolBtn = $(".patrol-open");
+    this._presetBtn = $(".presets-open");
+    this._presetMenu = $(".presets-menu");
     if (this._videoBox && this._multi && !grid) {
       this._videoBox.setAttribute("role", "tabpanel");
       this._videoBox.id = "arc-panel";
@@ -980,6 +1003,7 @@ class AdvancedReolinkCard extends HTMLElement {
       adopt.pipe.stop();
     }
     this._watchCardWidth();
+    this._resumeSink();
   }
 
   _fillTabs() {
@@ -1070,11 +1094,11 @@ class AdvancedReolinkCard extends HTMLElement {
       if (opts.focusTab) this._focusActiveTab();
       return;
     }
+    this._closePresets(false);
     // Measure the outgoing camera first so the card never shrinks under the page.
     this._lockCardHeight(true);
     const wasLive = this._video.state !== "off" && this._video.state !== "error";
-    // Gesture unlock is only for live video. Listen stays stopped after a tab switch.
-    if (wasLive) this._ensurePlayCtx();
+    // Listen stays stopped after a tab switch. The next Listen tap starts sound.
     if (wasLive) this._captureHoldFrame();
     this._stopTalk("camera switch");
     clearTimeout(this._duckTimer);
@@ -1085,6 +1109,7 @@ class AdvancedReolinkCard extends HTMLElement {
     this._video = { state: "off", kind: null, message: "" };
     this._listen = { state: "off", message: "" };
     this._listening = false;
+    this._listenBlocked = false;
     this._status = { text: "", kind: "" };
     this._markActiveTab();
     if (wasLive && this._config.video) this._startVideo();
@@ -1280,7 +1305,6 @@ class AdvancedReolinkCard extends HTMLElement {
     if (!card) return;
     this._heightGen = (this._heightGen || 0) + 1;
     this._cancelHeightAnim();
-    this._dropResidual();
     const natural = useRendered ? card.offsetHeight : this._naturalCardHeight(card);
     if (natural < 40) return;
     this._cardMinHeight = natural;
@@ -1288,6 +1312,7 @@ class AdvancedReolinkCard extends HTMLElement {
     // ha-card animates all properties, which would grow the lock from zero.
     card.style.transition = "none";
     card.style.overflowAnchor = "none";
+    this.style.overflowAnchor = "none";
     card.style.minHeight = `${this._cssMinHeight(card, natural)}px`;
   }
 
@@ -1304,22 +1329,31 @@ class AdvancedReolinkCard extends HTMLElement {
   _settleCardHeight() {
     if (!this._config || this._inGrid()) {
       this._releaseCardHeight();
+      this._clearHostPad();
       return;
     }
     const card = this._cardEl();
     if (!card) return;
     const from = card.offsetHeight;
-    const natural = this._naturalCardHeight(card);
-    // Never shrink by more than the page has below the viewport, or the browser jumps the scroll.
-    const to = natural < from ? Math.max(natural, from - this._roomBelow()) : natural;
-    this._keepHeight = to > natural + 1;
+    const to = this._naturalCardHeight(card);
     if (to < 40) {
       this._releaseCardHeight();
+      this._clearHostPad();
       return;
     }
+    const currentPad = this._heightPad || 0;
+    const newPad = hostPadForHeight(from, to, currentPad, this._roomBelow());
+    const addPadFirst = newPad >= currentPad;
+    if (addPadFirst) this._setHostPad(newPad);
+    const minTo = this._cssMinHeight(card, to);
+    const finishPad = () => {
+      if (!addPadFirst) this._setHostPad(newPad);
+    };
     if (Math.abs(from - to) < 2 || this._reducedMotion()) {
-      if (this._keepHeight) this._holdResidualHeight(card, to);
-      else this._pinTabs(() => this._releaseCardHeight());
+      this._pinTabs(() => {
+        this._releaseCardHeight();
+        finishPad();
+      });
       return;
     }
     this._cancelHeightAnim();
@@ -1337,13 +1371,18 @@ class AdvancedReolinkCard extends HTMLElement {
       });
       this._heightRo.observe(card);
     }
+    let done = false;
     const finish = () => {
+      if (done) return;
+      done = true;
       if (this._heightOnEnd) {
         card.removeEventListener("transitionend", this._heightOnEnd);
         this._heightOnEnd = null;
       }
-      if (this._keepHeight) this._holdResidualHeight(card, to);
-      else this._releaseCardHeight();
+      this._pinTabs(() => {
+        this._releaseCardHeight();
+        finishPad();
+      });
     };
     this._heightOnEnd = (ev) => {
       if (ev && ev.propertyName && ev.propertyName !== "min-height") return;
@@ -1358,37 +1397,58 @@ class AdvancedReolinkCard extends HTMLElement {
     });
   }
 
-  _dropResidual() {
-    if (!this._residualScroll) return;
-    window.removeEventListener("scroll", this._residualScroll);
-    this._residualScroll = null;
-  }
-
   _roomBelow() {
+    const root = this._scrollRoot();
+    if (root && root !== document.documentElement && root !== document.body && root !== document.scrollingElement) {
+      return Math.max(0, root.scrollHeight - root.scrollTop - root.clientHeight);
+    }
     const doc = document.scrollingElement || document.documentElement;
     return Math.max(0, doc.scrollHeight - window.scrollY - window.innerHeight);
   }
 
-  _holdResidualHeight(card, height) {
-    this._cancelHeightAnim();
-    card.style.transition = "none";
-    card.style.minHeight = `${this._cssMinHeight(card, height)}px`;
-    this._cardMinHeight = height;
-    this._heightLocked = true;
-    if (this._residualScroll) return;
-    this._residualScroll = () => {
-      const el = this._cardEl();
-      if (!el || !this._heightLocked || this._heightOnEnd) return;
-      const natural = this._naturalCardHeight(el);
-      const next = Math.max(natural, el.offsetHeight - this._roomBelow());
-      if (next <= natural + 1) {
-        this._dropResidual();
-        this._releaseCardHeight();
-      } else if (next < el.offsetHeight - 1) {
-        el.style.minHeight = `${this._cssMinHeight(el, next)}px`;
-      }
-    };
-    window.addEventListener("scroll", this._residualScroll, { passive: true });
+  _setHostPad(px) {
+    const next = Math.max(0, Math.ceil(Number(px) || 0));
+    this._heightPad = next;
+    this.style.paddingBottom = next ? `${next}px` : "";
+    this.style.overflowAnchor = next ? "none" : "";
+    if (next) this._bindPadScroll();
+    else this._dropPadScroll();
+  }
+
+  _clearHostPad() {
+    this._setHostPad(0);
+  }
+
+  _bindPadScroll() {
+    if (this._padScroll) return;
+    this._padScroll = () => this._trimHostPad();
+    window.addEventListener("scroll", this._padScroll, { passive: true });
+    const root = this._scrollRoot();
+    if (root && root !== document.documentElement && root !== document.body && root !== document.scrollingElement) {
+      this._padScrollEl = root;
+      root.addEventListener("scroll", this._padScroll, { passive: true });
+    }
+  }
+
+  _dropPadScroll() {
+    if (!this._padScroll) return;
+    window.removeEventListener("scroll", this._padScroll);
+    if (this._padScrollEl) {
+      this._padScrollEl.removeEventListener("scroll", this._padScroll);
+      this._padScrollEl = null;
+    }
+    this._padScroll = null;
+  }
+
+  _trimHostPad() {
+    const pad = this._heightPad || 0;
+    if (pad < 1) {
+      this._dropPadScroll();
+      return;
+    }
+    const next = hostPadForHeight(0, 0, pad, this._roomBelow());
+    if (next >= pad) return;
+    this._setHostPad(next);
   }
 
   _releaseCardHeight() {
@@ -1400,6 +1460,7 @@ class AdvancedReolinkCard extends HTMLElement {
       card.style.overflowAnchor = "";
       card.style.transition = "";
     }
+    if (!(this._heightPad > 0)) this.style.overflowAnchor = "";
     this._cardMinHeight = 0;
     this._heightLocked = false;
   }
@@ -1459,6 +1520,7 @@ class AdvancedReolinkCard extends HTMLElement {
           ev.preventDefault();
           return;
         }
+        this._unlockSink();
         this._startVideo();
       });
     }
@@ -1468,17 +1530,23 @@ class AdvancedReolinkCard extends HTMLElement {
       this._videoEl.addEventListener("loadeddata", () => this._videoLive());
     }
     if (this._stillEl) this._stillEl.addEventListener("load", () => this._videoLive());
-    if (this._listenBtn) this._listenBtn.addEventListener("click", () => (this._listening ? this._stopListen("client") : this._startListen()));
+    if (this._listenBtn) this._listenBtn.addEventListener("click", () => this._onListenClick());
     if (this._volumeEl) {
       this._volumeEl.addEventListener("input", () => {
         this._volume = Number(this._volumeEl.value) / 100;
-        this._applyGain();
+        this._applySink();
       });
     }
     if (this._ptzEl) {
       for (const b of this.shadowRoot.querySelectorAll(".ptz button[data-ptz]")) this._bindPtz(b);
     }
+    if (this._guardBtn) this._guardBtn.addEventListener("click", () => this._returnToGuard());
     if (this._patrolBtn) this._patrolBtn.addEventListener("click", () => this._openPatrol());
+    if (this._presetBtn) {
+      this._presetBtn.addEventListener("click", () => this._togglePresets());
+      this._presetBtn.addEventListener("keydown", (ev) => this._onPresetButtonKey(ev));
+    }
+    if (this._presetMenu) this._presetMenu.addEventListener("keydown", (ev) => this._onPresetMenuKey(ev));
     if (this._viewBtn) this._viewBtn.addEventListener("click", () => this._toggleView());
     if (this._gridStartBtn) this._gridStartBtn.addEventListener("click", () => this._bootGrid(null));
     const dismiss = this.shadowRoot.querySelector(".gridwarn button");
@@ -1556,7 +1624,12 @@ class AdvancedReolinkCard extends HTMLElement {
       if (this._nameEl.textContent !== name) this._nameEl.textContent = name;
     }
     if (this._batteryEl) this._batteryEl.hidden = !this._battery();
-    if (this._patrolBtn) this._patrolBtn.hidden = !this._patrolSetupAvailable();
+    const showPatrol = this._patrolSetupAvailable();
+    if (this._guardBtn) {
+      this._guardBtn.hidden = !showPatrol;
+      this._guardBtn.disabled = !!this._guardBusy;
+    }
+    if (this._patrolBtn) this._patrolBtn.hidden = !showPatrol;
     if (this._videoBox && this._multi && !this._inGrid()) {
       this._videoBox.setAttribute("aria-labelledby", `arc-tab-${this._activeIndex}`);
     }
@@ -1593,10 +1666,12 @@ class AdvancedReolinkCard extends HTMLElement {
     if (this._listenRow) this._listenRow.hidden = !c.listen || this._inGrid();
     if (this._listenBtn) {
       const l = this._listen;
-      this._listenBtn.className = `listen ${l.state === "waking" ? "connecting" : l.state}`;
+      const blocked = !!(this._listening && this._listenBlocked);
+      const stateClass = l.state === "waking" ? "connecting" : l.state;
+      this._listenBtn.className = blocked ? "listen blocked" : `listen ${stateClass}`;
       this._listenBtn.setAttribute("aria-pressed", this._listening ? "true" : "false");
-      this._listenBtn.querySelector("ha-icon").setAttribute("icon", this._listening ? "mdi:volume-high" : "mdi:volume-off");
-      this._listenBtn.querySelector(".llabel").textContent =
+      this._listenBtn.querySelector("ha-icon").setAttribute("icon", this._listening && !blocked ? "mdi:volume-high" : "mdi:volume-off");
+      this._listenBtn.querySelector(".llabel").textContent = blocked ? "Tap to hear" :
         l.state === "connecting" ? "Connecting" : l.state === "waking" ? "Waking the camera" :
         this._listening ? (this._ducked && c.duplex !== "full" ? "Muted while talking" : "Listening") : "Listen";
     }
@@ -1639,45 +1714,219 @@ class AdvancedReolinkCard extends HTMLElement {
     this._statusEl.textContent = text || "";
   }
 
-  _updatePresets() {
-    const box = this._presetEl;
-    if (!box || !this._hass) return;
+  _presetOptions() {
     const ent = this._info?.ptz?.preset_entity;
-    const st = ent && this._hass.states?.[ent];
-    const options = (st && st.attributes?.options) || [];
-    const show = !!(this._ptzAvailable() && options.length);
-    box.hidden = !show;
-    const key = this._targetKey(this._config || {});
+    const st = ent && this._hass?.states?.[ent];
+    const raw = st?.attributes?.options;
+    if (!Array.isArray(raw)) return [];
+    return raw.filter((opt) => opt != null && opt !== "").map((opt) => String(opt));
+  }
+
+  _presetItems() {
+    const menu = this._presetMenu;
+    if (!menu) return [];
+    return [...menu.querySelectorAll("button.preset-option")];
+  }
+
+  _focusEl(el) {
+    if (!el || typeof el.focus !== "function") return;
+    el.focus({ preventScroll: true });
+  }
+
+  _revealPreset(item) {
+    const menu = this._presetMenu;
+    if (!menu || !item) return;
+    const top = item.offsetTop;
+    const height = item.offsetHeight;
+    if (typeof top !== "number" || typeof height !== "number") return;
+    const view = menu.clientHeight || 0;
+    if (!view) return;
+    if (top < menu.scrollTop) menu.scrollTop = top;
+    else if (top + height > menu.scrollTop + view) menu.scrollTop = top + height - view;
+  }
+
+  _placePresetMenu() {
+    const btn = this._presetBtn;
+    const menu = this._presetMenu;
+    const card = this._cardEl();
+    if (!btn || !menu || !card || typeof btn.getBoundingClientRect !== "function" || typeof card.getBoundingClientRect !== "function") return;
+    const br = btn.getBoundingClientRect();
+    const cr = card.getBoundingClientRect();
+    if (!cr.width || !br.height) return;
+    const top = Math.max(0, br.bottom - cr.top + 4);
+    const right = Math.max(8, cr.right - br.right);
+    const space = cr.bottom - br.bottom - 12;
+    const maxH = Math.max(96, Math.min(320, space));
+    const maxW = Math.max(140, cr.width - right - 8);
+    menu.style.top = `${Math.round(top)}px`;
+    menu.style.right = `${Math.round(right)}px`;
+    menu.style.left = "auto";
+    menu.style.maxHeight = `${Math.round(maxH)}px`;
+    menu.style.maxWidth = `${Math.round(maxW)}px`;
+  }
+
+  _bindPresetDismiss() {
+    if (this._presetDocPointer) return;
+    this._presetDocPointer = (ev) => this._onPresetPointer(ev);
+    this._presetDocKey = (ev) => {
+      if (!this._presetOpen || ev.key !== "Escape") return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      this._closePresets(true);
+    };
+    document.addEventListener("pointerdown", this._presetDocPointer, true);
+    document.addEventListener("keydown", this._presetDocKey, true);
+  }
+
+  _onPresetPointer(ev) {
+    if (!this._presetOpen) return;
+    const path = typeof ev.composedPath === "function" ? ev.composedPath() : [];
+    if (path.includes(this._presetBtn) || path.includes(this._presetMenu)) return;
+    this._closePresets(false);
+  }
+
+  _closePresets(returnFocus) {
+    if (this._presetDocPointer) {
+      document.removeEventListener("pointerdown", this._presetDocPointer, true);
+      document.removeEventListener("keydown", this._presetDocKey, true);
+      this._presetDocPointer = null;
+      this._presetDocKey = null;
+    }
+    const was = !!this._presetOpen;
+    const menu = this._presetMenu;
+    const btn = this._presetBtn;
+    const active = this.shadowRoot && this.shadowRoot.activeElement;
+    const inside = !!(was && menu && active && typeof menu.contains === "function" && menu.contains(active));
+    this._presetOpen = false;
+    if (was && returnFocus && btn && !btn.hidden) this._focusEl(btn);
+    else if (inside && typeof active.blur === "function") active.blur();
+    if (menu) menu.hidden = true;
+    if (btn) btn.setAttribute("aria-expanded", "false");
+  }
+
+  _openPresets(where) {
+    const menu = this._presetMenu;
+    const btn = this._presetBtn;
+    if (!menu || !btn || btn.hidden || this._presetOpen) return;
+    const items = this._presetItems();
+    if (!items.length) return;
+    this._placePresetMenu();
+    this._presetOpen = true;
+    menu.hidden = false;
+    btn.setAttribute("aria-expanded", "true");
+    this._bindPresetDismiss();
+    let item = items[0];
+    if (where === "last") item = items[items.length - 1];
+    else if (where !== "first") {
+      for (const candidate of items) {
+        if (candidate.getAttribute("aria-checked") === "true") {
+          item = candidate;
+          break;
+        }
+      }
+    }
+    this._focusEl(item);
+    this._revealPreset(item);
+  }
+
+  _togglePresets() {
+    if (this._presetOpen) this._closePresets(true);
+    else this._openPresets();
+  }
+
+  _onPresetButtonKey(ev) {
+    if (ev.key !== "ArrowDown" && ev.key !== "ArrowUp") return;
+    ev.preventDefault();
+    this._openPresets(ev.key === "ArrowUp" ? "last" : "first");
+  }
+
+  _onPresetMenuKey(ev) {
+    if (!this._presetOpen) return;
+    const items = this._presetItems();
+    if (!items.length) return;
+    const current = this.shadowRoot && this.shadowRoot.activeElement;
+    const i = items.indexOf(current);
+    if (ev.key === "ArrowDown" || ev.key === "ArrowUp" || ev.key === "Home" || ev.key === "End" || ev.key === "Tab") {
+      ev.preventDefault();
+      let next = 0;
+      if (ev.key === "End") next = items.length - 1;
+      else if (ev.key === "Home") next = 0;
+      else if (ev.key === "ArrowDown" || (ev.key === "Tab" && !ev.shiftKey)) next = i < 0 ? 0 : (i + 1) % items.length;
+      else next = i < 0 ? items.length - 1 : (i - 1 + items.length) % items.length;
+      this._focusEl(items[next]);
+      this._revealPreset(items[next]);
+      return;
+    }
+    if (ev.key !== "Enter" && ev.key !== " ") return;
+    if (i < 0) return;
+    ev.preventDefault();
+    this._choosePreset(items[i].dataset.preset);
+  }
+
+  _choosePreset(option) {
+    this._closePresets(true);
+    this._selectPreset(option);
+  }
+
+  _updatePresets() {
+    const btn = this._presetBtn;
+    const menu = this._presetMenu;
+    if (!btn || !menu || !this._hass) return;
+    const options = this._presetOptions();
+    const show = !!(options.length && this._ptzAvailable() && !this._inGrid());
+    btn.hidden = !show;
     if (!show) {
-      if (box.dataset.sig) {
-        box.dataset.sig = "";
-        box.replaceChildren();
+      this._closePresets(false);
+      if (menu.dataset.sig) {
+        menu.dataset.sig = "";
+        menu.replaceChildren();
       }
       return;
     }
+    const key = this._targetKey(this._config || {});
     const chosen = (this._presetByKey && this._presetByKey[key]) || "";
-    const sig = key + "|" + JSON.stringify(options) + "|" + chosen;
-    if (box.dataset.sig === sig) return;
-    box.dataset.sig = sig;
-    box.replaceChildren();
+    const sig = `${key}|${JSON.stringify(options)}|${chosen}`;
+    if (menu.dataset.sig === sig) return;
+    const active = this.shadowRoot && this.shadowRoot.activeElement;
+    const focusName = active && active.dataset ? active.dataset.preset || "" : "";
+    menu.dataset.sig = sig;
+    menu.replaceChildren();
     for (const opt of options) {
       const b = document.createElement("button");
       b.type = "button";
-      b.className = "chip";
-      b.setAttribute("role", "option");
-      const on = opt === chosen;
-      b.setAttribute("aria-selected", on ? "true" : "false");
-      b.setAttribute("aria-label", opt);
+      b.className = "preset-option";
+      b.setAttribute("role", "menuitemradio");
+      b.tabIndex = -1;
+      b.dataset.preset = opt;
+      b.setAttribute("aria-checked", opt === chosen ? "true" : "false");
       const ic = document.createElement("ha-icon");
-      ic.setAttribute("icon", "mdi:map-marker");
+      ic.setAttribute("icon", "mdi:check");
+      ic.setAttribute("aria-hidden", "true");
       const span = document.createElement("span");
       span.textContent = opt;
       b.append(ic, span);
-      b.addEventListener("click", () => this._selectPreset(opt));
-      box.appendChild(b);
+      b.addEventListener("click", () => this._choosePreset(opt));
+      menu.appendChild(b);
     }
-    this._watchRow(box);
-    this._fadeRow(box);
+    if (!this._presetOpen) return;
+    this._placePresetMenu();
+    const items = this._presetItems();
+    let keep = null;
+    for (const item of items) {
+      if (focusName && item.dataset.preset === focusName) keep = item;
+    }
+    if (!keep) {
+      for (const item of items) {
+        if (item.getAttribute("aria-checked") === "true") {
+          keep = item;
+          break;
+        }
+      }
+    }
+    const picked = keep || items[0];
+    if (!picked) return;
+    this._focusEl(picked);
+    this._revealPreset(picked);
   }
 
   _ptzStart(role, button) {
@@ -1709,38 +1958,12 @@ class AdvancedReolinkCard extends HTMLElement {
     if (!option || !ent || !this._hass) return;
     if (!this._presetByKey) this._presetByKey = {};
     this._presetByKey[this._targetKey(this._config || {})] = option;
-    if (this._presetEl) delete this._presetEl.dataset.sig;
+    if (this._presetMenu) delete this._presetMenu.dataset.sig;
     this._updatePresets();
-    const chip = this._presetEl && this._presetEl.querySelector('[aria-selected="true"]');
-    if (chip && typeof chip.scrollIntoView === "function") chip.scrollIntoView({ block: "nearest", inline: "nearest" });
-    this._fadeRow(this._presetEl);
     this._hass
       .callService("select", "select_option", { entity_id: ent, option })
       .then(() => this._setStatus(`Moving to ${option}.`, ""))
       .catch((err) => this._setStatus((err && err.message) || "Could not move to that preset.", "error"));
-  }
-
-  /* Must run synchronously in the tap, before any await, or autoplay blocks audio. */
-  _ensurePlayCtx() {
-    if (this._playCtx === undefined || this._playCtx?.state === "closed") {
-      const AC = window.AudioContext || window.webkitAudioContext;
-      try {
-        this._playCtx = AC ? new AC() : null;
-      } catch (_err) {
-        this._playCtx = null;
-      }
-      if (this._playCtx) {
-        this._gain = this._playCtx.createGain();
-        this._gain.gain.value = 0;
-        this._gain.connect(this._playCtx.destination);
-      }
-    }
-    if (this._playCtx && this._playCtx.state === "suspended") this._playCtx.resume().catch(() => {});
-    // Unlock the media element in the same gesture (iOS).
-    if (this._audioEl && !this._audioUnlocked) {
-      this._audioUnlocked = true;
-      this._audioEl.play?.().catch(() => {});
-    }
   }
 
   async _capabilities(entityId) {
@@ -1809,6 +2032,7 @@ class AdvancedReolinkCard extends HTMLElement {
   _onTrack(pipe, track) {
     if (this._pipe !== pipe) return;
     if (track.kind === "video" && this._videoEl) {
+      // Video track only. The video element stays muted. Sound is the sink.
       this._videoEl.srcObject = new MediaStream([track]);
       this._videoEl.play?.().catch(() => {});
     } else if (track.kind === "audio") {
@@ -1829,79 +2053,119 @@ class AdvancedReolinkCard extends HTMLElement {
     }
     if (this._listening) {
       this._listening = false;
+      this._listenBlocked = false;
       this._listen = { state: "error", message };
+      this._applySink();
     }
     this._setStatus(message, "error");
   }
 
-  _attachAudio(track) {
-    this._detachAudio();
-    const stream = new MediaStream([track]);
+  _sinkMuted() {
+    if (!this._listening) return true;
+    return !!(this._ducked && this._config?.duplex !== "full");
+  }
+
+  _applySink() {
     const el = this._audioEl;
-    if (el) {
-      el.srcObject = stream;
-      // Chrome needs a media-element sink for remote WebRTC audio; gain does the playback.
-      el.muted = !!this._playCtx;
-      el.play?.().catch(() => {});
-    }
-    if (this._playCtx && this._gain) {
-      try {
-        this._audioSrc = this._playCtx.createMediaStreamSource(stream);
-        this._audioSrc.connect(this._gain);
-      } catch (_err) {
-        this._audioSrc = null;
-        if (el) el.muted = false;
+    if (!el) return;
+    el.muted = this._sinkMuted();
+    try { el.volume = this._volume; } catch (_e) { /* iOS volume is read-only */ }
+    this._update();
+  }
+
+  /* Latest play() wins, so an older rejection cannot cover a later success. */
+  _notePlay(pending) {
+    if (!pending || typeof pending.then !== "function") return;
+    const token = (this._playToken || 0) + 1;
+    this._playToken = token;
+    pending.then(
+      () => {
+        if (token !== this._playToken || !this._listening || !this._listenBlocked) return;
+        this._listenBlocked = false;
+        this._update();
+      },
+      () => {
+        if (token !== this._playToken || !this._listening) return;
+        // Nothing is loaded yet. The tap still counts, and the track's play() reports a real block.
+        if (!this._audioEl || !this._audioEl.srcObject) return;
+        this._listenBlocked = true;
+        this._update();
       }
+    );
+  }
+
+  _playElement(el) {
+    try {
+      return typeof el.play === "function" ? el.play() : null;
+    } catch (err) {
+      return Promise.reject(err);
     }
-    this._applyGain();
+  }
+
+  /* Unmute and play. Call from the tap, before any wait. */
+  _playSink() {
+    const el = this._audioEl;
+    if (!el) return;
+    this._unlockedEl = el;
+    el.muted = false;
+    try { el.volume = this._volume; } catch (_e) { /* iOS volume is read-only */ }
+    this._notePlay(this._playElement(el));
+  }
+
+  /* Live view tap: unlock this element, and stay quiet unless Listen is on. */
+  _unlockSink() {
+    const el = this._audioEl;
+    if (!el || this._unlockedEl === el) return;
+    this._unlockedEl = el;
+    el.muted = this._sinkMuted();
+    try { el.volume = this._volume; } catch (_e) { /* iOS volume is read-only */ }
+    const pending = this._playElement(el);
+    if (this._listening) this._notePlay(pending);
+    else if (pending && typeof pending.catch === "function") pending.catch(() => {});
+  }
+
+  _attachAudio(track) {
+    const stream = new MediaStream([track]);
+    this._audioStream = stream;
+    const el = this._audioEl;
+    if (!el) return;
+    el.srcObject = stream;
+    this._applySink();
+    const pending = this._playElement(el);
+    if (this._listening) this._notePlay(pending);
+    else if (pending && typeof pending.catch === "function") pending.catch(() => {});
   }
 
   _detachAudio() {
-    if (this._audioSrc) {
-      try { this._audioSrc.disconnect(); } catch (_e) {}
-    }
-    this._audioSrc = null;
+    this._audioStream = null;
     if (this._audioEl) this._audioEl.srcObject = null;
   }
 
-  _effectiveVolume() {
-    const muted = this._ducked && this._config.duplex !== "full";
-    return this._listening && !muted ? this._volume : 0;
-  }
-
-  _applyGain() {
-    const vol = this._effectiveVolume();
-    if (this._gain && this._audioSrc) {
-      const t = this._playCtx.currentTime;
-      try {
-        this._gain.gain.cancelScheduledValues(t);
-        this._gain.gain.setTargetAtTime(vol, t, 0.03);
-      } catch (_e) {
-        this._gain.gain.value = vol;
-      }
-    } else if (this._audioEl) {
-      this._audioEl.muted = vol === 0;
-      try { this._audioEl.volume = vol; } catch (_e) { /* iOS: read-only */ }
-    }
-    this._update();
+  /* A redraw builds a new audio element. Keep it in step with Listen. */
+  _resumeSink() {
+    const el = this._audioEl;
+    if (!el) return;
+    if (this._audioStream && el.srcObject !== this._audioStream) el.srcObject = this._audioStream;
+    this._applySink();
+    if (!this._listening || this._unlockedEl === el) return;
+    this._notePlay(this._playElement(el));
   }
 
   _setDucked(ducked) {
     clearTimeout(this._duckTimer);
     if (ducked) {
       this._ducked = true;
-      this._applyGain();
+      this._applySink();
     } else if (this._ducked) {
       this._duckTimer = setTimeout(() => {
         this._ducked = false;
-        this._applyGain();
+        this._applySink();
       }, DUCK_TAIL_MS);
     }
   }
 
   async _startVideo() {
     if (!this._hass || (this._video.state !== "off" && this._video.state !== "error")) return;
-    this._ensurePlayCtx();
     this._status = { text: "", kind: "" };
     this._video = { state: this._pipeConnecting(), kind: null, message: "" };
     this._update();
@@ -2001,22 +2265,42 @@ class AdvancedReolinkCard extends HTMLElement {
     this._update();
   }
 
+  _onListenClick() {
+    if (this._listening && this._listenBlocked) {
+      this._playSink();
+      return;
+    }
+    if (this._listening) {
+      this._stopListen("client");
+      return;
+    }
+    this._startListen();
+  }
+
   async _startListen() {
     if (!this._hass) return;
-    this._ensurePlayCtx();
+    // Still inside the tap. iOS only allows sound that starts in this turn.
+    this._listening = true;
+    this._listenBlocked = false;
+    const haveStream = !!(this._audioEl && this._audioEl.srcObject);
+    this._listen = { state: haveStream ? "live" : this._pipeConnecting(), message: "" };
+    this._playSink();
     if (!this._cameraEntity() && this._infoPromise && this._info === undefined) await this._infoPromise;
+    if (!this._listening) return;
     const cam = this._cameraEntity();
     if (!cam) {
+      this._listening = false;
+      this._listenBlocked = false;
       this._listen = { state: "error", message: "" };
+      this._applySink();
       this._setStatus("No camera found for listening.", "error");
       return;
     }
-    this._listening = true;
     this._setStatus("");
     if (this._pipe && !this._pipe.closed && this._pipe.entityId === cam) {
       // Live view already runs over WebRTC: use its audio track.
-      this._listen = { state: this._audioSrc || this._audioEl?.srcObject ? "live" : this._pipeConnecting(), message: "" };
-      this._applyGain();
+      this._listen = { state: this._audioEl?.srcObject ? "live" : this._pipeConnecting(), message: "" };
+      this._applySink();
       this._armTimeout(this._pipe);
       return;
     }
@@ -2026,7 +2310,9 @@ class AdvancedReolinkCard extends HTMLElement {
     if (!this._listening) return;
     if (!types.includes("web_rtc") || typeof RTCPeerConnection === "undefined") {
       this._listening = false;
+      this._listenBlocked = false;
       this._listen = { state: "error", message: "" };
+      this._applySink();
       this._setStatus("Listening needs a live stream from Home Assistant.", "error");
       return;
     }
@@ -2036,8 +2322,9 @@ class AdvancedReolinkCard extends HTMLElement {
 
   _stopListen(_reason) {
     this._listening = false;
+    this._listenBlocked = false;
     this._listen = { state: "off", message: "" };
-    this._applyGain();
+    this._applySink();
     const videoUsesPipe = this._video.kind === "webrtc" && this._video.state !== "off";
     if (!videoUsesPipe) this._closePipe();
     this._update();
@@ -2293,6 +2580,7 @@ class AdvancedReolinkCard extends HTMLElement {
   }
 
   _enterGrid() {
+    this._closePresets(false);
     this._stopTalk("grid");
     this._ptzStop();
     this._abandonPatrol();
@@ -2307,6 +2595,7 @@ class AdvancedReolinkCard extends HTMLElement {
       this._detachAudio();
       if (this._videoEl) this._videoEl.srcObject = null;
       this._listening = false;
+      this._listenBlocked = false;
       this._listen = { state: "off", message: "" };
       clearInterval(this._stillTimer);
       this._stillTimer = null;
@@ -2357,6 +2646,7 @@ class AdvancedReolinkCard extends HTMLElement {
     this._video = { state: "off", kind: null, message: "" };
     this._listen = { state: "off", message: "" };
     this._listening = false;
+    this._listenBlocked = false;
     this._status = { text: "", kind: "" };
     const resumeOther = (kind === "stream" || kind === "image") && state === "live";
     this._render();
@@ -2625,6 +2915,33 @@ class AdvancedReolinkCard extends HTMLElement {
     return true;
   }
 
+  _returnToGuard() {
+    if (this._guardBusy || !this._patrolSetupAvailable() || !this._hass || !this._info) return;
+    const key = this._targetKey(this._config || {});
+    this._guardBusy = true;
+    if (this._guardBtn) this._guardBtn.disabled = true;
+    const finish = () => {
+      this._guardBusy = false;
+      if (this._guardBtn) this._guardBtn.disabled = false;
+    };
+    return this._hass
+      .callWS({
+        type: WS_PTZ_GUARD,
+        channel: this._info.channel,
+        config_entry_id: this._info.config_entry_id,
+      })
+      .then((res) => {
+        if (this._targetKey(this._config || {}) !== key) return;
+        if (res && res.guard_configured === false) this._setStatus("No guard position is set.", "");
+        else this._setStatus("Returning to guard.", "");
+      })
+      .catch((err) => {
+        if (this._targetKey(this._config || {}) !== key) return;
+        this._setStatus((err && err.message) || "Could not return to guard.", "error");
+      })
+      .finally(finish);
+  }
+
   _patrolSpeed() {
     const speed = Number(this._info?.patrol?.speed);
     if (Number.isFinite(speed) && speed >= 1 && speed <= 64) return Math.round(speed);
@@ -2716,6 +3033,7 @@ class AdvancedReolinkCard extends HTMLElement {
 
   _openPatrol() {
     if (!this._patrolSetupAvailable() || this._patrolEl) return;
+    this._closePresets(false);
     this._stopTalk("patrol");
     if (this._listening) this._stopListen("patrol");
     this._ptzStop();
@@ -3670,7 +3988,7 @@ const EDITOR_LABELS = {
 
 const EDITOR_HELPERS = {
   camera_entity: "Leave empty to use the camera that belongs to this speaker.",
-  ptz: "Shown when this camera can pan.",
+  ptz: "Shown when this camera can pan. Presets, if the camera has any, are a header button.",
   talk_auto_listen: "Turn on Listen as well.",
 };
 

@@ -16,7 +16,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/card-tabs-view.png" alt="The card with camera tabs, live view, pan and tilt pad, a preset chip, listen and talk" width="360">
+  <img src="docs/images/card-tabs-view.png" alt="The card with camera tabs, live view, pan and tilt pad, listen and talk" width="360">
 </p>
 
 ## What it is
@@ -27,7 +27,7 @@ Advanced Reolink Card is two things in one install:
   own Baichuan protocol. It gives each camera a speaker you can use from
   automations, and it powers live talk and patrol.
 - **A Lovelace card**, `custom:advanced-reolink-card`, that puts every camera on
-  one card: tabs to switch cameras, live view, a pan and tilt pad, preset chips,
+  one card: tabs to switch cameras, live view, a pan and tilt pad, presets,
   listen, hold to talk, and a guided patrol setup.
 
 The card is served by the integration and loads on every dashboard by itself.
@@ -52,14 +52,21 @@ Not affiliated with or endorsed by Reolink.
 
 - **Pan, tilt and zoom** for cameras that can move, such as the TrackMix. Press and
   hold to move, release to stop.
-- **Preset chips** in one row. The last preset you used stays highlighted.
-- **Listen** to the camera microphone, with a volume slider.
+- **Presets** in the card header, next to Guard and Patrol, on a camera that has
+  them. The marker button opens a menu of preset names. The list is read from
+  Home Assistant and updates as soon as its preset list changes. The Reolink
+  integration only reads presets from the camera at startup, so after saving a
+  new preset on the camera, reload the Reolink integration. The last preset you
+  used stays selected. The button is hidden when the camera has none.
+- **Listen** to the camera microphone, with a volume slider. On iPhone, tap
+  Listen to allow sound; volume follows the phone buttons there.
 - **Hold to talk** through the camera speaker. Talk is half duplex by default:
   listening is muted while you talk, so you do not hear yourself.
 
 **Patrol wizard**
 
-- A **Patrol** button in the card header opens a five step setup: left limit,
+- A **Guard** button in the card header, to the left of **Patrol**, returns the
+  camera to its guard position. **Patrol** opens a five step setup: left limit,
   right limit, speed (with optional tilt passes), a test with live preview and a
   progress bar, then save.
 - Patrol is set **only on the card**. It is not part of the integration options.
@@ -80,7 +87,7 @@ before they speak. Nothing streams until you tap, so they are not kept awake.
 <table>
   <tr>
     <td align="center"><img src="docs/images/card-switch-camera.png" alt="Switched to a doorbell tab, which has no pan and tilt" width="260"><br><sub>Switch cameras with a tab or a swipe</sub></td>
-    <td align="center"><img src="docs/images/card-ptz-presets-talk.png" alt="Pan and tilt pad, preset chip, listen with volume, and the talk button" width="260"><br><sub>Pan and tilt, presets, listen and talk</sub></td>
+    <td align="center"><img src="docs/images/card-ptz-presets-talk.png" alt="Pan and tilt pad, listen with volume, and the talk button" width="260"><br><sub>Pan and tilt, listen and talk</sub></td>
   </tr>
 </table>
 
@@ -163,7 +170,7 @@ grid warning.
 | `name` | string | camera name | Card title, and the tab label in a `cameras` list. |
 | `icon` | string | `mdi:cctv` | Header and tab icon. A talk only card uses `mdi:microphone`. |
 | `video` | boolean | `false` | Live view. |
-| `ptz` | boolean | `false` | Pan and tilt pad, zoom and preset chips. Shown only when the camera can pan. |
+| `ptz` | boolean | `false` | Pan and tilt pad and zoom. Shown only when the camera can pan. |
 | `listen` | boolean | `false` | Listen button and volume slider. |
 | `talk` | boolean | `true` | Talk button. Set `false` for a view only camera. |
 | `talk_auto_listen` | boolean | `false` | Pressing talk also turns on Listen. |
@@ -179,6 +186,10 @@ grid warning.
 
 Each camera needs `entity`, `channel` or `camera_entity`. Talk needs `entity` or
 `channel`.
+
+Presets are not a card option. When the camera can pan and it has presets, the
+header shows a Presets button. The names come from the camera's preset list in
+Home Assistant and update when that list changes.
 
 ### Examples
 
@@ -270,6 +281,7 @@ longer if a battery camera has to wake.
   or when the connection drops.
 - With `duplex: half` (the default), listening is muted while you talk and for
   about 1.5 seconds after.
+- On iPhone, tap Listen to allow sound; volume follows the phone buttons there.
 
 <table>
   <tr>
@@ -280,9 +292,10 @@ longer if a battery camera has to wake.
 
 ## Patrol wizard
 
-Administrators see a **Patrol** button in the card header on cameras that can
-pan. It is hidden in the grid. This is the only place to set up patrol; the
-integration options do not include it.
+Administrators see **Guard** and **Patrol** in the card header on cameras that
+can pan. Guard returns the camera to its guard position. **Presets** sits with
+them when the camera has presets. All three are hidden in the grid. This is the
+only place to set up patrol; the integration options do not include it.
 
 The wizard does not store an angle. It stores a home position on the camera, then
 the seconds of pan from there.
@@ -395,10 +408,11 @@ optional `volume` from 0 to 200 percent. `say` also takes `voice`.
 | *Invalid authentication* | The Reolink username and password. After a password change, use **Reconfigure**. |
 | *No camera found for live view* | Set up Home Assistant's Reolink integration for the same device and keep its Fluent camera entity enabled, or set `camera_entity`. |
 | No pan and tilt pad | The Reolink *PTZ left, right, up, down and stop* buttons must be enabled for that camera. Zoom also needs *PTZ zoom in* and *PTZ zoom out*. |
-| No Patrol button | It shows only for administrators, on cameras that can pan, and not in the grid. |
+| No Patrol or Guard button | They show only for administrators, on cameras that can pan, and not in the grid. |
+| No Presets button | The camera needs at least one preset, and pan and tilt must be on. It is hidden in the grid. The names come from the camera's preset list in Home Assistant. |
 | Talk button says it needs a secure page | Open Home Assistant over HTTPS or use the companion app. |
 | *Microphone permission was denied* | Allow the microphone for Home Assistant in the browser or phone settings. |
-| No sound when listening | Turn on the camera's *Record audio* switch in the Reolink integration, and check the volume slider and phone volume. |
+| No sound when listening | Turn on the camera's *Record audio* switch in the Reolink integration, and check the volume slider and phone volume. On an iPhone, tap Listen. If the button says *Tap to hear*, tap it again. Volume follows the phone buttons there. |
 | Talk says the camera is busy | A message is already playing on that NVR. Try again when it ends. |
 | The test sweep does not reach the edges | Open the wizard and set the right limit again. If auto tracking takes over, save `disable_tracking: true` with `set_patrol_limits`. |
 | The card looks out of date on a phone | In the companion app: Settings, Companion app, Debugging, Reset frontend cache. |
