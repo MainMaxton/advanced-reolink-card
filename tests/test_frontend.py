@@ -54,6 +54,18 @@ def test_card_file_has_multicam_hooks() -> None:
     assert 'aria-label="Return to guard"' in header
     assert 'title="Return to guard"' in header
     assert ">Guard</span>" in header
+    assert 'class="presets-open"' in header
+    assert header.index("presets-open") < header.index("guard-open")
+    assert 'aria-label="Presets"' in header
+    assert 'title="Presets"' in header
+    assert 'aria-haspopup="menu"' in header
+    assert ">Presets<" not in header
+    ptz = src.split('<div class="ptz"', 1)[1].split("ptznote", 1)[0]
+    assert 'class="presets"' not in ptz
+    assert "button.chip" not in src
+    assert 'class="presets-menu"' in src
+    assert 'role="menu"' in src
+    assert "button.preset-option" in src
     assert "type: WS_PTZ_GUARD" in src
     assert "const showPatrol = this._patrolSetupAvailable()" in src
     assert "this._guardBtn.hidden = !showPatrol" in src

@@ -2,7 +2,7 @@
  * Live view, pan, listen and talk.
  * custom:audiohook-talk-card stays as an alias for older dashboards.
  */
-const CARD_VERSION = "0.5.4";
+const CARD_VERSION = "0.5.5";
 const DOMAIN = "advanced_reolink_card";
 const WS_PTZ_MOVE = "advanced_reolink_card/ptz/move";
 const WS_PTZ_STOP = "advanced_reolink_card/ptz/stop";
@@ -172,6 +172,20 @@ const STYLE = `
     background: var(--primary-color); color: var(--text-primary-color, #fff); }
   button.patrol-open ha-icon, button.guard-open ha-icon { --mdc-icon-size: 18px; width: 18px; height: 18px; }
   button.guard-open[disabled] { opacity: 0.55; cursor: default; }
+  button.presets-open { all: unset; box-sizing: border-box; cursor: pointer; flex: none; display: inline-flex; align-items: center; justify-content: center;
+    width: 36px; height: 36px; padding: 0; border-radius: 18px; background: var(--primary-color); color: var(--text-primary-color, #fff); }
+  button.presets-open ha-icon { --mdc-icon-size: 18px; width: 18px; height: 18px; }
+  .presets-menu { position: absolute; z-index: 5; top: 56px; right: 16px; box-sizing: border-box; display: flex; flex-direction: column;
+    min-width: 160px; max-width: calc(100% - 16px); max-height: 240px; margin: 0; padding: 4px 0; overflow-x: hidden; overflow-y: auto;
+    overscroll-behavior: contain; background: var(--card-background-color, #fff); color: var(--primary-text-color);
+    border: 1px solid var(--divider-color, rgba(0, 0, 0, 0.12)); border-radius: 12px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.08), 0 12px 24px rgba(0, 0, 0, 0.16); }
+  .presets-menu button.preset-option { all: unset; box-sizing: border-box; cursor: pointer; display: flex; align-items: center; gap: 12px;
+    width: 100%; min-height: 48px; padding: 8px 16px; font: inherit; font-size: 14px; line-height: 1.2; text-align: left; color: var(--primary-text-color); }
+  .presets-menu button.preset-option ha-icon { --mdc-icon-size: 20px; width: 20px; height: 20px; flex: none; color: var(--primary-color); visibility: hidden; }
+  .presets-menu button.preset-option span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .presets-menu button.preset-option[aria-checked="true"] { background: color-mix(in srgb, var(--primary-color) 12%, transparent); color: var(--primary-color); font-weight: 500; }
+  .presets-menu button.preset-option[aria-checked="true"] ha-icon { visibility: visible; }
   .status { font-size: 0.9em; color: var(--secondary-text-color); min-height: 1.2em; }
   .status.error { color: var(--error-color, #db4437); }
   .status.live { color: var(--success-color, #43a047); font-weight: 500; }
@@ -302,9 +316,10 @@ const STYLE = `
   .video button.play { all: unset; position: absolute; inset: 0; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; color: #fff; }
   .video button.play ha-icon { --mdc-icon-size: 56px; }
   .video button.stopvideo { all: unset; position: absolute; top: 8px; right: 8px; cursor: pointer; width: 36px; height: 36px; border-radius: 18px; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.5); color: #fff; }
-  .video button:focus-visible, .ptz button:focus-visible, .presets button.chip:focus-visible, button.listen:focus-visible, .tabs button[role="tab"]:focus-visible,
+  .video button:focus-visible, .ptz button:focus-visible, button.presets-open:focus-visible, .presets-menu button.preset-option:focus-visible, button.listen:focus-visible, .tabs button[role="tab"]:focus-visible,
   .viewtoggle:focus-visible, .tile-open:focus-visible, .gridstart:focus-visible, button.patrol-open:focus-visible, button.guard-open:focus-visible, .patrol-dialog button:focus-visible,
   .patrol-dialog .act:focus-visible { outline: 3px solid var(--accent-color, #ff9800); outline-offset: 2px; }
+  .presets-menu button.preset-option:focus-visible { outline-offset: -2px; }
   .ptz { display: flex; align-items: center; justify-content: center; gap: 20px; flex-wrap: wrap; }
   .dpad { display: grid; grid-template-columns: repeat(3, 48px); grid-template-rows: repeat(3, 48px); gap: 4px; }
   .ptz button[data-ptz] { all: unset; box-sizing: border-box; cursor: pointer; user-select: none; -webkit-user-select: none; touch-action: none; -webkit-touch-callout: none;
@@ -313,19 +328,6 @@ const STYLE = `
   .ptz button[data-ptz="up"] { grid-area: 1 / 2; } .ptz button[data-ptz="left"] { grid-area: 2 / 1; }
   .ptz button[data-ptz="right"] { grid-area: 2 / 3; } .ptz button[data-ptz="down"] { grid-area: 3 / 2; }
   .zoom { display: flex; flex-direction: column; gap: 4px; } .zoom button { width: 48px; height: 48px; }
-  .presets { display: flex; flex: 1 0 100%; flex-wrap: nowrap; align-items: center; gap: 8px; overflow-x: auto; overflow-y: hidden;
-    white-space: nowrap; scrollbar-width: none; height: 40px; max-height: 40px; margin: 0; padding: 0 2px; box-sizing: border-box;
-    --fade-left: 0px; --fade-right: 0px;
-    -webkit-mask-image: linear-gradient(to right, transparent 0, #000 var(--fade-left), #000 calc(100% - var(--fade-right)), transparent 100%);
-    mask-image: linear-gradient(to right, transparent 0, #000 var(--fade-left), #000 calc(100% - var(--fade-right)), transparent 100%); }
-  .presets::-webkit-scrollbar { display: none; height: 0; width: 0; }
-  .presets button.chip { all: unset; box-sizing: border-box; cursor: pointer; flex: none; display: inline-flex; align-items: center; gap: 6px;
-    height: 32px; max-width: 100%; padding: 0 12px; border-radius: 16px; border: 1px solid var(--divider-color, #ccc);
-    background: transparent; color: var(--primary-text-color); font: inherit; white-space: nowrap; }
-  .presets button.chip ha-icon { --mdc-icon-size: 18px; flex: none; color: var(--primary-color); }
-  .presets button.chip span { overflow: hidden; text-overflow: ellipsis; }
-  .presets button.chip[aria-selected="true"] { background: var(--primary-color); color: var(--text-primary-color, #fff); border-color: transparent; }
-  .presets button.chip[aria-selected="true"] ha-icon { color: var(--text-primary-color, #fff); }
   .listenrow { display: flex; align-items: center; gap: 12px; }
   button.listen { all: unset; box-sizing: border-box; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 0 16px; min-height: 48px; border-radius: 24px;
     background: var(--secondary-background-color, #eee); color: var(--primary-text-color); }
@@ -352,7 +354,8 @@ const STYLE = `
   .meter > div { height: 100%; width: 0%; background: var(--success-color, #43a047); transition: width 60ms linear; }
   @media (hover: hover) {
     .tabs button[role="tab"]:hover { background: color-mix(in srgb, var(--primary-text-color) 8%, transparent); }
-    .presets button.chip:hover:not([aria-selected="true"]) { background: color-mix(in srgb, var(--primary-text-color) 6%, transparent); }
+    .presets-menu button.preset-option:hover { background: color-mix(in srgb, var(--primary-text-color) 8%, transparent); }
+    .presets-menu button.preset-option[aria-checked="true"]:hover { background: color-mix(in srgb, var(--primary-color) 18%, transparent); }
     .ptz button[data-ptz]:hover:not(.active),
     .patrol-dialog .dpad button:hover:not(.active),
     .patrol-dialog .zoom button:hover:not(.active) {
@@ -582,6 +585,7 @@ class AdvancedReolinkCard extends HTMLElement {
     this._wiz = null;
     this._patrolCloseTimer = null;
     this._guardBusy = false;
+    this._presetOpen = false;
     this._onVisibility = () => {
       if (!document.hidden) return;
       this._abandonPatrol();
@@ -655,6 +659,7 @@ class AdvancedReolinkCard extends HTMLElement {
   }
 
   disconnectedCallback() {
+    this._closePresets(false);
     this._clearHostPad();
     this._rowObserver?.disconnect();
     this._rowObserver = null;
@@ -756,6 +761,7 @@ class AdvancedReolinkCard extends HTMLElement {
         this._info = null;
         this._infoError = this._infoErrorCache[key];
         this._update();
+        this._updatePresets();
       });
     if (key === this._targetKey(this._config)) this._infoPromise = this._infoPromises[key];
   }
@@ -853,6 +859,7 @@ class AdvancedReolinkCard extends HTMLElement {
 
   _render() {
     if (!this._config) return;
+    this._closePresets(false);
     this._abandonPatrol();
     this._cancelHeightAnim();
     this._clearHostPad();
@@ -896,6 +903,7 @@ class AdvancedReolinkCard extends HTMLElement {
         <div class="header">
           <ha-icon class="icon" icon="${_esc(c.icon || "mdi:cctv")}"></ha-icon>
           <div class="name"></div>
+          <button type="button" class="presets-open" aria-label="Presets" title="Presets" aria-haspopup="menu" aria-controls="arc-presets" aria-expanded="false" hidden><ha-icon icon="mdi:map-marker"></ha-icon></button>
           <button type="button" class="guard-open" aria-label="Return to guard" title="Return to guard" hidden><ha-icon icon="mdi:shield-home"></ha-icon><span>Guard</span></button>
           <button type="button" class="patrol-open" aria-label="Set up patrol" hidden><ha-icon icon="mdi:map-marker-path"></ha-icon><span>Patrol</span></button>
           <ha-icon class="battery" icon="mdi:battery-outline" title="Battery camera" hidden></ha-icon>
@@ -919,7 +927,6 @@ class AdvancedReolinkCard extends HTMLElement {
         <div class="ptz" hidden>
           <div class="dpad">${dir("up")}${dir("left")}${dir("right")}${dir("down")}</div>
           <div class="zoom" hidden>${dir("zoom_in")}${dir("zoom_out")}</div>
-          <div class="presets" role="listbox" aria-label="Presets" hidden></div>
         </div>
         <div class="note ptznote" hidden></div>` : ""}
         ${showListen ? `
@@ -935,6 +942,7 @@ class AdvancedReolinkCard extends HTMLElement {
         <div class="note https" hidden>${HTTPS_NOTE}</div>` : ""}
         <audio class="sink" playsinline hidden></audio>
         <div class="status" role="status" aria-live="polite"></div>
+        <div class="presets-menu" id="arc-presets" role="menu" aria-label="Presets" hidden></div>
       </ha-card>`;
     const $ = (sel) => this.shadowRoot.querySelector(sel);
     this._iconEl = $(".header > .icon");
@@ -953,7 +961,6 @@ class AdvancedReolinkCard extends HTMLElement {
     this._overlayEl = $(".video .overlay");
     this._ptzEl = $(".ptz");
     this._zoomEl = $(".zoom");
-    this._presetEl = $(".presets");
     this._ptzNoteEl = $(".ptznote");
     this._listenRow = $(".listenrow");
     this._listenBtn = $("button.listen");
@@ -969,6 +976,8 @@ class AdvancedReolinkCard extends HTMLElement {
     this._gridStartBtn = $(".gridstart");
     this._guardBtn = $(".guard-open");
     this._patrolBtn = $(".patrol-open");
+    this._presetBtn = $(".presets-open");
+    this._presetMenu = $(".presets-menu");
     if (this._videoBox && this._multi && !grid) {
       this._videoBox.setAttribute("role", "tabpanel");
       this._videoBox.id = "arc-panel";
@@ -1081,6 +1090,7 @@ class AdvancedReolinkCard extends HTMLElement {
       if (opts.focusTab) this._focusActiveTab();
       return;
     }
+    this._closePresets(false);
     // Measure the outgoing camera first so the card never shrinks under the page.
     this._lockCardHeight(true);
     const wasLive = this._video.state !== "off" && this._video.state !== "error";
@@ -1527,6 +1537,11 @@ class AdvancedReolinkCard extends HTMLElement {
     }
     if (this._guardBtn) this._guardBtn.addEventListener("click", () => this._returnToGuard());
     if (this._patrolBtn) this._patrolBtn.addEventListener("click", () => this._openPatrol());
+    if (this._presetBtn) {
+      this._presetBtn.addEventListener("click", () => this._togglePresets());
+      this._presetBtn.addEventListener("keydown", (ev) => this._onPresetButtonKey(ev));
+    }
+    if (this._presetMenu) this._presetMenu.addEventListener("keydown", (ev) => this._onPresetMenuKey(ev));
     if (this._viewBtn) this._viewBtn.addEventListener("click", () => this._toggleView());
     if (this._gridStartBtn) this._gridStartBtn.addEventListener("click", () => this._bootGrid(null));
     const dismiss = this.shadowRoot.querySelector(".gridwarn button");
@@ -1692,45 +1707,219 @@ class AdvancedReolinkCard extends HTMLElement {
     this._statusEl.textContent = text || "";
   }
 
-  _updatePresets() {
-    const box = this._presetEl;
-    if (!box || !this._hass) return;
+  _presetOptions() {
     const ent = this._info?.ptz?.preset_entity;
-    const st = ent && this._hass.states?.[ent];
-    const options = (st && st.attributes?.options) || [];
-    const show = !!(this._ptzAvailable() && options.length);
-    box.hidden = !show;
-    const key = this._targetKey(this._config || {});
+    const st = ent && this._hass?.states?.[ent];
+    const raw = st?.attributes?.options;
+    if (!Array.isArray(raw)) return [];
+    return raw.filter((opt) => opt != null && opt !== "").map((opt) => String(opt));
+  }
+
+  _presetItems() {
+    const menu = this._presetMenu;
+    if (!menu) return [];
+    return [...menu.querySelectorAll("button.preset-option")];
+  }
+
+  _focusEl(el) {
+    if (!el || typeof el.focus !== "function") return;
+    el.focus({ preventScroll: true });
+  }
+
+  _revealPreset(item) {
+    const menu = this._presetMenu;
+    if (!menu || !item) return;
+    const top = item.offsetTop;
+    const height = item.offsetHeight;
+    if (typeof top !== "number" || typeof height !== "number") return;
+    const view = menu.clientHeight || 0;
+    if (!view) return;
+    if (top < menu.scrollTop) menu.scrollTop = top;
+    else if (top + height > menu.scrollTop + view) menu.scrollTop = top + height - view;
+  }
+
+  _placePresetMenu() {
+    const btn = this._presetBtn;
+    const menu = this._presetMenu;
+    const card = this._cardEl();
+    if (!btn || !menu || !card || typeof btn.getBoundingClientRect !== "function" || typeof card.getBoundingClientRect !== "function") return;
+    const br = btn.getBoundingClientRect();
+    const cr = card.getBoundingClientRect();
+    if (!cr.width || !br.height) return;
+    const top = Math.max(0, br.bottom - cr.top + 4);
+    const right = Math.max(8, cr.right - br.right);
+    const space = cr.bottom - br.bottom - 12;
+    const maxH = Math.max(96, Math.min(320, space));
+    const maxW = Math.max(140, cr.width - right - 8);
+    menu.style.top = `${Math.round(top)}px`;
+    menu.style.right = `${Math.round(right)}px`;
+    menu.style.left = "auto";
+    menu.style.maxHeight = `${Math.round(maxH)}px`;
+    menu.style.maxWidth = `${Math.round(maxW)}px`;
+  }
+
+  _bindPresetDismiss() {
+    if (this._presetDocPointer) return;
+    this._presetDocPointer = (ev) => this._onPresetPointer(ev);
+    this._presetDocKey = (ev) => {
+      if (!this._presetOpen || ev.key !== "Escape") return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      this._closePresets(true);
+    };
+    document.addEventListener("pointerdown", this._presetDocPointer, true);
+    document.addEventListener("keydown", this._presetDocKey, true);
+  }
+
+  _onPresetPointer(ev) {
+    if (!this._presetOpen) return;
+    const path = typeof ev.composedPath === "function" ? ev.composedPath() : [];
+    if (path.includes(this._presetBtn) || path.includes(this._presetMenu)) return;
+    this._closePresets(false);
+  }
+
+  _closePresets(returnFocus) {
+    if (this._presetDocPointer) {
+      document.removeEventListener("pointerdown", this._presetDocPointer, true);
+      document.removeEventListener("keydown", this._presetDocKey, true);
+      this._presetDocPointer = null;
+      this._presetDocKey = null;
+    }
+    const was = !!this._presetOpen;
+    const menu = this._presetMenu;
+    const btn = this._presetBtn;
+    const active = this.shadowRoot && this.shadowRoot.activeElement;
+    const inside = !!(was && menu && active && typeof menu.contains === "function" && menu.contains(active));
+    this._presetOpen = false;
+    if (was && returnFocus && btn && !btn.hidden) this._focusEl(btn);
+    else if (inside && typeof active.blur === "function") active.blur();
+    if (menu) menu.hidden = true;
+    if (btn) btn.setAttribute("aria-expanded", "false");
+  }
+
+  _openPresets(where) {
+    const menu = this._presetMenu;
+    const btn = this._presetBtn;
+    if (!menu || !btn || btn.hidden || this._presetOpen) return;
+    const items = this._presetItems();
+    if (!items.length) return;
+    this._placePresetMenu();
+    this._presetOpen = true;
+    menu.hidden = false;
+    btn.setAttribute("aria-expanded", "true");
+    this._bindPresetDismiss();
+    let item = items[0];
+    if (where === "last") item = items[items.length - 1];
+    else if (where !== "first") {
+      for (const candidate of items) {
+        if (candidate.getAttribute("aria-checked") === "true") {
+          item = candidate;
+          break;
+        }
+      }
+    }
+    this._focusEl(item);
+    this._revealPreset(item);
+  }
+
+  _togglePresets() {
+    if (this._presetOpen) this._closePresets(true);
+    else this._openPresets();
+  }
+
+  _onPresetButtonKey(ev) {
+    if (ev.key !== "ArrowDown" && ev.key !== "ArrowUp") return;
+    ev.preventDefault();
+    this._openPresets(ev.key === "ArrowUp" ? "last" : "first");
+  }
+
+  _onPresetMenuKey(ev) {
+    if (!this._presetOpen) return;
+    const items = this._presetItems();
+    if (!items.length) return;
+    const current = this.shadowRoot && this.shadowRoot.activeElement;
+    const i = items.indexOf(current);
+    if (ev.key === "ArrowDown" || ev.key === "ArrowUp" || ev.key === "Home" || ev.key === "End" || ev.key === "Tab") {
+      ev.preventDefault();
+      let next = 0;
+      if (ev.key === "End") next = items.length - 1;
+      else if (ev.key === "Home") next = 0;
+      else if (ev.key === "ArrowDown" || (ev.key === "Tab" && !ev.shiftKey)) next = i < 0 ? 0 : (i + 1) % items.length;
+      else next = i < 0 ? items.length - 1 : (i - 1 + items.length) % items.length;
+      this._focusEl(items[next]);
+      this._revealPreset(items[next]);
+      return;
+    }
+    if (ev.key !== "Enter" && ev.key !== " ") return;
+    if (i < 0) return;
+    ev.preventDefault();
+    this._choosePreset(items[i].dataset.preset);
+  }
+
+  _choosePreset(option) {
+    this._closePresets(true);
+    this._selectPreset(option);
+  }
+
+  _updatePresets() {
+    const btn = this._presetBtn;
+    const menu = this._presetMenu;
+    if (!btn || !menu || !this._hass) return;
+    const options = this._presetOptions();
+    const show = !!(options.length && this._ptzAvailable() && !this._inGrid());
+    btn.hidden = !show;
     if (!show) {
-      if (box.dataset.sig) {
-        box.dataset.sig = "";
-        box.replaceChildren();
+      this._closePresets(false);
+      if (menu.dataset.sig) {
+        menu.dataset.sig = "";
+        menu.replaceChildren();
       }
       return;
     }
+    const key = this._targetKey(this._config || {});
     const chosen = (this._presetByKey && this._presetByKey[key]) || "";
-    const sig = key + "|" + JSON.stringify(options) + "|" + chosen;
-    if (box.dataset.sig === sig) return;
-    box.dataset.sig = sig;
-    box.replaceChildren();
+    const sig = `${key}|${JSON.stringify(options)}|${chosen}`;
+    if (menu.dataset.sig === sig) return;
+    const active = this.shadowRoot && this.shadowRoot.activeElement;
+    const focusName = active && active.dataset ? active.dataset.preset || "" : "";
+    menu.dataset.sig = sig;
+    menu.replaceChildren();
     for (const opt of options) {
       const b = document.createElement("button");
       b.type = "button";
-      b.className = "chip";
-      b.setAttribute("role", "option");
-      const on = opt === chosen;
-      b.setAttribute("aria-selected", on ? "true" : "false");
-      b.setAttribute("aria-label", opt);
+      b.className = "preset-option";
+      b.setAttribute("role", "menuitemradio");
+      b.tabIndex = -1;
+      b.dataset.preset = opt;
+      b.setAttribute("aria-checked", opt === chosen ? "true" : "false");
       const ic = document.createElement("ha-icon");
-      ic.setAttribute("icon", "mdi:map-marker");
+      ic.setAttribute("icon", "mdi:check");
+      ic.setAttribute("aria-hidden", "true");
       const span = document.createElement("span");
       span.textContent = opt;
       b.append(ic, span);
-      b.addEventListener("click", () => this._selectPreset(opt));
-      box.appendChild(b);
+      b.addEventListener("click", () => this._choosePreset(opt));
+      menu.appendChild(b);
     }
-    this._watchRow(box);
-    this._fadeRow(box);
+    if (!this._presetOpen) return;
+    this._placePresetMenu();
+    const items = this._presetItems();
+    let keep = null;
+    for (const item of items) {
+      if (focusName && item.dataset.preset === focusName) keep = item;
+    }
+    if (!keep) {
+      for (const item of items) {
+        if (item.getAttribute("aria-checked") === "true") {
+          keep = item;
+          break;
+        }
+      }
+    }
+    const picked = keep || items[0];
+    if (!picked) return;
+    this._focusEl(picked);
+    this._revealPreset(picked);
   }
 
   _ptzStart(role, button) {
@@ -1762,11 +1951,8 @@ class AdvancedReolinkCard extends HTMLElement {
     if (!option || !ent || !this._hass) return;
     if (!this._presetByKey) this._presetByKey = {};
     this._presetByKey[this._targetKey(this._config || {})] = option;
-    if (this._presetEl) delete this._presetEl.dataset.sig;
+    if (this._presetMenu) delete this._presetMenu.dataset.sig;
     this._updatePresets();
-    const chip = this._presetEl && this._presetEl.querySelector('[aria-selected="true"]');
-    if (chip && typeof chip.scrollIntoView === "function") chip.scrollIntoView({ block: "nearest", inline: "nearest" });
-    this._fadeRow(this._presetEl);
     this._hass
       .callService("select", "select_option", { entity_id: ent, option })
       .then(() => this._setStatus(`Moving to ${option}.`, ""))
@@ -2346,6 +2532,7 @@ class AdvancedReolinkCard extends HTMLElement {
   }
 
   _enterGrid() {
+    this._closePresets(false);
     this._stopTalk("grid");
     this._ptzStop();
     this._abandonPatrol();
@@ -2796,6 +2983,7 @@ class AdvancedReolinkCard extends HTMLElement {
 
   _openPatrol() {
     if (!this._patrolSetupAvailable() || this._patrolEl) return;
+    this._closePresets(false);
     this._stopTalk("patrol");
     if (this._listening) this._stopListen("patrol");
     this._ptzStop();
@@ -3750,7 +3938,7 @@ const EDITOR_LABELS = {
 
 const EDITOR_HELPERS = {
   camera_entity: "Leave empty to use the camera that belongs to this speaker.",
-  ptz: "Shown when this camera can pan.",
+  ptz: "Shown when this camera can pan. Presets, if the camera has any, are a header button.",
   talk_auto_listen: "Turn on Listen as well.",
 };
 

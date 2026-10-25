@@ -441,10 +441,24 @@ assert(header.includes('aria-label="Return to guard"'), "guard aria-label is Ret
 assert(header.includes('title="Return to guard"'), "guard title is Return to guard");
 assert(header.includes(">Guard</span>"), "guard label is Guard");
 assert(header.includes("mdi:shield-home"), "guard button has an icon");
+assert(header.includes('class="presets-open"'), "presets button is in the header");
+assert(header.indexOf("presets-open") < header.indexOf("guard-open"), "presets button is before Guard");
+assert(header.includes('aria-label="Presets"'), "presets aria-label is Presets");
+assert(header.includes('title="Presets"'), "presets title is Presets");
+assert(header.includes('aria-haspopup="menu"'), "presets button opens a menu");
+assert(header.includes('aria-controls="arc-presets"'), "presets button controls the menu");
+assert(!header.includes(">Presets<"), "presets button has no text label");
+assert(header.includes("mdi:map-marker"), "presets button uses a marker icon");
+const presetsBtn = header.slice(header.indexOf('class="presets-open"'), header.indexOf("guard-open"));
+assert(presetsBtn.includes("hidden"), "presets button starts hidden");
 const ptzStart = src.indexOf('<div class="ptz"');
 const ptzBlock = src.slice(ptzStart, src.indexOf("ptznote", ptzStart));
 assert(!ptzBlock.includes("guard-open"), "guard is not under the PTZ pad");
-assert(ptzBlock.includes('class="presets"'), "presets row stays under the pad");
+assert(!ptzBlock.includes('class="presets"'), "preset chip row is not under the pad");
+assert(!ptzBlock.includes("presets-open"), "presets button is not under the pad");
+assert(!ptzBlock.includes("presets-menu"), "presets menu is not under the pad");
+assert(!src.includes('class="presets"'), "preset chip row markup is gone");
+assert(!src.includes("button.chip"), "preset chips are gone");
 assert(src.includes("button.patrol-open, button.guard-open"), "guard shares the patrol pill style");
 assert(
   src.includes("button.patrol-open ha-icon, button.guard-open ha-icon"),
@@ -590,6 +604,385 @@ switched.key = "other";
 switched.pending().settle({ guard_configured: false });
 assert(switched.status === null, "a late guard result does not overwrite the camera you switched to");
 assert(switched._guardBusy === false, "switching away still clears the in-flight flag");
+
+assert(methodSource("set hass").includes("_updatePresets()"), "a Home Assistant state update re-reads presets");
+assert(methodSource("_presetOptions").includes("preset_entity"), "presets come from the preset select entity");
+assert(methodSource("_presetOptions").includes("options"), "presets read the select options");
+assert(methodSource("_updatePresets").includes("_presetOptions()"), "the menu is filled from the preset options");
+assert(!methodSource("_updatePresets").includes("is_admin"), "presets are not limited to administrators");
+assert(!methodSource("_updatePresets").includes("_render("), "a preset update does not rebuild the card");
+assert(!methodSource("_updatePresets").includes("_fillTabs"), "a preset update does not touch the tabs");
+assert(!methodSource("_updatePresets").includes("innerHTML"), "a preset update does not rewrite the header");
+assert(!methodSource("_selectPreset").includes("scrollIntoView"), "choosing a preset does not scroll the page");
+assert(methodSource("_selectPreset").includes('callService("select", "select_option"'), "choosing a preset uses the select service");
+assert(methodSource("_selectCamera").includes("_closePresets(false)"), "camera switch closes the preset menu");
+assert(!methodSource("_selectCamera").includes("_render("), "camera switch still does not rebuild the header");
+assert(methodSource("_enterGrid").includes("_closePresets(false)"), "grid view closes the preset menu");
+assert(methodSource("_render").includes("_closePresets(false)"), "a rebuild closes the preset menu");
+assert(methodSource("disconnectedCallback").includes("_closePresets(false)"), "disconnect closes the preset menu");
+assert(methodSource("_openPatrol").includes("_closePresets(false)"), "the patrol wizard closes the preset menu");
+assert(methodSource("_bindInput").includes("_togglePresets"), "the presets button toggles the menu");
+assert(methodSource("_focusEl").includes("preventScroll: true"), "preset focus does not scroll");
+assert(!methodSource("_openPresets").includes("minHeight"), "opening presets does not lock the card height");
+assert(!methodSource("_revealPreset").includes("scrollIntoView"), "the menu scrolls itself, not the page");
+assert(methodSource("_revealPreset").includes("menu.scrollTop"), "a long menu scrolls inside itself");
+const menuCss = src.slice(src.indexOf(".presets-menu {"), src.indexOf(".presets-menu button"));
+assert(menuCss.includes("position: absolute"), "the preset menu is taken out of flow");
+assert(menuCss.includes("overscroll-behavior: contain"), "menu scrolling does not chain to the page");
+assert(/button\.presets-open \{[^}]*height: 36px/.test(src), "presets button matches the header pill height");
+assert(/button\.presets-open \{[^}]*width: 36px/.test(src), "presets button is icon sized");
+
+function makePresetDoc(root) {
+  function matches(node, sel) {
+    if (sel === "button.preset-option") {
+      return node.tagName === "BUTTON" && String(node.className).split(/\s+/).includes("preset-option");
+    }
+    if (sel === '[aria-checked="true"]') return node.getAttribute("aria-checked") === "true";
+    return false;
+  }
+  function create(tag) {
+    const node = {
+      tagName: String(tag).toUpperCase(),
+      className: "",
+      hidden: false,
+      textContent: "",
+      tabIndex: 0,
+      children: [],
+      dataset: {},
+      attrs: {},
+      style: {},
+      listeners: {},
+      focused: null,
+      setAttribute(name, value) {
+        this.attrs[name] = String(value);
+      },
+      getAttribute(name) {
+        return Object.prototype.hasOwnProperty.call(this.attrs, name) ? this.attrs[name] : null;
+      },
+      append(...kids) {
+        for (const kid of kids) this.children.push(kid);
+      },
+      appendChild(kid) {
+        this.append(kid);
+        return kid;
+      },
+      replaceChildren(...kids) {
+        this.children = [];
+        if (kids.length) this.append(...kids);
+      },
+      addEventListener(type, fn) {
+        (this.listeners[type] || (this.listeners[type] = [])).push(fn);
+      },
+      focus(opts) {
+        this.focused = opts || {};
+        root.activeElement = this;
+      },
+      querySelector(sel) {
+        const found = this.querySelectorAll(sel);
+        return found[0] || null;
+      },
+      querySelectorAll(sel) {
+        const out = [];
+        const walk = (n) => {
+          if (matches(n, sel)) out.push(n);
+          for (const child of n.children) walk(child);
+        };
+        for (const child of this.children) walk(child);
+        return out;
+      },
+    };
+    return node;
+  }
+  const listeners = { pointerdown: [], keydown: [] };
+  return {
+    listeners,
+    createElement: create,
+    addEventListener(type, fn) {
+      (listeners[type] || (listeners[type] = [])).push(fn);
+    },
+    removeEventListener(type, fn) {
+      listeners[type] = (listeners[type] || []).filter((entry) => entry !== fn);
+    },
+  };
+}
+
+const presetRoot = { activeElement: null };
+const presetDoc = makePresetDoc(presetRoot);
+const presetCtx = { document: presetDoc };
+vm.runInNewContext(
+  `this._presetOptions = function() ${methodFn("_presetOptions")};
+this._presetItems = function() ${methodFn("_presetItems")};
+this._focusEl = function(el) ${methodFn("_focusEl")};
+this._revealPreset = function(item) ${methodFn("_revealPreset")};
+this._placePresetMenu = function() ${methodFn("_placePresetMenu")};
+this._bindPresetDismiss = function() ${methodFn("_bindPresetDismiss")};
+this._onPresetPointer = function(ev) ${methodFn("_onPresetPointer")};
+this._closePresets = function(returnFocus) ${methodFn("_closePresets")};
+this._openPresets = function(where) ${methodFn("_openPresets")};
+this._togglePresets = function() ${methodFn("_togglePresets")};
+this._onPresetButtonKey = function(ev) ${methodFn("_onPresetButtonKey")};
+this._onPresetMenuKey = function(ev) ${methodFn("_onPresetMenuKey")};
+this._choosePreset = function(option) ${methodFn("_choosePreset")};
+this._updatePresets = function() ${methodFn("_updatePresets")};
+this._selectPreset = function(option) ${methodFn("_selectPreset")};`,
+  presetCtx,
+  { filename: "presets-menu.js" }
+);
+
+function servicePromise(result, isErr) {
+  const promise = {
+    then(fn) {
+      if (!isErr && fn) fn(result);
+      return promise;
+    },
+    catch(fn) {
+      if (isErr && fn) fn(result);
+      return promise;
+    },
+  };
+  return promise;
+}
+
+function presetNames(menu) {
+  return menu.querySelectorAll("button.preset-option").map((b) => {
+    const span = b.children.find((child) => child.tagName === "SPAN");
+    return span ? span.textContent : "";
+  });
+}
+
+function freshPresets(options) {
+  const ent = "select.front_yard_ptz_preset";
+  const calls = [];
+  const host = {
+    ptz: true,
+    grid: false,
+    key: "cam",
+    _presetOpen: false,
+    _presetByKey: {},
+    _config: { entity: "media_player.front_yard", ptz: true },
+    _info: { ptz: { supported: true, preset_entity: ent } },
+    shadowRoot: presetRoot,
+    card: {
+      offsetHeight: 700,
+      style: {},
+      getBoundingClientRect() {
+        return { top: 0, bottom: 600, left: 0, right: 390, width: 390, height: 600 };
+      },
+    },
+    status: null,
+    calls,
+    _hass: {
+      states: {
+        [ent]: { attributes: { options: options.slice() } },
+      },
+      callService(domain, service, data) {
+        calls.push({ domain, service, data });
+        return servicePromise();
+      },
+    },
+    _ptzAvailable() {
+      return this.ptz;
+    },
+    _inGrid() {
+      return this.grid;
+    },
+    _targetKey() {
+      return this.key;
+    },
+    _cardEl() {
+      return this.card;
+    },
+    _setStatus(text, kind = "") {
+      this.status = { text, kind };
+    },
+  };
+  host._presetBtn = presetDoc.createElement("button");
+  host._presetBtn.hidden = true;
+  host._presetBtn.getBoundingClientRect = () => ({ top: 16, bottom: 52, left: 250, right: 286, width: 36, height: 36 });
+  host._presetMenu = presetDoc.createElement("div");
+  host._presetMenu.hidden = true;
+  host._presetMenu.scrollTop = 0;
+  host._presetMenu.clientHeight = 0;
+  for (const name of Object.keys(presetCtx)) {
+    if (name.startsWith("_")) host[name] = presetCtx[name];
+  }
+  presetRoot.activeElement = null;
+  return host;
+}
+
+const presetHost = freshPresets(["Gate", "Drive"]);
+presetHost._updatePresets();
+assert(presetHost._presetBtn.hidden === false, "presets with names show the header button");
+equal(presetNames(presetHost._presetMenu), ["Gate", "Drive"], "menu lists the preset names");
+assert(presetHost._presetMenu.hidden === true, "the menu stays closed until opened");
+const gateBtn = presetHost._presetMenu.querySelectorAll("button.preset-option")[0];
+assert(gateBtn.getAttribute("role") === "menuitemradio", "a preset row is a menu radio item");
+assert(gateBtn.getAttribute("aria-checked") === "false", "nothing is selected before a choice");
+const mark = gateBtn.children.find((child) => child.tagName === "HA-ICON");
+assert(mark && mark.getAttribute("icon") === "mdi:check", "the selected row uses a check icon");
+assert(mark.getAttribute("aria-hidden") === "true", "the check icon is decorative");
+
+presetHost._hass.states["select.front_yard_ptz_preset"] = {
+  attributes: { options: ["Gate", "Drive", "Porch"] },
+};
+presetHost._togglePresets();
+assert(presetHost._presetOpen === true, "the presets button opens the menu");
+assert(presetHost._presetMenu.hidden === false, "the open menu is visible");
+assert(presetHost._presetBtn.getAttribute("aria-expanded") === "true", "the button reports the menu is open");
+equal(presetHost._presetMenu.style.top, "56px", "the menu sits just under the button");
+equal(presetHost._presetMenu.style.right, "104px", "the menu lines up with the button");
+equal(presetHost._presetMenu.style.maxHeight, "320px", "the menu caps its own height");
+equal(presetHost.card.offsetHeight, 700, "opening the menu does not change the card height");
+equal(presetHost.card.style.minHeight, undefined, "opening the menu does not set a card min-height");
+presetHost._updatePresets();
+assert(presetHost._presetOpen === true, "an open menu stays open when the list grows");
+assert(presetHost._presetMenu.hidden === false, "an open menu stays visible when the list grows");
+equal(presetNames(presetHost._presetMenu), ["Gate", "Drive", "Porch"], "a new preset shows up in the open menu");
+assert(presetDoc.listeners.pointerdown.length === 1, "outside clicks are watched while the menu is open");
+
+const drive = presetHost._presetMenu.querySelectorAll("button.preset-option")[1];
+drive.focus();
+presetHost._hass.states["select.front_yard_ptz_preset"] = {
+  attributes: { options: ["Gate", 'Front "Yard"', "Drive", "Shed"] },
+};
+presetHost._updatePresets();
+equal(
+  presetNames(presetHost._presetMenu),
+  ["Gate", 'Front "Yard"', "Drive", "Shed"],
+  "preset names are text, including quotes"
+);
+assert(presetHost.shadowRoot.activeElement.dataset.preset === "Drive", "focus stays on the same preset when the list changes");
+
+let arrowHeld = false;
+presetHost._onPresetMenuKey({
+  key: "ArrowDown",
+  shiftKey: false,
+  preventDefault() {
+    arrowHeld = true;
+  },
+});
+assert(arrowHeld, "arrow keys do not scroll the page");
+assert(presetHost.shadowRoot.activeElement.dataset.preset === "Shed", "ArrowDown moves to the next preset");
+presetHost._onPresetMenuKey({ key: "Tab", shiftKey: false, preventDefault() {} });
+assert(presetHost.shadowRoot.activeElement.dataset.preset === "Gate", "Tab wraps through the presets");
+presetHost._onPresetMenuKey({ key: "Tab", shiftKey: true, preventDefault() {} });
+assert(presetHost.shadowRoot.activeElement.dataset.preset === "Shed", "Shift+Tab moves back through the presets");
+presetHost._onPresetMenuKey({ key: "Home", preventDefault() {} });
+assert(presetHost.shadowRoot.activeElement.dataset.preset === "Gate", "Home moves to the first preset");
+presetHost._onPresetMenuKey({ key: "End", preventDefault() {} });
+assert(presetHost.shadowRoot.activeElement.dataset.preset === "Shed", "End moves to the last preset");
+
+const shed = presetHost._presetMenu.querySelectorAll("button.preset-option").find((b) => b.dataset.preset === "Shed");
+shed.offsetTop = 400;
+shed.offsetHeight = 48;
+presetHost._presetMenu.clientHeight = 100;
+presetHost._presetMenu.scrollTop = 0;
+presetHost._revealPreset(shed);
+equal(presetHost._presetMenu.scrollTop, 348, "a preset below the fold scrolls the menu only");
+
+presetHost._onPresetMenuKey({ key: "Enter", preventDefault() {} });
+equal(presetHost.calls[0], {
+  domain: "select",
+  service: "select_option",
+  data: { entity_id: "select.front_yard_ptz_preset", option: "Shed" },
+}, "Enter moves the camera with the preset select");
+equal(presetHost.status, { text: "Moving to Shed.", kind: "" }, "choosing a preset reports the move");
+assert(presetHost._presetOpen === false, "choosing a preset closes the menu");
+assert(presetHost._presetBtn.focused && presetHost._presetBtn.focused.preventScroll === true, "Escape and selection return focus without scrolling");
+const shedRow = presetHost._presetMenu.querySelectorAll("button.preset-option").find((b) => b.dataset.preset === "Shed");
+assert(shedRow.getAttribute("aria-checked") === "true", "the last preset used is selected");
+const gateRow = presetHost._presetMenu.querySelectorAll("button.preset-option").find((b) => b.dataset.preset === "Gate");
+assert(gateRow.getAttribute("aria-checked") === "false", "the other presets are not selected");
+
+presetHost._togglePresets();
+assert(presetHost.shadowRoot.activeElement.dataset.preset === "Shed", "opening again focuses the last preset used");
+const outside = { tag: "outside" };
+presetHost._onPresetPointer({ composedPath() { return [presetHost._presetMenu]; } });
+assert(presetHost._presetOpen === true, "a click inside the menu keeps it open");
+presetHost._onPresetPointer({ composedPath() { return [outside]; } });
+assert(presetHost._presetOpen === false, "a click outside closes the menu");
+assert(presetDoc.listeners.pointerdown.length === 0, "closing drops the outside click listener");
+assert(presetDoc.listeners.keydown.length === 0, "closing drops the Escape listener");
+
+presetHost._openPresets("first");
+let escaped = false;
+presetDoc.listeners.keydown[0]({
+  key: "Escape",
+  preventDefault() {
+    escaped = true;
+  },
+  stopPropagation() {},
+});
+assert(escaped, "Escape is handled");
+assert(presetHost._presetOpen === false, "Escape closes the menu");
+assert(presetHost.shadowRoot.activeElement === presetHost._presetBtn, "Escape returns focus to the Presets button");
+
+presetHost._presetBtn.focused = null;
+presetHost._onPresetButtonKey({ key: "ArrowUp", preventDefault() {} });
+assert(presetHost._presetOpen === true, "ArrowUp on the button opens the menu");
+assert(presetHost.shadowRoot.activeElement.dataset.preset === "Shed", "ArrowUp opens on the last preset");
+presetHost._closePresets(false);
+
+presetHost._hass.states["select.front_yard_ptz_preset"] = { attributes: { options: [] } };
+presetHost._openPresets();
+presetHost._updatePresets();
+assert(presetHost._presetBtn.hidden === true, "an empty preset list hides the button");
+assert(presetHost._presetOpen === false, "an empty preset list closes the menu");
+assert(presetHost._presetMenu.hidden === true, "an empty preset list hides the menu");
+equal(presetNames(presetHost._presetMenu), [], "an empty preset list clears the menu");
+
+const noEntity = freshPresets(["Gate"]);
+noEntity._info = { ptz: { preset_entity: null } };
+noEntity._updatePresets();
+assert(noEntity._presetBtn.hidden === true, "no preset entity hides the button");
+
+const missingState = freshPresets(["Gate"]);
+missingState._info = { ptz: { preset_entity: "select.missing" } };
+missingState._updatePresets();
+assert(missingState._presetBtn.hidden === true, "a missing preset state hides the button");
+
+const fixedCam = freshPresets(["Gate"]);
+fixedCam._updatePresets();
+assert(fixedCam._presetBtn.hidden === false, "a PTZ camera with presets shows the button");
+fixedCam.ptz = false;
+fixedCam._updatePresets();
+assert(fixedCam._presetBtn.hidden === true, "a non-PTZ camera hides the presets button");
+
+const gridCam = freshPresets(["Gate", "Drive"]);
+gridCam._updatePresets();
+gridCam._openPresets();
+assert(gridCam._presetOpen === true, "menu can open before the grid");
+gridCam.grid = true;
+gridCam._updatePresets();
+assert(gridCam._presetBtn.hidden === true, "grid view hides the presets button");
+assert(gridCam._presetOpen === false, "grid view closes the preset menu");
+
+const remembered = freshPresets(["Gate", "Drive"]);
+remembered._selectPreset("Drive");
+assert(remembered._presetByKey.cam === "Drive", "the last preset is remembered for this camera");
+remembered.key = "door";
+remembered._updatePresets();
+const doorRows = remembered._presetMenu.querySelectorAll("button.preset-option");
+assert(doorRows.every((b) => b.getAttribute("aria-checked") === "false"), "another camera does not inherit the selection");
+remembered.key = "cam";
+remembered._updatePresets();
+const back = remembered._presetMenu.querySelectorAll("button.preset-option").find((b) => b.dataset.preset === "Drive");
+assert(back.getAttribute("aria-checked") === "true", "switching back restores the last preset");
+
+const failedMove = freshPresets(["Gate"]);
+failedMove._hass.callService = () => servicePromise(new Error("busy"), true);
+failedMove._selectPreset("Gate");
+equal(failedMove.status, { text: "busy", kind: "error" }, "preset errors use the status line");
+const bareMove = freshPresets(["Gate"]);
+bareMove._hass.callService = () => servicePromise(null, true);
+bareMove._selectPreset("Gate");
+equal(bareMove.status, { text: "Could not move to that preset.", kind: "error" }, "preset errors have a plain fallback");
+
+const sameList = freshPresets(["Gate"]);
+sameList._updatePresets();
+const firstItem = sameList._presetMenu.querySelectorAll("button.preset-option")[0];
+sameList._updatePresets();
+assert(sameList._presetMenu.querySelectorAll("button.preset-option")[0] === firstItem, "an unchanged list does not rebuild the menu");
 
 if (failed) {
   console.error(`${failed} assertion(s) failed`);

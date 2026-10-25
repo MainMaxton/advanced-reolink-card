@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.5.5 (2026-10-25)
+
+### Changed
+- Presets sit in the card header, beside Guard and Patrol, instead of a chip
+  row under the pan and tilt pad. The Presets button opens a menu of names.
+  The last preset you used stays selected.
+- The menu reads the camera's preset list from Home Assistant and updates when
+  that list changes, including while the menu is open. A camera with no presets
+  does not show the button.
+- With the chip row gone, the pan and tilt pad is only as tall as its controls.
+
 ## 0.5.4 (2026-10-25)
 
 ### Added
