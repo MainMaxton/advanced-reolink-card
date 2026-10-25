@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.3 (2026-10-25)
+
+### Fixed
+- Switching to a camera without pan and tilt no longer leaves a blank pad-sized
+  gap. The card eases to that camera's own height after the swap. If you are
+  already at the bottom of the page, spare height is held below the card so the
+  tab row stays put, and it is released as you scroll up.
+
 ## 0.5.2 (2026-10-24)
 
 ### Added

@@ -68,3 +68,13 @@ def test_card_file_has_multicam_hooks() -> None:
     assert "_queueSettleCardHeight()" in select
     assert "HEIGHT_SETTLE_MS" in src
     assert "_releaseCardHeight" in src
+    settle = src.split("  _settleCardHeight() {", 1)[1].split("  _releaseCardHeight()", 1)[0]
+    assert "const minTo = this._cssMinHeight(card, to)" in settle
+    assert "this._naturalCardHeight(card)" in settle
+    assert "hostPadForHeight" in settle
+    assert "_setHostPad" in settle
+    assert "_holdResidualHeight" not in settle
+    assert "_keepHeight" not in src
+    assert "_holdResidualHeight" not in src
+    assert "this.style.paddingBottom" in src
+    assert "_clearHostPad()" in src.split("disconnectedCallback()", 1)[1].split("  _targetKey", 1)[0]

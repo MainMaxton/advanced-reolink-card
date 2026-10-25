@@ -290,6 +290,147 @@ assert(!selectBody.includes("_render("), "_selectCamera does not call _render");
 assert(selectBody.includes('_stopTalk("camera switch")'), "camera switch stops talk");
 assert(selectBody.includes("_startVideo()"), "camera switch can restart live view");
 assert(!selectBody.includes("_startListen"), "camera switch does not start listen");
+assert(selectBody.includes("_lockCardHeight(true)"), "camera switch locks height during the swap");
+assert(selectBody.includes("_queueSettleCardHeight()"), "camera switch then settles to the new camera");
+
+function methodSource(name) {
+  const re = new RegExp(`  ${name}\\([^)]*\\) \\{`);
+  const match = re.exec(src);
+  assert(match, `${name} exists`);
+  let i = match.index + match[0].length;
+  let depth = 1;
+  while (i < src.length && depth) {
+    const ch = src[i];
+    if (ch === "{") depth += 1;
+    else if (ch === "}") depth -= 1;
+    i += 1;
+  }
+  return src.slice(match.index, i);
+}
+
+const settle = methodSource("_settleCardHeight");
+assert(settle.includes("this._naturalCardHeight(card)"), "settle measures the new camera's content");
+assert(
+  settle.includes("const minTo = this._cssMinHeight(card, to)"),
+  "settle assigns minTo from the natural height before animating"
+);
+assert(settle.includes("card.style.minHeight = `${minTo}px`"), "settle animates min-height to minTo");
+assert(settle.includes("hostPadForHeight("), "settle keeps leftover height outside ha-card");
+assert(settle.includes("_setHostPad(newPad)"), "settle applies leftover height on the host");
+assert(settle.includes("_releaseCardHeight()"), "settle releases the ha-card height lock");
+assert(settle.includes("_clearHostPad()"), "grid and tiny cards clear host pad");
+assert(!settle.includes("_holdResidualHeight"), "settle does not hold leftover height inside ha-card");
+assert(!settle.includes("_keepHeight"), "settle does not remember a taller ha-card min-height");
+assert(!src.includes("_holdResidualHeight"), "inside-card residual height helper is gone");
+assert(src.includes("this.style.paddingBottom"), "leftover height is host padding, not ha-card");
+assert(methodSource("disconnectedCallback").includes("_clearHostPad()"), "disconnect clears host pad");
+assert(methodSource("_render").includes("_clearHostPad()"), "rebuild and grid view clear host pad");
+assert(methodSource("_enterGrid").includes("_render()"), "grid view rebuilds through _render");
+
+function methodFn(name) {
+  const body = methodSource(name);
+  const open = body.indexOf("{");
+  return body.slice(open);
+}
+
+const heightCtx = {
+  getComputedStyle(el) {
+    return el._cs;
+  },
+};
+vm.runInNewContext(
+  `this.naturalCardHeight = function(card) ${methodFn("_naturalCardHeight")}
+this.cssMinHeight = function(card, outer) ${methodFn("_cssMinHeight")}`,
+  heightCtx,
+  { filename: "card-height.js" }
+);
+
+const hiddenPtz = {
+  display: "none",
+  position: "relative",
+};
+const shown = { display: "block", position: "relative" };
+const padCs = {
+  paddingTop: "16",
+  paddingBottom: "16",
+  borderTopWidth: "1",
+  borderBottomWidth: "1",
+  rowGap: "12",
+  gap: "12",
+  boxSizing: "border-box",
+};
+const cardWithHiddenPtz = {
+  _cs: padCs,
+  children: [
+    { offsetHeight: 40, _cs: shown },
+    { offsetHeight: 48, _cs: shown },
+    { offsetHeight: 220, _cs: shown },
+    { offsetHeight: 249, _cs: hiddenPtz },
+    { offsetHeight: 48, _cs: shown },
+    { offsetHeight: 20, _cs: shown },
+  ],
+};
+const withoutPtz = heightCtx.naturalCardHeight(cardWithHiddenPtz);
+const cardWithPtz = {
+  _cs: padCs,
+  children: cardWithHiddenPtz.children.map((child, i) =>
+    i === 3 ? { offsetHeight: 249, _cs: shown } : child
+  ),
+};
+const withPtz = heightCtx.naturalCardHeight(cardWithPtz);
+assert(withoutPtz === 32 + 2 + 40 + 48 + 220 + 48 + 20 + 12 * 4, "hidden PTZ pad is not reserved in the natural height");
+assert(withPtz === withoutPtz + 249 + 12, "visible PTZ pad is included in the natural height");
+assert(withoutPtz < withPtz, "non-PTZ natural height is shorter than PTZ");
+equal(heightCtx.cssMinHeight(cardWithHiddenPtz, withoutPtz), withoutPtz, "border-box min-height uses the outer size");
+const contentBox = { _cs: { ...padCs, boxSizing: "content-box" } };
+equal(
+  heightCtx.cssMinHeight(contentBox, withoutPtz),
+  withoutPtz - 32 - 2,
+  "content-box min-height subtracts padding and border"
+);
+
+const padFnStart = src.indexOf("function hostPadForHeight(");
+const padFnEnd = src.indexOf("\n}", padFnStart) + 2;
+assert(padFnStart > 0 && padFnEnd > padFnStart, "hostPadForHeight is a standalone helper");
+vm.runInNewContext(`${src.slice(padFnStart, padFnEnd)}\nthis.hostPadForHeight = hostPadForHeight;`, heightCtx, {
+  filename: "host-pad.js",
+});
+const padFor = heightCtx.hostPadForHeight;
+equal(padFor(831, 599, 0, 0), 232, "at the bottom, all shrink becomes host pad");
+equal(padFor(831, 599, 0, 131), 101, "only the amount that would clamp scroll becomes host pad");
+equal(padFor(831, 599, 0, 500), 0, "enough room below means no host pad");
+equal(padFor(599, 831, 101, 0), 0, "a taller camera clears host pad");
+equal(padFor(599, 599, 101, 0), 101, "same height at the bottom keeps host pad");
+equal(padFor(599, 599, 101, 40), 61, "scrolling up trims host pad");
+equal(padFor(599, 580, 101, 0), 120, "a still-shorter camera at the bottom grows host pad");
+equal(padFor(831.2, 599.2, 0, 0.4), 232, "host pad rounds up so scroll cannot clamp");
+
+const padHost = {
+  style: { paddingBottom: "8px", overflowAnchor: "" },
+  _heightPad: 8,
+  listening: false,
+  _bindPadScroll() {
+    this.listening = true;
+  },
+  _dropPadScroll() {
+    this.listening = false;
+  },
+};
+vm.runInNewContext(
+  `this._setHostPad = function(px) ${methodFn("_setHostPad")};
+this._clearHostPad = function() ${methodFn("_clearHostPad")};`,
+  padHost,
+  { filename: "set-host-pad.js" }
+);
+padHost._setHostPad(101);
+equal(padHost.style.paddingBottom, "101px", "host pad is padding-bottom on the custom element");
+equal(padHost.style.overflowAnchor, "none", "host pad disables overflow anchoring");
+equal(padHost._heightPad, 101, "host pad is stored");
+assert(padHost.listening, "scrolling up can release host pad");
+padHost._clearHostPad();
+equal(padHost.style.paddingBottom, "", "cleared host pad removes padding");
+equal(padHost._heightPad, 0, "cleared host pad is zero");
+assert(!padHost.listening, "cleared host pad drops the scroll listener");
 
 if (failed) {
   console.error(`${failed} assertion(s) failed`);

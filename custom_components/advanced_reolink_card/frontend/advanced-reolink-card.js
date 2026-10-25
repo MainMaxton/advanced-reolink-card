@@ -2,7 +2,7 @@
  * Live view, pan, listen and talk.
  * custom:audiohook-talk-card stays as an alias for older dashboards.
  */
-const CARD_VERSION = "0.5.2";
+const CARD_VERSION = "0.5.3";
 const DOMAIN = "advanced_reolink_card";
 const WS_PTZ_MOVE = "advanced_reolink_card/ptz/move";
 const WS_PTZ_STOP = "advanced_reolink_card/ptz/stop";
@@ -12,6 +12,12 @@ const WS_PTZ_STATUS = "advanced_reolink_card/ptz/status";
 const TEST_SETTLE_S = 5; // time to reach the home position before a test sweep
 const HOME_RETURN_S = 4; // estimated goto_guard at the end of a test sweep
 const HEIGHT_SETTLE_MS = 200;
+
+/* Spare height on the host, not inside ha-card, so a shorter camera does not clamp scroll. */
+function hostPadForHeight(from, to, currentPad, roomBelow) {
+  return Math.max(0, Math.ceil((from || 0) + (currentPad || 0) - Math.max(0, roomBelow || 0) - (to || 0)));
+}
+
 const TARGET_RATE = 16000; // what we send: 16 kHz mono s16le
 const SEND_MS = 40; // send a frame every ~40 ms
 const DUCK_TAIL_MS = 1500; // half-duplex: keep playback muted this long after talking
@@ -647,7 +653,7 @@ class AdvancedReolinkCard extends HTMLElement {
   }
 
   disconnectedCallback() {
-    this._dropResidual();
+    this._clearHostPad();
     this._rowObserver?.disconnect();
     this._rowObserver = null;
     this._cardWidthObserver?.disconnect();
@@ -847,6 +853,7 @@ class AdvancedReolinkCard extends HTMLElement {
     if (!this._config) return;
     this._abandonPatrol();
     this._cancelHeightAnim();
+    this._clearHostPad();
     this._cardMinHeight = 0;
     this._heightLocked = false;
     this._seenCardWidth = null;
@@ -1280,7 +1287,6 @@ class AdvancedReolinkCard extends HTMLElement {
     if (!card) return;
     this._heightGen = (this._heightGen || 0) + 1;
     this._cancelHeightAnim();
-    this._dropResidual();
     const natural = useRendered ? card.offsetHeight : this._naturalCardHeight(card);
     if (natural < 40) return;
     this._cardMinHeight = natural;
@@ -1288,6 +1294,7 @@ class AdvancedReolinkCard extends HTMLElement {
     // ha-card animates all properties, which would grow the lock from zero.
     card.style.transition = "none";
     card.style.overflowAnchor = "none";
+    this.style.overflowAnchor = "none";
     card.style.minHeight = `${this._cssMinHeight(card, natural)}px`;
   }
 
@@ -1304,22 +1311,31 @@ class AdvancedReolinkCard extends HTMLElement {
   _settleCardHeight() {
     if (!this._config || this._inGrid()) {
       this._releaseCardHeight();
+      this._clearHostPad();
       return;
     }
     const card = this._cardEl();
     if (!card) return;
     const from = card.offsetHeight;
-    const natural = this._naturalCardHeight(card);
-    // Never shrink by more than the page has below the viewport, or the browser jumps the scroll.
-    const to = natural < from ? Math.max(natural, from - this._roomBelow()) : natural;
-    this._keepHeight = to > natural + 1;
+    const to = this._naturalCardHeight(card);
     if (to < 40) {
       this._releaseCardHeight();
+      this._clearHostPad();
       return;
     }
+    const currentPad = this._heightPad || 0;
+    const newPad = hostPadForHeight(from, to, currentPad, this._roomBelow());
+    const addPadFirst = newPad >= currentPad;
+    if (addPadFirst) this._setHostPad(newPad);
+    const minTo = this._cssMinHeight(card, to);
+    const finishPad = () => {
+      if (!addPadFirst) this._setHostPad(newPad);
+    };
     if (Math.abs(from - to) < 2 || this._reducedMotion()) {
-      if (this._keepHeight) this._holdResidualHeight(card, to);
-      else this._pinTabs(() => this._releaseCardHeight());
+      this._pinTabs(() => {
+        this._releaseCardHeight();
+        finishPad();
+      });
       return;
     }
     this._cancelHeightAnim();
@@ -1337,13 +1353,18 @@ class AdvancedReolinkCard extends HTMLElement {
       });
       this._heightRo.observe(card);
     }
+    let done = false;
     const finish = () => {
+      if (done) return;
+      done = true;
       if (this._heightOnEnd) {
         card.removeEventListener("transitionend", this._heightOnEnd);
         this._heightOnEnd = null;
       }
-      if (this._keepHeight) this._holdResidualHeight(card, to);
-      else this._releaseCardHeight();
+      this._pinTabs(() => {
+        this._releaseCardHeight();
+        finishPad();
+      });
     };
     this._heightOnEnd = (ev) => {
       if (ev && ev.propertyName && ev.propertyName !== "min-height") return;
@@ -1358,37 +1379,58 @@ class AdvancedReolinkCard extends HTMLElement {
     });
   }
 
-  _dropResidual() {
-    if (!this._residualScroll) return;
-    window.removeEventListener("scroll", this._residualScroll);
-    this._residualScroll = null;
-  }
-
   _roomBelow() {
+    const root = this._scrollRoot();
+    if (root && root !== document.documentElement && root !== document.body && root !== document.scrollingElement) {
+      return Math.max(0, root.scrollHeight - root.scrollTop - root.clientHeight);
+    }
     const doc = document.scrollingElement || document.documentElement;
     return Math.max(0, doc.scrollHeight - window.scrollY - window.innerHeight);
   }
 
-  _holdResidualHeight(card, height) {
-    this._cancelHeightAnim();
-    card.style.transition = "none";
-    card.style.minHeight = `${this._cssMinHeight(card, height)}px`;
-    this._cardMinHeight = height;
-    this._heightLocked = true;
-    if (this._residualScroll) return;
-    this._residualScroll = () => {
-      const el = this._cardEl();
-      if (!el || !this._heightLocked || this._heightOnEnd) return;
-      const natural = this._naturalCardHeight(el);
-      const next = Math.max(natural, el.offsetHeight - this._roomBelow());
-      if (next <= natural + 1) {
-        this._dropResidual();
-        this._releaseCardHeight();
-      } else if (next < el.offsetHeight - 1) {
-        el.style.minHeight = `${this._cssMinHeight(el, next)}px`;
-      }
-    };
-    window.addEventListener("scroll", this._residualScroll, { passive: true });
+  _setHostPad(px) {
+    const next = Math.max(0, Math.ceil(Number(px) || 0));
+    this._heightPad = next;
+    this.style.paddingBottom = next ? `${next}px` : "";
+    this.style.overflowAnchor = next ? "none" : "";
+    if (next) this._bindPadScroll();
+    else this._dropPadScroll();
+  }
+
+  _clearHostPad() {
+    this._setHostPad(0);
+  }
+
+  _bindPadScroll() {
+    if (this._padScroll) return;
+    this._padScroll = () => this._trimHostPad();
+    window.addEventListener("scroll", this._padScroll, { passive: true });
+    const root = this._scrollRoot();
+    if (root && root !== document.documentElement && root !== document.body && root !== document.scrollingElement) {
+      this._padScrollEl = root;
+      root.addEventListener("scroll", this._padScroll, { passive: true });
+    }
+  }
+
+  _dropPadScroll() {
+    if (!this._padScroll) return;
+    window.removeEventListener("scroll", this._padScroll);
+    if (this._padScrollEl) {
+      this._padScrollEl.removeEventListener("scroll", this._padScroll);
+      this._padScrollEl = null;
+    }
+    this._padScroll = null;
+  }
+
+  _trimHostPad() {
+    const pad = this._heightPad || 0;
+    if (pad < 1) {
+      this._dropPadScroll();
+      return;
+    }
+    const next = hostPadForHeight(0, 0, pad, this._roomBelow());
+    if (next >= pad) return;
+    this._setHostPad(next);
   }
 
   _releaseCardHeight() {
@@ -1400,6 +1442,7 @@ class AdvancedReolinkCard extends HTMLElement {
       card.style.overflowAnchor = "";
       card.style.transition = "";
     }
+    if (!(this._heightPad > 0)) this.style.overflowAnchor = "";
     this._cardMinHeight = 0;
     this._heightLocked = false;
   }
