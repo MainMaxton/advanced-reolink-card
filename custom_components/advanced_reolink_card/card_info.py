@@ -54,6 +54,8 @@ PTZ_BUTTONS: Mapping[str, str] = {
 }
 PTZ_DIRECTIONS = ("left", "right", "up", "down")
 PRESET_KEY = "ptz_preset"
+# Absolute zoom (number). TrackMix and similar have this but no zoom buttons.
+ZOOM_KEY = "zoom"
 GUARD_KEY = "guard_go_to"
 SLEEP_KEY = "sleep"
 BATTERY_KEY = "battery_percent"
@@ -85,6 +87,7 @@ class DeviceFeatures:
     ptz: dict[str, str] = field(default_factory=dict)  # role -> entity_id (enabled only)
     ptz_disabled: list[str] = field(default_factory=list)  # entity_ids disabled in HA
     preset_entity: str | None = None
+    zoom_entity: str | None = None
     guard_entity: str | None = None
     sleep_entity: str | None = None
     battery_entity: str | None = None
@@ -106,7 +109,8 @@ class DeviceFeatures:
             "camera_entity": self.default_camera(),
             "ptz": {
                 "supported": self.ptz_supported,
-                "zoom": "zoom_in" in self.ptz and "zoom_out" in self.ptz,
+                "zoom": self.zoom_entity is not None or ("zoom_in" in self.ptz and "zoom_out" in self.ptz),
+                "zoom_entity": self.zoom_entity,
                 "tilt": "up" in self.ptz and "down" in self.ptz,
                 "entities": dict(self.ptz),
                 "disabled_entities": list(self.ptz_disabled),
@@ -154,6 +158,11 @@ def classify_entities(entities: Iterable[RegistryEntity]) -> DeviceFeatures:
         elif ent.domain == "select" and not ent.disabled:
             if _match_key(ent.unique_id, (PRESET_KEY,)):
                 feats.preset_entity = ent.entity_id
+        elif ent.domain == "number" and _match_key(ent.unique_id, (ZOOM_KEY,)):
+            if ent.disabled:
+                feats.ptz_disabled.append(ent.entity_id)
+            else:
+                feats.zoom_entity = ent.entity_id
         elif ent.domain == "binary_sensor" and _match_key(ent.unique_id, (SLEEP_KEY,)):
             feats.sleep_entity = ent.entity_id
         elif ent.domain == "sensor" and _match_key(ent.unique_id, (BATTERY_KEY,)):

@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.5.7 (2026-10-28)
+
+### Added
+- Open a camera from a notification with `?camera=` on the dashboard URL. The
+  card switches to that camera and then drops the parameter from the address.
+  Full entity ids, short names, and the camera name all work.
+- `start_camera` picks the camera shown first when the URL has no `camera`
+  parameter. `default_camera` still works.
+- `layout: fullscreen` fills the view for a panel or a hidden subview. Tabs,
+  pan and tilt, zoom, presets, Guard, Patrol, Listen and talk stay on the card.
+
+### Fixed
+- Zoom works on cameras such as the TrackMix. Current Reolink releases do not
+  create zoom buttons for them, so the zoom pad was hidden. The card now steps
+  the camera's *Zoom* number entity and shows zoom only where one of the two
+  exists.
+
 ## 0.5.6 (2026-10-25)
 
 ### Fixed

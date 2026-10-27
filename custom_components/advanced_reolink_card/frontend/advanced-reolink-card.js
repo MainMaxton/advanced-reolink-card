@@ -2,7 +2,7 @@
  * Live view, pan, listen and talk.
  * custom:audiohook-talk-card stays as an alias for older dashboards.
  */
-const CARD_VERSION = "0.5.6";
+const CARD_VERSION = "0.5.7";
 const DOMAIN = "advanced_reolink_card";
 const WS_PTZ_MOVE = "advanced_reolink_card/ptz/move";
 const WS_PTZ_STOP = "advanced_reolink_card/ptz/stop";
@@ -162,6 +162,16 @@ class WebRtcPipe {
 
 const STYLE = `
   :host { display: block; }
+  :host([data-layout="fullscreen"]) {
+    display: flex; flex-direction: column; box-sizing: border-box;
+    height: calc(100vh - var(--header-height, 56px) - env(safe-area-inset-top, 0px));
+    height: calc(100dvh - var(--header-height, 56px) - env(safe-area-inset-top, 0px));
+    padding: 0 env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+  }
+  :host([data-layout="fullscreen"]) ha-card {
+    flex: 1 1 auto; min-height: 0; border-radius: 0; box-shadow: none; border: none; overflow-y: auto;
+  }
+  :host([data-layout="fullscreen"]) .video { flex: 1 1 auto; min-height: 40%; aspect-ratio: auto; border-radius: 0; }
   ha-card { position: relative; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
   .header { display: flex; align-items: center; flex-wrap: nowrap; gap: 8px; min-width: 0; }
   .header .icon { flex: none; }
@@ -384,6 +394,8 @@ const PTZ_ICONS = {
   zoom_in: "mdi:magnify-plus-outline",
   zoom_out: "mdi:magnify-minus-outline",
 };
+const ZOOM_REPEAT_MS = 450;
+const ZOOM_MEMORY_MS = 4000;
 const PTZ_LABELS = { up: "Tilt up", down: "Tilt down", left: "Pan left", right: "Pan right", zoom_in: "Zoom in", zoom_out: "Zoom out" };
 
 const HTTPS_NOTE =
@@ -487,7 +499,14 @@ function _layoutOptions(config) {
   if (config.hide_grid_warning != null && typeof config.hide_grid_warning !== "boolean") {
     throw new Error("'hide_grid_warning' must be true or false");
   }
-  return { view, grid_columns, hide_grid_warning: config.hide_grid_warning === true };
+  let layout = "card";
+  if (config.layout != null && config.layout !== "") {
+    if (config.layout !== "card" && config.layout !== "fullscreen") {
+      throw new Error("'layout' must be 'card' or 'fullscreen'");
+    }
+    layout = config.layout;
+  }
+  return { view, grid_columns, hide_grid_warning: config.hide_grid_warning === true, layout };
 }
 
 function normalizeCardConfig(config) {
@@ -514,7 +533,13 @@ function normalizeCardConfig(config) {
       }
       return merged;
     });
-    return { cameras, multi: cameras.length >= 2, default_camera: config.default_camera, ...layout };
+    return {
+      cameras,
+      multi: cameras.length >= 2,
+      default_camera: config.default_camera,
+      start_camera: config.start_camera,
+      ...layout,
+    };
   }
   if (!config.entity && !config.camera_entity && (config.channel === undefined || config.channel === "")) {
     throw new Error("Set 'entity' (an Advanced Reolink Card speaker media_player), 'channel' or 'camera_entity'");
@@ -528,28 +553,130 @@ function normalizeCardConfig(config) {
   if (config.talk !== false && !config.entity && (config.channel === undefined || config.channel === "")) {
     throw new Error("Talk needs 'entity' (speaker) or 'channel'; set 'talk: false' for a view-only card");
   }
-  return { cameras: [mergeCameraEntry(config, null)], multi: false, default_camera: config.default_camera, ...layout };
+  return {
+    cameras: [mergeCameraEntry(config, null)],
+    multi: false,
+    default_camera: config.default_camera,
+    start_camera: config.start_camera,
+    ...layout,
+  };
+}
+
+function _queryKey(part) {
+  const eq = part.indexOf("=");
+  const key = eq >= 0 ? part.slice(0, eq) : part;
+  try {
+    return decodeURIComponent(key.replace(/\+/g, " "));
+  } catch (_err) {
+    return key;
+  }
+}
+
+function _queryValue(part) {
+  const eq = part.indexOf("=");
+  if (eq < 0) return "";
+  const val = part.slice(eq + 1);
+  try {
+    return decodeURIComponent(val.replace(/\+/g, " "));
+  } catch (_err) {
+    return val;
+  }
+}
+
+function _splitQuery(href) {
+  const raw = String(href == null ? "" : href);
+  const hashAt = raw.indexOf("#");
+  const hash = hashAt >= 0 ? raw.slice(hashAt) : "";
+  const withoutHash = hashAt >= 0 ? raw.slice(0, hashAt) : raw;
+  const qAt = withoutHash.indexOf("?");
+  if (qAt >= 0) {
+    return { path: withoutHash.slice(0, qAt), query: withoutHash.slice(qAt + 1), hash };
+  }
+  if (withoutHash.startsWith("/") || /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(withoutHash)) {
+    return { path: withoutHash, query: "", hash };
+  }
+  return { path: "", query: withoutHash, hash };
+}
+
+function parseCameraParam(search) {
+  if (search == null || search === "") return null;
+  const parts = _splitQuery(search);
+  if (!parts.query) return null;
+  const chunks = parts.query.split("&");
+  for (let i = 0; i < chunks.length; i++) {
+    if (!chunks[i] || _queryKey(chunks[i]) !== "camera") continue;
+    const value = String(_queryValue(chunks[i]) || "").trim();
+    return value || null;
+  }
+  return null;
+}
+
+function stripCameraParam(href) {
+  const parts = _splitQuery(href);
+  if (!parts.query) return String(href == null ? "" : href);
+  const kept = [];
+  const chunks = parts.query.split("&");
+  for (let i = 0; i < chunks.length; i++) {
+    if (!chunks[i]) continue;
+    if (_queryKey(chunks[i]) === "camera") continue;
+    kept.push(chunks[i]);
+  }
+  const search = kept.length ? `?${kept.join("&")}` : "";
+  return parts.path + search + parts.hash;
+}
+
+function _entityShortName(id) {
+  const full = String(id || "").trim().toLowerCase();
+  if (!full) return "";
+  const dot = full.indexOf(".");
+  const objectId = dot >= 0 ? full.slice(dot + 1) : full;
+  return objectId.replace(/_(?:fluent|main|sub|clear|speaker|snapshots(?:_sub)?|autotrack(?:_sub)?)$/, "");
+}
+
+function matchCameraIndex(cameras, value) {
+  const n = cameras && cameras.length ? cameras.length : 0;
+  if (!n) return null;
+  if (value === undefined || value === null || value === "") return null;
+  if (typeof value === "number" || (typeof value === "string" && /^-?\d+$/.test(String(value).trim()))) {
+    const i = Number(value);
+    return i >= 0 && i < n ? i : null;
+  }
+  const needle = String(value).trim().toLowerCase();
+  if (!needle) return null;
+  for (let i = 0; i < n; i++) {
+    const c = cameras[i];
+    if (!c) continue;
+    if (c.name && String(c.name).trim().toLowerCase() === needle) return i;
+    for (const id of [c.camera_entity, c.entity]) {
+      if (!id) continue;
+      const full = String(id).trim().toLowerCase();
+      if (full === needle) return i;
+      const dot = full.indexOf(".");
+      const objectId = dot >= 0 ? full.slice(dot + 1) : full;
+      if (objectId === needle || _entityShortName(id) === needle) return i;
+    }
+  }
+  return null;
+}
+
+const ZOOM_STEPS = 10;
+
+function zoomStepValue(current, attrs, role) {
+  const min = Number(attrs && attrs.min);
+  const max = Number(attrs && attrs.max);
+  const from = Number(current);
+  if (!Number.isFinite(min) || !Number.isFinite(max) || !Number.isFinite(from) || max <= min) return null;
+  const step = Math.max(Number(attrs.step) || 1, Math.round((max - min) / ZOOM_STEPS));
+  const next = Math.min(max, Math.max(min, from + (role === "zoom_in" ? step : -step)));
+  return next === from ? null : next;
 }
 
 function resolveCameraIndex(cameras, defaultCamera, fallback) {
   const n = cameras && cameras.length ? cameras.length : 0;
   if (!n) return 0;
   const fb = fallback == null || fallback < 0 || fallback >= n ? 0 : fallback;
-  if (defaultCamera === undefined || defaultCamera === null || defaultCamera === "") return fb;
-  if (typeof defaultCamera === "number" || (typeof defaultCamera === "string" && /^-?\d+$/.test(defaultCamera))) {
-    const i = Number(defaultCamera);
-    if (i >= 0 && i < n) return i;
-  }
-  const needle = String(defaultCamera).toLowerCase();
-  for (let i = 0; i < n; i++) {
-    if (cameras[i].name && String(cameras[i].name).toLowerCase() === needle) return i;
-  }
-  for (let i = 0; i < n; i++) {
-    const c = cameras[i];
-    if (c.entity && String(c.entity).toLowerCase() === needle) return i;
-    if (c.camera_entity && String(c.camera_entity).toLowerCase() === needle) return i;
-  }
-  return fb;
+  const found = matchCameraIndex(cameras, defaultCamera);
+  return found == null ? fb : found;
 }
 /* CARD_CONFIG_END */
 
@@ -578,7 +705,7 @@ class AdvancedReolinkCard extends HTMLElement {
     this._infoPromises = {};
     this._swipeMoved = false;
     this._viewMode = null;
-    this._layout = { view: "tabs", grid_columns: null, hide_grid_warning: false };
+    this._layout = { view: "tabs", grid_columns: null, hide_grid_warning: false, layout: "card" };
     this._gridSessions = null;
     this._gridWarnDismissed = false;
     this._pendingGridStart = false;
@@ -595,6 +722,7 @@ class AdvancedReolinkCard extends HTMLElement {
       this._abandonPatrol();
       this._stopAllStreams("hidden");
     };
+    this._onLocation = () => this._applyCameraLink();
   }
 
   static getConfigElement() {
@@ -620,17 +748,23 @@ class AdvancedReolinkCard extends HTMLElement {
       view: normalized.view,
       grid_columns: normalized.grid_columns,
       hide_grid_warning: normalized.hide_grid_warning,
+      layout: normalized.layout,
     };
+    this._syncLayoutAttr();
     if (!normalized.multi) this._viewMode = "tabs";
     else if (this._viewMode == null) this._viewMode = normalized.view === "grid" ? "grid" : "tabs";
+    const startAt =
+      config.start_camera != null && config.start_camera !== "" ? config.start_camera : config.default_camera;
     let index;
     if (typeof prevIndex === "number" && prevCameras && prevCameras.length && this._cameras.length) {
       const prevKey = this._targetKey(prevCameras[prevIndex] || prev || {});
       const found = this._cameras.findIndex((c) => this._targetKey(c) === prevKey);
-      index = found >= 0 ? found : resolveCameraIndex(this._cameras, config.default_camera, 0);
+      index = found >= 0 ? found : resolveCameraIndex(this._cameras, startAt, 0);
     } else {
-      index = resolveCameraIndex(this._cameras, config.default_camera, 0);
+      index = resolveCameraIndex(this._cameras, startAt, 0);
     }
+    const linked = this._cameraLinkIndex();
+    if (linked != null) index = linked;
     this._activeIndex = index;
     this._applyActiveConfig();
     if (prev && this._targetKey(prev) !== this._targetKey(this._config)) {
@@ -641,13 +775,17 @@ class AdvancedReolinkCard extends HTMLElement {
     }
     this._render();
     if (this._hass) this._fetchInfo();
+    if (this.isConnected) this._applyCameraLink();
   }
 
   set hass(hass) {
     const first = !this._hass;
     this._hass = hass;
     this._refreshNames();
-    if (first) this._fetchInfo();
+    if (first) {
+      this._fetchInfo();
+      this._applyCameraLink();
+    }
     this._updatePresets();
   }
 
@@ -659,7 +797,10 @@ class AdvancedReolinkCard extends HTMLElement {
 
   connectedCallback() {
     document.addEventListener("visibilitychange", this._onVisibility);
+    window.addEventListener("location-changed", this._onLocation);
+    window.addEventListener("popstate", this._onLocation);
     this._watchCardWidth();
+    this._applyCameraLink();
   }
 
   disconnectedCallback() {
@@ -672,6 +813,8 @@ class AdvancedReolinkCard extends HTMLElement {
     this._cancelHeightAnim();
     clearTimeout(this._holdTimer);
     document.removeEventListener("visibilitychange", this._onVisibility);
+    window.removeEventListener("location-changed", this._onLocation);
+    window.removeEventListener("popstate", this._onLocation);
     this._stopTalk("card removed");
     this._abandonPatrol();
     this._stopAllStreams("card removed");
@@ -679,6 +822,57 @@ class AdvancedReolinkCard extends HTMLElement {
     this._ducked = false;
     this._audioStream = null;
     this._unlockedEl = null;
+  }
+
+  _isFullscreen() {
+    return !!(this._layout && this._layout.layout === "fullscreen");
+  }
+
+  _syncLayoutAttr() {
+    if (this._isFullscreen()) this.setAttribute("data-layout", "fullscreen");
+    else this.removeAttribute("data-layout");
+  }
+
+  _cameraLinkValue() {
+    if (typeof window === "undefined" || !window.location) return null;
+    return parseCameraParam(window.location.search);
+  }
+
+  _cameraLinkIndex(value) {
+    const raw = value === undefined ? this._cameraLinkValue() : value;
+    if (raw == null || raw === "") return null;
+    const found = matchCameraIndex(this._cameras, raw);
+    if (found != null) return found;
+    const needle = String(raw).trim().toLowerCase();
+    if (!needle || !this._cameras) return null;
+    for (let i = 0; i < this._cameras.length; i++) {
+      const label = this._cameraLabel(this._cameras[i]);
+      if (label && String(label).trim().toLowerCase() === needle) return i;
+    }
+    return null;
+  }
+
+  _stripCameraLink() {
+    if (typeof window === "undefined" || !window.location || !window.history) return;
+    const href = window.location.pathname + window.location.search + window.location.hash;
+    const cleaned = stripCameraParam(href);
+    if (cleaned === href) return;
+    const run = () => {
+      try {
+        window.history.replaceState(window.history.state, "", cleaned);
+      } catch (_err) {}
+    };
+    if (typeof queueMicrotask === "function") queueMicrotask(run);
+    else Promise.resolve().then(run);
+  }
+
+  _applyCameraLink() {
+    const value = this._cameraLinkValue();
+    if (value == null) return;
+    const idx = this._cameraLinkIndex(value);
+    if (idx == null) return;
+    this._selectCamera(idx);
+    this._stripCameraLink();
   }
 
   _targetKey(c) {
@@ -862,6 +1056,7 @@ class AdvancedReolinkCard extends HTMLElement {
 
   _render() {
     if (!this._config) return;
+    this._syncLayoutAttr();
     this._closePresets(false);
     this._abandonPatrol();
     this._cancelHeightAnim();
@@ -1041,8 +1236,12 @@ class AdvancedReolinkCard extends HTMLElement {
   _scrollActiveTab() {
     const el = this._tabsEl;
     const tab = el && el.querySelector('[role="tab"][aria-selected="true"]');
-    if (tab && typeof tab.scrollIntoView === "function") {
-      tab.scrollIntoView({ block: "nearest", inline: "nearest" });
+    if (tab) {
+      // Scroll the row only, so the page itself never jumps.
+      const row = el.getBoundingClientRect();
+      const box = tab.getBoundingClientRect();
+      if (box.left < row.left) el.scrollLeft -= row.left - box.left;
+      else if (box.right > row.right) el.scrollLeft += box.right - row.right;
     }
     this._watchRow(el);
     this._fadeRow(el);
@@ -1300,7 +1499,7 @@ class AdvancedReolinkCard extends HTMLElement {
   }
 
   _lockCardHeight(useRendered = false) {
-    if (!this._config || this._inGrid()) return;
+    if (!this._config || this._inGrid() || this._isFullscreen()) return;
     const card = this._cardEl();
     if (!card) return;
     this._heightGen = (this._heightGen || 0) + 1;
@@ -1327,7 +1526,7 @@ class AdvancedReolinkCard extends HTMLElement {
   }
 
   _settleCardHeight() {
-    if (!this._config || this._inGrid()) {
+    if (!this._config || this._inGrid() || this._isFullscreen()) {
       this._releaseCardHeight();
       this._clearHostPad();
       return;
@@ -1931,10 +2130,16 @@ class AdvancedReolinkCard extends HTMLElement {
 
   _ptzStart(role, button) {
     const ent = this._info?.ptz?.entities?.[role];
-    if (!ent || !this._hass) return;
+    const zoomEnt = !ent && (role === "zoom_in" || role === "zoom_out") ? this._info?.ptz?.zoom_entity : null;
+    if ((!ent && !zoomEnt) || !this._hass) return;
     if (this._ptzActive) this._ptzStop();
-    this._ptzActive = { role, button };
+    this._ptzActive = { role, button, zoom: !!zoomEnt };
     button?.classList.add("active");
+    if (zoomEnt) {
+      this._zoomStep(zoomEnt, role);
+      this._zoomTimer = setInterval(() => this._zoomStep(zoomEnt, role), ZOOM_REPEAT_MS);
+      return;
+    }
     this._hass.callService("button", "press", { entity_id: ent }).catch((err) => {
       this._setStatus((err && err.message) || "Could not move the camera.", "error");
     });
@@ -1945,12 +2150,32 @@ class AdvancedReolinkCard extends HTMLElement {
     if (!active) return;
     this._ptzActive = null;
     active.button?.classList.remove("active");
+    if (active.zoom) {
+      clearInterval(this._zoomTimer);
+      this._zoomTimer = null;
+      return;
+    }
     const stop = this._info?.ptz?.entities?.stop;
     if (stop && this._hass) {
       this._hass.callService("button", "press", { entity_id: stop }).catch((err) => {
         this._setStatus((err && err.message) || "Could not stop the camera.", "error");
       });
     }
+  }
+
+  // The zoom number only updates after a poll, so keep stepping from the last value sent.
+  _zoomStep(entityId, role) {
+    const st = this._hass?.states?.[entityId];
+    if (!st) return;
+    const last = this._zoomSent;
+    const fresh = last && last.entityId === entityId && Date.now() - last.at < ZOOM_MEMORY_MS;
+    const value = zoomStepValue(fresh ? last.value : st.state, st.attributes, role);
+    if (value == null) return;
+    this._zoomSent = { entityId, value, at: Date.now() };
+    this._hass.callService("number", "set_value", { entity_id: entityId, value }).catch((err) => {
+      this._zoomSent = null;
+      this._setStatus((err && err.message) || "Could not zoom the camera.", "error");
+    });
   }
 
   _selectPreset(option) {
@@ -3968,6 +4193,19 @@ const EDITOR_SCHEMA = [
       { name: "show_level", selector: { boolean: {} } },
     ],
   },
+  { name: "start_camera", selector: { text: {} } },
+  {
+    name: "layout",
+    selector: {
+      select: {
+        mode: "dropdown",
+        options: [
+          { value: "card", label: "Card" },
+          { value: "fullscreen", label: "Fill the screen" },
+        ],
+      },
+    },
+  },
 ];
 
 const EDITOR_LABELS = {
@@ -3984,17 +4222,21 @@ const EDITOR_LABELS = {
   duplex: "While talking",
   talk_auto_listen: "Listen when you talk",
   show_level: "Microphone level",
+  start_camera: "Starting camera",
+  layout: "Layout",
 };
 
 const EDITOR_HELPERS = {
   camera_entity: "Leave empty to use the camera that belongs to this speaker.",
   ptz: "Shown when this camera can pan. Presets, if the camera has any, are a header button.",
   talk_auto_listen: "Turn on Listen as well.",
+  start_camera: "Entity id or short name. Used when the URL has no camera parameter.",
+  layout: "Fill the screen for a panel or a subview.",
 };
 
 class AdvancedReolinkCardEditor extends HTMLElement {
   setConfig(config) {
-    this._config = { mode: "hold", show_level: true, video: false, ptz: false, listen: false, talk: true, duplex: "half", volume: 80, talk_auto_listen: false, ...config };
+    this._config = { mode: "hold", show_level: true, video: false, ptz: false, listen: false, talk: true, duplex: "half", volume: 80, talk_auto_listen: false, layout: "card", ...config };
     this._render();
   }
 
@@ -4018,6 +4260,13 @@ class AdvancedReolinkCardEditor extends HTMLElement {
     }
     const hideEl = this.querySelector('input[name="hide_grid_warning"]');
     next.hide_grid_warning = !!(hideEl && hideEl.checked);
+    const startEl = this.querySelector('input[name="start_camera"]');
+    const start = startEl ? String(startEl.value).trim() : "";
+    if (start) next.start_camera = start;
+    else delete next.start_camera;
+    const layoutEl = this.querySelector('select[name="layout"]');
+    if (layoutEl && layoutEl.value === "fullscreen") next.layout = "fullscreen";
+    else delete next.layout;
     this._config = next;
     this.dispatchEvent(
       new CustomEvent("config-changed", { detail: { config: next }, bubbles: true, composed: true })
@@ -4034,6 +4283,11 @@ class AdvancedReolinkCardEditor extends HTMLElement {
           ? ""
           : this._config.grid_columns;
       const hide = this._config.hide_grid_warning === true;
+      const start =
+        this._config.start_camera == null || this._config.start_camera === ""
+          ? ""
+          : this._config.start_camera;
+      const layout = this._config.layout === "fullscreen" ? "fullscreen" : "card";
       this.innerHTML = `
         <style>
           .multicam-note { font-size: 0.95em; line-height: 1.45; color: var(--primary-text-color); }
@@ -4042,10 +4296,10 @@ class AdvancedReolinkCardEditor extends HTMLElement {
           .layout-fields { display: grid; gap: 12px; margin-top: 14px; }
           .layout-fields label { display: flex; flex-direction: column; gap: 4px; font-size: 0.95em; }
           .layout-fields label.row { flex-direction: row; align-items: center; gap: 8px; }
-          .layout-fields select, .layout-fields input[type="number"] { font: inherit; padding: 6px 8px; max-width: 16em; }
+          .layout-fields select, .layout-fields input[type="number"], .layout-fields input[type="text"] { font: inherit; padding: 6px 8px; max-width: 16em; }
           .grid-warn { margin: 0; font-size: 0.9em; line-height: 1.45; color: var(--secondary-text-color); }
         </style>
-        <p class="multicam-note">This card uses a <code>cameras</code> list. Edit the cameras in YAML. You can change the view, the columns, and the warning here.</p>
+        <p class="multicam-note">This card uses a <code>cameras</code> list. Edit the cameras in YAML. You can change the view, the columns, the starting camera, the layout, and the warning here.</p>
         <ul class="multicam-list"></ul>
         <div class="layout-fields">
           <label>View
@@ -4058,6 +4312,16 @@ class AdvancedReolinkCardEditor extends HTMLElement {
             <input name="grid_columns" type="number" min="1" max="6" step="1" value="${_esc(cols)}" aria-describedby="cols-hint">
           </label>
           <p id="cols-hint" class="grid-warn">Leave empty to fit the width. Use 1 to 6.</p>
+          <label>Starting camera
+            <input name="start_camera" type="text" value="${_esc(start)}" aria-describedby="start-hint">
+          </label>
+          <p id="start-hint" class="grid-warn">Entity id or short name. Used when the URL has no camera parameter.</p>
+          <label>Layout
+            <select name="layout">
+              <option value="card"${layout === "card" ? " selected" : ""}>Card</option>
+              <option value="fullscreen"${layout === "fullscreen" ? " selected" : ""}>Fill the screen</option>
+            </select>
+          </label>
           <label class="row"><input name="hide_grid_warning" type="checkbox"${hide ? " checked" : ""}> Hide the warning</label>
           ${view === "grid" ? `<p class="grid-warn">${_esc(GRID_WARN_TEXT)}</p>` : ""}
         </div>
@@ -4073,6 +4337,8 @@ class AdvancedReolinkCardEditor extends HTMLElement {
         this._render();
       });
       this.querySelector('input[name="grid_columns"]').addEventListener("change", () => this._commitMultiLayout());
+      this.querySelector('input[name="start_camera"]').addEventListener("change", () => this._commitMultiLayout());
+      this.querySelector('select[name="layout"]').addEventListener("change", () => this._commitMultiLayout());
       this.querySelector('input[name="hide_grid_warning"]').addEventListener("change", () => this._commitMultiLayout());
       return;
     }
@@ -4084,6 +4350,7 @@ class AdvancedReolinkCardEditor extends HTMLElement {
       this._form.addEventListener("value-changed", (ev) => {
         const config = { ...ev.detail.value };
         for (const key of Object.keys(config)) if (config[key] === "" || config[key] === undefined) delete config[key];
+        if (config.layout === "card") delete config.layout;
         this._config = config;
         this.dispatchEvent(new CustomEvent("config-changed", { detail: { config }, bubbles: true, composed: true }));
       });

@@ -156,8 +156,8 @@ username, address and device IDs removed.
 
 Add the card from the card picker (**Advanced Reolink Card**) or in YAML. The
 visual editor covers a single camera. For several cameras, write the `cameras`
-list in YAML; the editor then lets you set the view, the grid columns and the
-grid warning.
+list in YAML; the editor then lets you set the view, the grid columns, the
+starting camera, the layout and the grid warning.
 
 ### Card options
 
@@ -179,8 +179,10 @@ grid warning.
 | `mode` | string | `hold` | Talk button: `hold` to talk, or `toggle` to tap on and off. |
 | `show_level` | boolean | `true` | Microphone level bar under the talk button. |
 | `cameras` | list | none | Several cameras on one card. Each entry takes the per camera keys above (`entity` to `show_level`). Top level values are the defaults, and each entry can override them. |
-| `default_camera` | number or string | `0` | Starting tab: an index, or a camera's `name`, `entity` or `camera_entity`. |
+| `default_camera` | number or string | `0` | Starting tab: an index, or a camera's `name`, `entity` or `camera_entity`. Kept for older configs; prefer `start_camera`. |
+| `start_camera` | string | none | Camera shown first when the URL has no `camera` parameter. An entity id, a short name such as `front_yard`, or the camera's `name`. |
 | `view` | string | `tabs` | `tabs` or `grid`. Needs two or more cameras. The button on the card can switch while it is open. |
+| `layout` | string | `card` | `card` (the usual dashboard card) or `fullscreen` (fills the view, for a panel or a subview). |
 | `grid_columns` | number | auto | Fixed grid columns, 1 to 6. Leave it out and the grid fits the width. |
 | `hide_grid_warning` | boolean | `false` | Never show the bandwidth warning in the grid. |
 
@@ -249,6 +251,58 @@ cameras:
     talk: false
 ```
 
+### Open a camera from a notification
+
+Put `?camera=` on the dashboard URL. The card reads it on load, switches to that
+camera, then removes only that parameter so the rest of the address stays as it
+was. Use a full entity id (`camera.front_yard_fluent`) or a short name
+(`front_yard`). The match is case-insensitive and also uses the camera's name
+on the card. Unknown values are ignored.
+
+On the companion app, set both `url` and `clickAction`:
+
+```yaml
+action: notify.mobile_app_phone
+data:
+  title: Motion at the front yard
+  message: Open the live view.
+  data:
+    url: /lovelace/cameras/live?camera=camera.front_yard_fluent
+    clickAction: /lovelace/cameras/live?camera=camera.front_yard_fluent
+```
+
+A hidden subview with `layout: fullscreen` fills a phone screen and keeps the
+tabs, pan, tilt and zoom, presets, Guard, Patrol, Listen and talk:
+
+```yaml
+views:
+  - title: Live
+    path: live
+    type: panel
+    subview: true
+    back_path: /lovelace/cameras
+    cards:
+      - type: custom:advanced-reolink-card
+        layout: fullscreen
+        start_camera: front_yard
+        video: true
+        ptz: true
+        listen: true
+        talk: true
+        cameras:
+          - entity: media_player.front_yard_speaker
+            camera_entity: camera.front_yard_fluent
+            name: Front Yard
+          - entity: media_player.front_door_speaker
+            name: Front Door
+            ptz: false
+```
+
+`start_camera` is the camera shown first when the URL has no `camera`
+parameter. `layout: fullscreen` uses the full view height (with a `100vh`
+fallback), respects the phone safe area, and drops the card's rounded corners
+and shadow. The default `card` layout is unchanged.
+
 ### How the card behaves
 
 - **Nothing starts on its own.** Live view and listening start when you tap, and
@@ -263,8 +317,11 @@ cameras:
 - **Camera matching.** The card finds the Reolink camera, pan buttons, preset list
   and battery sensors that belong to the speaker. It prefers the Fluent stream.
   Set `camera_entity` to pick another stream.
-- **Zoom** needs the *PTZ zoom in* and *PTZ zoom out* buttons enabled in the
-  Reolink integration. They are off by default.
+- **Zoom** uses the Reolink *Zoom* number entity, which a TrackMix has. Each
+  press moves the zoom one tenth of its range, and holding keeps zooming. On a
+  TrackMix this zooms the telephoto lens, so watch the telephoto stream to see
+  it. Cameras that have the *PTZ zoom in* and *PTZ zoom out* buttons enabled use
+  those instead. Zoom is hidden on cameras with neither.
 - **Battery cameras** show a battery badge and *Waking the camera* while they wake
   (about 5 to 20 seconds).
 
@@ -407,7 +464,7 @@ optional `volume` from 0 to 200 percent. `say` also takes `voice`.
 | *Failed to connect* during setup | The address and port are right and the Baichuan port is turned on in the device's network settings. |
 | *Invalid authentication* | The Reolink username and password. After a password change, use **Reconfigure**. |
 | *No camera found for live view* | Set up Home Assistant's Reolink integration for the same device and keep its Fluent camera entity enabled, or set `camera_entity`. |
-| No pan and tilt pad | The Reolink *PTZ left, right, up, down and stop* buttons must be enabled for that camera. Zoom also needs *PTZ zoom in* and *PTZ zoom out*. |
+| No pan and tilt pad | The Reolink *PTZ left, right, up, down and stop* buttons must be enabled for that camera. Zoom also needs the *Zoom* number, or *PTZ zoom in* and *PTZ zoom out*. |
 | No Patrol or Guard button | They show only for administrators, on cameras that can pan, and not in the grid. |
 | No Presets button | The camera needs at least one preset, and pan and tilt must be on. It is hidden in the grid. The names come from the camera's preset list in Home Assistant. |
 | Talk button says it needs a secure page | Open Home Assistant over HTTPS or use the companion app. |

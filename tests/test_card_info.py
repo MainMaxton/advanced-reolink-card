@@ -113,6 +113,24 @@ def test_classify_zoom_enabled() -> None:
     assert info["ptz"]["disabled_entities"] == []
 
 
+def test_classify_zoom_number() -> None:
+    """TrackMix on current core: no zoom buttons, only the absolute zoom number."""
+    ents = [e for e in _trackmix_entities() if "zoom" not in e.unique_id]
+    info = classify_entities([*ents, _ent("number", "zoom")]).as_dict()
+    assert info["ptz"]["zoom"] is True
+    assert info["ptz"]["zoom_entity"] == "number.cam_zoom"
+    assert "zoom_in" not in info["ptz"]["entities"]
+
+    off = classify_entities([*ents, _ent("number", "zoom", disabled=True)]).as_dict()
+    assert off["ptz"]["zoom"] is False
+    assert off["ptz"]["zoom_entity"] is None
+    assert off["ptz"]["disabled_entities"] == ["number.cam_zoom"]
+
+    plain = classify_entities(ents).as_dict()
+    assert plain["ptz"]["zoom"] is False
+    assert plain["ptz"]["zoom_entity"] is None
+
+
 def test_classify_fixed_camera_and_doorbell() -> None:
     fixed = classify_entities([_ent("camera", "sub"), _ent("button", "guard_go_to")]).as_dict()
     assert fixed["ptz"]["supported"] is False

@@ -25,12 +25,16 @@ this.normalizeCardConfig = normalizeCardConfig;
 this.resolveCameraIndex = resolveCameraIndex;
 this.mergeCameraEntry = mergeCameraEntry;
 this.CARD_DEFAULTS = CARD_DEFAULTS;
-this.CAMERA_OPTION_KEYS = CAMERA_OPTION_KEYS;`,
+this.CAMERA_OPTION_KEYS = CAMERA_OPTION_KEYS;
+this.parseCameraParam = parseCameraParam;
+this.matchCameraIndex = matchCameraIndex;
+this.stripCameraParam = stripCameraParam;
+this.zoomStepValue = zoomStepValue;`,
   context,
   { filename: "card-config.js" }
 );
 
-const { normalizeCardConfig, resolveCameraIndex, CAMERA_OPTION_KEYS } = context;
+const { normalizeCardConfig, resolveCameraIndex, CAMERA_OPTION_KEYS, parseCameraParam, matchCameraIndex, stripCameraParam, zoomStepValue } = context;
 
 let failed = 0;
 function assert(cond, msg) {
@@ -173,9 +177,11 @@ assert(one.multi === false, "one-item cameras list is not multi (no tab bar)");
 
 const layoutDefault = normalizeCardConfig({ entity: "media_player.a" });
 equal(layoutDefault.view, "tabs", "view defaults to tabs");
+equal(layoutDefault.layout, "card", "layout defaults to card");
 equal(layoutDefault.grid_columns, null, "grid_columns defaults to null");
 equal(layoutDefault.hide_grid_warning, false, "hide_grid_warning defaults to false");
 assert(layoutDefault.multi === false, "layout defaults stay single-camera");
+assert(layoutDefault.start_camera === undefined, "start_camera is omitted when unset");
 
 const gridView = normalizeCardConfig({
   view: "grid",
@@ -196,6 +202,11 @@ throws(
   () => normalizeCardConfig({ entity: "media_player.a", view: "mosaic" }),
   /'view' must be 'tabs' or 'grid'/,
   "invalid view"
+);
+throws(
+  () => normalizeCardConfig({ entity: "media_player.a", layout: "wide" }),
+  /'layout' must be 'card' or 'fullscreen'/,
+  "invalid layout"
 );
 throws(
   () => normalizeCardConfig({ entity: "media_player.a", grid_columns: 0 }),
@@ -263,6 +274,70 @@ assert(resolveCameraIndex(multi.cameras, 99, 0) === 0, "out-of-range index falls
 assert(resolveCameraIndex(multi.cameras, undefined, 2) === 2, "undefined default uses fallback");
 assert(resolveCameraIndex(multi.cameras, "", 1) === 1, "empty default uses fallback");
 
+const fullLayout = normalizeCardConfig({ entity: "media_player.a", layout: "fullscreen" });
+equal(fullLayout.layout, "fullscreen", "layout fullscreen is passed through");
+equal(fullLayout.view, "tabs", "fullscreen keeps the default view");
+
+const started = normalizeCardConfig({
+  start_camera: "garage",
+  default_camera: "Front yard",
+  cameras: [
+    { entity: "media_player.front_yard_speaker", camera_entity: "camera.front_yard_fluent", name: "Front yard" },
+    { entity: "media_player.garage_speaker", camera_entity: "camera.garage_fluent", name: "Garage" },
+  ],
+});
+equal(started.start_camera, "garage", "start_camera passed through");
+equal(started.default_camera, "Front yard", "default_camera still passed through");
+assert(resolveCameraIndex(started.cameras, started.start_camera, 0) === 1, "start_camera matches by short name");
+assert(resolveCameraIndex(started.cameras, started.default_camera, 0) === 0, "default_camera still matches by name");
+assert(resolveCameraIndex(started.cameras, "front_yard", 1) === 0, "short name front_yard matches fluent camera");
+
+const linkCams = started.cameras;
+assert(matchCameraIndex(linkCams, "camera.front_yard_fluent") === 0, "match full camera entity id");
+assert(matchCameraIndex(linkCams, "CAMERA.FRONT_YARD_FLUENT") === 0, "match entity id is case-insensitive");
+assert(matchCameraIndex(linkCams, "media_player.garage_speaker") === 1, "match speaker entity id");
+assert(matchCameraIndex(linkCams, "front_yard") === 0, "match short name");
+assert(matchCameraIndex(linkCams, "Front_Yard") === 0, "match short name is case-insensitive");
+assert(matchCameraIndex(linkCams, "front_yard_fluent") === 0, "match object id without domain");
+assert(matchCameraIndex(linkCams, "Front yard") === 0, "match configured name");
+assert(matchCameraIndex(linkCams, "GARAGE") === 1, "match tab title is case-insensitive");
+assert(matchCameraIndex(linkCams, "missing") == null, "unknown camera is ignored");
+assert(matchCameraIndex(linkCams, "camera.backyard_fluent") == null, "unknown entity id is ignored");
+assert(matchCameraIndex(linkCams, "") == null, "empty match value is ignored");
+assert(matchCameraIndex(linkCams, null) == null, "null match value is ignored");
+
+equal(parseCameraParam("?camera=camera.front_yard_fluent"), "camera.front_yard_fluent", "parse entity id param");
+equal(parseCameraParam("?foo=1&camera=front_yard&bar=2"), "front_yard", "parse short name among other params");
+equal(parseCameraParam("camera=Front+Yard"), "Front Yard", "parse plus-encoded name");
+equal(parseCameraParam("/lovelace/cameras/live?camera=Garage#wide"), "Garage", "parse from a path and hash");
+equal(parseCameraParam("?kiosk=1"), null, "missing camera param");
+equal(parseCameraParam(""), null, "empty search");
+equal(parseCameraParam("?camera="), null, "empty camera param");
+equal(parseCameraParam("?CAMERA=front_yard"), null, "camera key is lowercase");
+
+equal(stripCameraParam("/lovelace/cameras/live?camera=front_yard"), "/lovelace/cameras/live", "strip lone camera param");
+equal(
+  stripCameraParam("/lovelace/cameras/live?kiosk=1&camera=front_yard&foo=bar#wide"),
+  "/lovelace/cameras/live?kiosk=1&foo=bar#wide",
+  "strip keeps other params and hash"
+);
+equal(
+  stripCameraParam("/lovelace/cameras/live?kiosk=1#wide"),
+  "/lovelace/cameras/live?kiosk=1#wide",
+  "strip leaves a URL with no camera param"
+);
+equal(stripCameraParam("/lovelace/cameras/live?camera=front_yard#panel"), "/lovelace/cameras/live#panel", "strip keeps hash after a lone camera param");
+
+const zoomAttrs = { min: 1000, max: 6000, step: 1 };
+equal(zoomStepValue("1000", zoomAttrs, "zoom_in"), 1500, "zoom in steps a tenth of the range");
+equal(zoomStepValue(3000, zoomAttrs, "zoom_out"), 2500, "zoom out steps down");
+equal(zoomStepValue(5800, zoomAttrs, "zoom_in"), 6000, "zoom in stops at max");
+equal(zoomStepValue(6000, zoomAttrs, "zoom_in"), null, "zoom in at max does nothing");
+equal(zoomStepValue(1000, zoomAttrs, "zoom_out"), null, "zoom out at min does nothing");
+equal(zoomStepValue("unavailable", zoomAttrs, "zoom_in"), null, "unavailable zoom does nothing");
+equal(zoomStepValue(0, { min: 0, max: 4, step: 1 }, "zoom_in"), 1, "small ranges still move one step");
+equal(zoomStepValue(0, {}, "zoom_in"), null, "zoom without a range does nothing");
+
 const keys = [
   "entity",
   "camera_entity",
@@ -292,6 +367,46 @@ assert(selectBody.includes("_startVideo()"), "camera switch can restart live vie
 assert(!selectBody.includes("_startListen"), "camera switch does not start listen");
 assert(selectBody.includes("_lockCardHeight(true)"), "camera switch locks height during the swap");
 assert(selectBody.includes("_queueSettleCardHeight()"), "camera switch then settles to the new camera");
+
+assert(src.includes('const CARD_VERSION = "0.5.7"'), "CARD_VERSION is 0.5.7");
+assert(src.includes('layout: "fullscreen"') || src.includes('layout === "fullscreen"'), "fullscreen layout is supported");
+assert(src.includes("100dvh"), "fullscreen uses 100dvh");
+assert(src.includes("100vh"), "fullscreen falls back to 100vh");
+assert(src.includes("safe-area-inset-"), "fullscreen respects safe areas");
+assert(src.includes('data-layout="fullscreen"'), "fullscreen is a host attribute");
+assert(src.includes("Starting camera"), "editor labels start_camera in plain English");
+assert(src.includes("Fill the screen"), "editor labels fullscreen in plain English");
+assert(methodSource("_applyCameraLink").includes("_selectCamera"), "a camera deep link uses _selectCamera");
+assert(!/focusTab|slide/.test(methodSource("_applyCameraLink")), "a camera deep link does not focus the tab or slide");
+assert(!methodSource("_scrollActiveTab").includes("scrollIntoView"), "tab row scrolls without moving the page");
+assert(methodSource("_applyCameraLink").includes("_stripCameraLink"), "a matching deep link cleans the URL");
+assert(methodSource("_stripCameraLink").includes("replaceState"), "URL cleanup uses replaceState");
+assert(methodSource("_stripCameraLink").includes("history.state"), "URL cleanup keeps history.state");
+assert(methodSource("connectedCallback").includes("location-changed"), "load watches location-changed");
+assert(methodSource("connectedCallback").includes("popstate"), "load watches popstate");
+assert(methodSource("connectedCallback").includes("_applyCameraLink"), "connectedCallback reads the camera param");
+assert(methodSource("disconnectedCallback").includes('removeEventListener("location-changed"'), "disconnect drops location-changed");
+assert(methodSource("disconnectedCallback").includes('removeEventListener("popstate"'), "disconnect drops popstate");
+assert(methodSource("set hass").includes("_applyCameraLink"), "first hass set reads the camera param");
+assert(
+  /:host\(\[data-layout="fullscreen"\]\) \.video \{[^}]*flex: 1 1 auto/.test(src),
+  "fullscreen video fills the remaining space"
+);
+assert(
+  /:host\(\[data-layout="fullscreen"\]\) ha-card \{[^}]*border-radius: 0/.test(src),
+  "fullscreen drops card border radius"
+);
+assert(
+  /:host\(\[data-layout="fullscreen"\]\) ha-card \{[^}]*box-shadow: none/.test(src),
+  "fullscreen drops card shadow"
+);
+
+const ptzStartSrc = methodSource("_ptzStart");
+assert(ptzStartSrc.includes("zoom_entity"), "zoom falls back to the zoom number when there are no zoom buttons");
+assert(ptzStartSrc.indexOf("entities?.[role]") < ptzStartSrc.indexOf("zoom_entity"), "zoom buttons win over the zoom number");
+assert(methodSource("_zoomStep").includes('"number", "set_value"'), "zoom number is stepped with number.set_value");
+assert(methodSource("_ptzStop").includes("clearInterval(this._zoomTimer)"), "releasing zoom stops the repeat");
+assert(!methodSource("_render").includes("_isFullscreen"), "fullscreen renders the same controls as the card layout");
 
 function methodSource(name) {
   const re = new RegExp(`  (?:async )?${name}\\([^)]*\\) \\{`);
