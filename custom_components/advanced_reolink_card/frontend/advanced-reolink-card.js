@@ -4228,7 +4228,7 @@ const EDITOR_LABELS = {
 
 const EDITOR_HELPERS = {
   camera_entity: "Leave empty to use the camera that belongs to this speaker.",
-  ptz: "Shown when this camera can pan. Presets, if the camera has any, are a header button.",
+  ptz: "Shown when this camera can pan. Zoom joins it when the camera can zoom. Presets, if the camera has any, are a header button.",
   talk_auto_listen: "Turn on Listen as well.",
   start_camera: "Entity id or short name. Used when the URL has no camera parameter.",
   layout: "Fill the screen for a panel or a subview.",

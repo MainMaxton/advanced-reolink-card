@@ -27,8 +27,8 @@ Advanced Reolink Card is two things in one install:
   own Baichuan protocol. It gives each camera a speaker you can use from
   automations, and it powers live talk and patrol.
 - **A Lovelace card**, `custom:advanced-reolink-card`, that puts every camera on
-  one card: tabs to switch cameras, live view, a pan and tilt pad, presets,
-  listen, hold to talk, and a guided patrol setup.
+  one card: tabs to switch cameras, live view, a pan and tilt pad, zoom, presets,
+  listen, hold to talk, a fullscreen layout, and a guided patrol setup.
 
 The card is served by the integration and loads on every dashboard by itself.
 There is nothing extra to add as a resource.
@@ -47,11 +47,18 @@ Not affiliated with or endorsed by Reolink.
 - **Optional grid.** A button next to the tabs shows every camera at once. The
   first time, the card warns that streaming every camera uses more network and
   processor time. Tap a tile to go back to that camera.
+- **Fullscreen live layout.** `layout: fullscreen` fills a phone screen with the
+  live view and keeps every control. Good for a hidden Live view that a
+  notification opens.
+- **Open a camera from a link.** Add `?camera=front_yard` to the dashboard
+  address and the card switches to that camera.
 
 **Controls**
 
-- **Pan, tilt and zoom** for cameras that can move, such as the TrackMix. Press and
+- **Pan and tilt** for cameras that can move, such as the TrackMix. Press and
   hold to move, release to stop.
+- **Zoom** buttons on cameras that can zoom in Home Assistant. Tap to zoom one
+  step, hold to keep zooming. Cameras that cannot zoom do not show them.
 - **Presets** in the card header, next to Guard and Patrol, on a camera that has
   them. The marker button opens a menu of preset names. The list is read from
   Home Assistant and updates as soon as its preset list changes. The Reolink
@@ -170,7 +177,7 @@ starting camera, the layout and the grid warning.
 | `name` | string | camera name | Card title, and the tab label in a `cameras` list. |
 | `icon` | string | `mdi:cctv` | Header and tab icon. A talk only card uses `mdi:microphone`. |
 | `video` | boolean | `false` | Live view. |
-| `ptz` | boolean | `false` | Pan and tilt pad and zoom. Shown only when the camera can pan. |
+| `ptz` | boolean | `false` | Pan and tilt pad. Shown only when the camera can pan. Zoom buttons join it when the camera can zoom. |
 | `listen` | boolean | `false` | Listen button and volume slider. |
 | `talk` | boolean | `true` | Talk button. Set `false` for a view only camera. |
 | `talk_auto_listen` | boolean | `false` | Pressing talk also turns on Listen. |
@@ -179,10 +186,10 @@ starting camera, the layout and the grid warning.
 | `mode` | string | `hold` | Talk button: `hold` to talk, or `toggle` to tap on and off. |
 | `show_level` | boolean | `true` | Microphone level bar under the talk button. |
 | `cameras` | list | none | Several cameras on one card. Each entry takes the per camera keys above (`entity` to `show_level`). Top level values are the defaults, and each entry can override them. |
-| `default_camera` | number or string | `0` | Starting tab: an index, or a camera's `name`, `entity` or `camera_entity`. Kept for older configs; prefer `start_camera`. |
-| `start_camera` | string | none | Camera shown first when the URL has no `camera` parameter. An entity id, a short name such as `front_yard`, or the camera's `name`. |
+| `start_camera` | string | none | Camera shown first when the address has no `?camera=`. An entity id, a short name such as `front_yard`, the camera's `name`, or a 0 based index. |
+| `default_camera` | number or string | `0` | The older name for `start_camera`. It still works and takes the same values. `start_camera` wins when both are set. |
 | `view` | string | `tabs` | `tabs` or `grid`. Needs two or more cameras. The button on the card can switch while it is open. |
-| `layout` | string | `card` | `card` (the usual dashboard card) or `fullscreen` (fills the view, for a panel or a subview). |
+| `layout` | string | `card` | `card` for the usual dashboard card, or `fullscreen` to fill the view. See [Fullscreen live layout](#fullscreen-live-layout). |
 | `grid_columns` | number | auto | Fixed grid columns, 1 to 6. Leave it out and the grid fits the width. |
 | `hide_grid_warning` | boolean | `false` | Never show the bandwidth warning in the grid. |
 
@@ -216,7 +223,7 @@ ptz: true
 listen: true
 talk: true
 volume: 80
-default_camera: Front Yard
+start_camera: front_yard
 cameras:
   - entity: media_player.front_yard_speaker
     camera_entity: camera.front_yard_fluent
@@ -251,31 +258,60 @@ cameras:
     talk: false
 ```
 
+### Fullscreen live layout
+
+`layout: fullscreen` turns the card into a full screen live view, made for a
+panel view or a hidden subview on a phone.
+
+- The card fills the height of the view below the Home Assistant header and
+  keeps clear of the phone's notch and home bar (safe areas).
+- It has no rounded corners, border or shadow.
+- The video takes all the space the controls do not need.
+- Tabs, pan and tilt, zoom, presets, Guard, Patrol, Listen and hold to talk all
+  stay, and work the same as on the normal card. Only the layout changes.
+- On iPhone, tap Listen to allow sound. If the button says *Tap to hear*, tap it
+  again. Volume follows the phone buttons there.
+- If the controls do not fit, for example on a phone turned sideways, the card
+  scrolls. The video always keeps at least 40% of the card's height.
+
+The default is `layout: card`, the usual dashboard card. Both are in the card
+editor under **Layout** (**Card** or **Fill the screen**).
+
 ### Open a camera from a notification
 
-Put `?camera=` on the dashboard URL. The card reads it on load, switches to that
-camera, then removes only that parameter so the rest of the address stays as it
-was. Use a full entity id (`camera.front_yard_fluent`) or a short name
-(`front_yard`). The match is case-insensitive and also uses the camera's name
-on the card. Unknown values are ignored.
+Add `?camera=` to a dashboard address to open the card on that camera, for
+example `/lovelace/live?camera=camera.front_yard_fluent`.
 
-On the companion app, set both `url` and `clickAction`:
+- The card reads it when the page loads and each time you move to another page
+  in Home Assistant, including the browser back and forward buttons.
+- The value can be a full entity id (`camera.front_yard_fluent` or the speaker
+  `media_player.front_yard_speaker`), a short name (`front_yard`), the camera's
+  `name`, or the tab title. Case does not matter. The short name is the entity id
+  without the domain and without endings such as `_fluent`, `_clear`, `_main`,
+  `_sub`, `_snapshots` or `_speaker`.
+- When it matches a camera on the card, the card switches to that tab the same
+  way a tap does. The page does not jump or scroll.
+- It then removes only `camera` from the address. The rest of the address,
+  including other parameters, stays as it was.
+- A value that matches no camera is ignored and stays in the address.
+- With more than one card on the page, every card that has that camera can
+  switch to it.
 
-```yaml
-action: notify.mobile_app_phone
-data:
-  title: Motion at the front yard
-  message: Open the live view.
-  data:
-    url: /lovelace/cameras/live?camera=camera.front_yard_fluent
-    clickAction: /lovelace/cameras/live?camera=camera.front_yard_fluent
-```
+`start_camera` picks the camera shown first when the address has no
+`camera` value. It takes an entity id or a short name, the camera's `name`, or a
+0 based index. `default_camera` from older configs still works; when both are
+set, `start_camera` wins.
 
-A hidden subview with `layout: fullscreen` fills a phone screen and keeps the
-tabs, pan, tilt and zoom, presets, Guard, Patrol, Listen and talk:
+**1. Add a hidden Live view.** In the dashboard's raw configuration editor, add
+a subview with the card in `layout: fullscreen`. A subview is not shown in the
+dashboard's tab bar.
 
 ```yaml
 views:
+  - title: Cameras
+    path: cameras
+    cards:
+      # your usual cards
   - title: Live
     path: live
     type: panel
@@ -298,10 +334,51 @@ views:
             ptz: false
 ```
 
-`start_camera` is the camera shown first when the URL has no `camera`
-parameter. `layout: fullscreen` uses the full view height (with a `100vh`
-fallback), respects the phone safe area, and drops the card's rounded corners
-and shadow. The default `card` layout is unchanged.
+This example uses the default dashboard, so the view opens at `/lovelace/live`.
+On another dashboard, use its address, such as `/dashboard-cameras/live`.
+
+**2. Send a notification that opens it.** The companion app opens `url` on
+iPhone and `clickAction` on Android, so set both. The **Live view** action
+button opens the same page.
+
+```yaml
+alias: Camera alert
+triggers:
+  - trigger: state
+    entity_id:
+      - binary_sensor.front_yard_person
+      - binary_sensor.front_door_person
+    to: "on"
+variables:
+  cam: >-
+    {{ device_entities(device_id(trigger.entity_id))
+       | select('match', 'camera\\.') | first }}
+  live: "/lovelace/live?camera={{ cam }}"
+actions:
+  - action: notify.mobile_app_phone
+    data:
+      title: "Motion: {{ device_attr(device_id(trigger.entity_id), 'name') }}"
+      message: Tap to open the live view.
+      data:
+        url: "{{ live }}"
+        clickAction: "{{ live }}"
+        actions:
+          - action: URI
+            title: Live view
+            uri: "{{ live }}"
+```
+
+The `cam` template finds the first camera entity on the same device as the
+sensor that fired. The card matches it by short name, so a camera such as
+`camera.front_yard_clear` still opens the Front Yard tab. A TrackMix also has a
+telephoto camera (`camera.front_yard_telephoto_fluent`); if that comes first and
+is not on the card, the card stays on its first camera.
+
+**Getting back.** The Live view has a back arrow in the top left corner. It goes
+to `back_path`, on iPhone and on Android. On Android the system back gesture
+goes back through the app's own history instead; when the notification opened
+the app straight on the Live view, there may be nothing to go back to, so use
+the arrow.
 
 ### How the card behaves
 
@@ -317,11 +394,16 @@ and shadow. The default `card` layout is unchanged.
 - **Camera matching.** The card finds the Reolink camera, pan buttons, preset list
   and battery sensors that belong to the speaker. It prefers the Fluent stream.
   Set `camera_entity` to pick another stream.
-- **Zoom** uses the Reolink *Zoom* number entity, which a TrackMix has. Each
-  press moves the zoom one tenth of its range, and holding keeps zooming. On a
-  TrackMix this zooms the telephoto lens, so watch the telephoto stream to see
-  it. Cameras that have the *PTZ zoom in* and *PTZ zoom out* buttons enabled use
-  those instead. Zoom is hidden on cameras with neither.
+- **Zoom** shows under the pad only when the Reolink integration gives the
+  camera a way to zoom: the *Zoom* slider (a `number` entity, which a TrackMix
+  has) or the *PTZ zoom in* and *PTZ zoom out* buttons. Otherwise the zoom
+  buttons are hidden. With the slider, a tap moves the zoom one tenth of its
+  range and holding repeats about twice a second until you let go or it reaches
+  the end. With the buttons, the camera zooms while you hold. If the zoom entity
+  is turned off in Home Assistant, the card says so. On a TrackMix, zoom moves
+  the telephoto lens only. The wide view does not change, so open the telephoto
+  camera to see it. The patrol wizard pad shows zoom on the same cameras; there
+  the camera zooms while you hold.
 - **Battery cameras** show a battery badge and *Waking the camera* while they wake
   (about 5 to 20 seconds).
 

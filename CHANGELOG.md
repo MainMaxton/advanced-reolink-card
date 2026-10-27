@@ -3,19 +3,29 @@
 ## 0.5.7 (2026-10-28)
 
 ### Added
-- Open a camera from a notification with `?camera=` on the dashboard URL. The
-  card switches to that camera and then drops the parameter from the address.
-  Full entity ids, short names, and the camera name all work.
-- `start_camera` picks the camera shown first when the URL has no `camera`
-  parameter. `default_camera` still works.
-- `layout: fullscreen` fills the view for a panel or a hidden subview. Tabs,
-  pan and tilt, zoom, presets, Guard, Patrol, Listen and talk stay on the card.
+- Open a camera from a link with `?camera=` on the dashboard address. The card
+  reads it on load and on every page change, switches to the matching tab
+  without a page jump, then removes only that value from the address. It
+  accepts an entity id, a short name such as `front_yard`, the camera's `name`
+  or the tab title, in any case. Values that match no camera are ignored.
+- `start_camera` picks the camera shown first when the address has no
+  `?camera=`. It takes an entity id, a short name, the camera's `name` or an
+  index. `default_camera` still works, and `start_camera` wins when both are set.
+- `layout: fullscreen` fills the view for a panel or a hidden subview on a
+  phone. Tabs, pan and tilt, zoom, presets, Guard, Patrol, Listen and hold to
+  talk all stay. The card scrolls when the controls do not fit, for example on a
+  phone turned sideways.
+- The card editor has **Starting camera** and **Layout**.
+- README: setting up a hidden Live view and a notification that opens it.
 
 ### Fixed
-- Zoom works on cameras such as the TrackMix. Current Reolink releases do not
-  create zoom buttons for them, so the zoom pad was hidden. The card now steps
-  the camera's *Zoom* number entity and shows zoom only where one of the two
-  exists.
+- Zoom works on cameras such as the TrackMix. Current Reolink releases give
+  them a *Zoom* slider (a `number` entity) instead of zoom buttons, so the zoom
+  buttons never showed. The card now steps that slider: tap for one step, hold
+  to repeat. Cameras with the zoom buttons still use them, and cameras with
+  neither do not show zoom. On a TrackMix, zoom moves the telephoto lens only.
+- Switching tabs no longer scrolls the page to bring the tab into view. Only the
+  tab row scrolls.
 
 ## 0.5.6 (2026-10-25)
 
