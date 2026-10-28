@@ -29,12 +29,13 @@ this.CAMERA_OPTION_KEYS = CAMERA_OPTION_KEYS;
 this.parseCameraParam = parseCameraParam;
 this.matchCameraIndex = matchCameraIndex;
 this.stripCameraParam = stripCameraParam;
-this.zoomStepValue = zoomStepValue;`,
+this.zoomStepValue = zoomStepValue;
+this.nextLensAfterZoom = nextLensAfterZoom;`,
   context,
   { filename: "card-config.js" }
 );
 
-const { normalizeCardConfig, resolveCameraIndex, CAMERA_OPTION_KEYS, parseCameraParam, matchCameraIndex, stripCameraParam, zoomStepValue } = context;
+const { normalizeCardConfig, resolveCameraIndex, CAMERA_OPTION_KEYS, parseCameraParam, matchCameraIndex, stripCameraParam, zoomStepValue, nextLensAfterZoom } = context;
 
 let failed = 0;
 function assert(cond, msg) {
@@ -338,9 +339,50 @@ equal(zoomStepValue("unavailable", zoomAttrs, "zoom_in"), null, "unavailable zoo
 equal(zoomStepValue(0, { min: 0, max: 4, step: 1 }, "zoom_in"), 1, "small ranges still move one step");
 equal(zoomStepValue(0, {}, "zoom_in"), null, "zoom without a range does nothing");
 
+for (const lens of ["auto", "wide", "tele"]) {
+  const cfg = normalizeCardConfig({ entity: "media_player.a", lens });
+  equal(cfg.cameras[0].lens, lens, `lens ${lens} is accepted`);
+}
+throws(
+  () => normalizeCardConfig({ entity: "media_player.a", lens: "fisheye" }),
+  /'lens' must be 'auto', 'wide' or 'tele'/,
+  "invalid lens"
+);
+throws(
+  () => normalizeCardConfig({ cameras: [{ entity: "media_player.a", lens: "both" }] }),
+  /cameras\[0\]: 'lens' must be 'auto', 'wide' or 'tele'/,
+  "invalid lens on a camera entry"
+);
+const teleOff = normalizeCardConfig({ entity: "media_player.a", tele_entity: false });
+equal(teleOff.cameras[0].tele_entity, false, "tele_entity false is accepted");
+const teleOn = normalizeCardConfig({
+  tele_entity: false,
+  lens: "wide",
+  cameras: [
+    { entity: "media_player.a", tele_entity: "camera.a_telephoto_fluent", lens: "tele" },
+    { entity: "media_player.b" },
+  ],
+});
+equal(teleOn.cameras[0].tele_entity, "camera.a_telephoto_fluent", "per-camera tele_entity overrides the top level");
+equal(teleOn.cameras[0].lens, "tele", "per-camera lens overrides the top level");
+equal(teleOn.cameras[1].tele_entity, false, "top-level tele_entity false applies to other cameras");
+equal(teleOn.cameras[1].lens, "wide", "top-level lens applies to other cameras");
+
+equal(nextLensAfterZoom("auto", "wide", "zoom_in", 1500, 1000, true), "tele", "auto zoom in from wide goes to tele");
+equal(nextLensAfterZoom("auto", "tele", "zoom_in", 2000, 1000, true), "tele", "auto zoom in stays on tele");
+equal(nextLensAfterZoom("auto", "tele", "zoom_out", 1000, 1000, true), "wide", "auto zoom out at minimum goes wide");
+equal(nextLensAfterZoom("auto", "tele", "zoom_out", 1500, 1000, true), "tele", "auto zoom out above minimum stays tele");
+equal(nextLensAfterZoom("auto", "tele", "zoom_out", null, 1000, true), "tele", "zoom out without a value stays on tele");
+equal(nextLensAfterZoom("wide", "wide", "zoom_in", 1500, 1000, true), "wide", "wide mode does not auto switch");
+equal(nextLensAfterZoom("tele", "tele", "zoom_out", 1000, 1000, true), "tele", "tele mode does not return to wide");
+equal(nextLensAfterZoom("auto", "wide", "zoom_in", 1500, 1000, false), "wide", "zoom in without a tele entity stays wide");
+equal(nextLensAfterZoom("auto", "wide", "zoom_out", 1000, 1000, true), "wide", "zoom out on wide stays wide");
+
 const keys = [
   "entity",
   "camera_entity",
+  "tele_entity",
+  "lens",
   "name",
   "icon",
   "channel",
@@ -367,8 +409,12 @@ assert(selectBody.includes("_startVideo()"), "camera switch can restart live vie
 assert(!selectBody.includes("_startListen"), "camera switch does not start listen");
 assert(selectBody.includes("_lockCardHeight(true)"), "camera switch locks height during the swap");
 assert(selectBody.includes("_queueSettleCardHeight()"), "camera switch then settles to the new camera");
+assert(selectBody.includes("_resetLens()"), "camera switch goes back to the wide lens");
+const leaveStart = src.indexOf("  _leaveGrid(index) {");
+const leaveBody = src.slice(leaveStart, src.indexOf("\n  }\n", leaveStart));
+assert(leaveBody.includes("_resetLens()"), "leaving the grid starts on the wide lens");
 
-assert(src.includes('const CARD_VERSION = "0.5.7"'), "CARD_VERSION is 0.5.7");
+assert(src.includes('const CARD_VERSION = "0.5.8"'), "CARD_VERSION is 0.5.8");
 assert(src.includes('layout: "fullscreen"') || src.includes('layout === "fullscreen"'), "fullscreen layout is supported");
 assert(src.includes("100dvh"), "fullscreen uses 100dvh");
 assert(src.includes("100vh"), "fullscreen falls back to 100vh");

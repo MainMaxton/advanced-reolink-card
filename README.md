@@ -57,8 +57,12 @@ Not affiliated with or endorsed by Reolink.
 
 - **Pan and tilt** for cameras that can move, such as the TrackMix. Press and
   hold to move, release to stop.
-- **Zoom** buttons on cameras that can zoom in Home Assistant. Tap to zoom one
-  step, hold to keep zooming. Cameras that cannot zoom do not show them.
+- **Zoom** buttons on the live view, bottom right, for cameras that can zoom.
+  Minus is on the left, plus is on the right. Tap to zoom one step, hold to keep
+  zooming. Cameras that cannot zoom do not show them.
+- **Wide / Tele** on dual-lens cameras such as the TrackMix. The switch sits at
+  the top left of the live view. Auto moves to Tele when you zoom in and back to
+  Wide at the minimum zoom.
 - **Presets** in the card header, next to Guard and Patrol, on a camera that has
   them. The marker button opens a menu of preset names. The list is read from
   Home Assistant and updates as soon as its preset list changes. The Reolink
@@ -171,13 +175,15 @@ starting camera, the layout and the grid warning.
 | Option | Type | Default | Description |
 |---|---|---|---|
 | `entity` | string | none | Speaker `media_player` from this integration. Used to talk and to find the camera. |
-| `camera_entity` | string | auto | Reolink camera entity for live view, listen and pan and tilt. Leave it out to match the speaker's camera. |
+| `camera_entity` | string | auto | Reolink camera entity for live view, listen and pan and tilt. Leave it out to match the speaker's camera. On a dual-lens camera this is the wide stream. |
+| `tele_entity` | string or false | auto | Telephoto stream for a dual-lens camera. Found automatically. Leave it out to use that stream. Set `false` to turn the lens switch off. |
+| `lens` | string | `auto` | `auto`, `wide` or `tele`. Auto switches to Tele when you zoom in and back to Wide at minimum zoom. `wide` and `tele` stay on that lens. |
 | `channel` | number | none | NVR channel (0 based), instead of `entity`. |
 | `config_entry_id` | string | none | Only needed with `channel` when you have more than one NVR or camera set up. |
 | `name` | string | camera name | Card title, and the tab label in a `cameras` list. |
 | `icon` | string | `mdi:cctv` | Header and tab icon. A talk only card uses `mdi:microphone`. |
 | `video` | boolean | `false` | Live view. |
-| `ptz` | boolean | `false` | Pan and tilt pad. Shown only when the camera can pan. Zoom buttons join it when the camera can zoom. |
+| `ptz` | boolean | `false` | Pan and tilt pad. Shown only when the camera can pan. Zoom buttons show on the live view when the camera can zoom. |
 | `listen` | boolean | `false` | Listen button and volume slider. |
 | `talk` | boolean | `true` | Talk button. Set `false` for a view only camera. |
 | `talk_auto_listen` | boolean | `false` | Pressing talk also turns on Listen. |
@@ -394,16 +400,22 @@ the arrow.
 - **Camera matching.** The card finds the Reolink camera, pan buttons, preset list
   and battery sensors that belong to the speaker. It prefers the Fluent stream.
   Set `camera_entity` to pick another stream.
-- **Zoom** shows under the pad only when the Reolink integration gives the
-  camera a way to zoom: the *Zoom* slider (a `number` entity, which a TrackMix
-  has) or the *PTZ zoom in* and *PTZ zoom out* buttons. Otherwise the zoom
-  buttons are hidden. With the slider, a tap moves the zoom one tenth of its
-  range and holding repeats about twice a second until you let go or it reaches
-  the end. With the buttons, the camera zooms while you hold. If the zoom entity
-  is turned off in Home Assistant, the card says so. On a TrackMix, zoom moves
-  the telephoto lens only. The wide view does not change, so open the telephoto
-  camera to see it. The patrol wizard pad shows zoom on the same cameras; there
-  the camera zooms while you hold.
+- **Zoom** shows on the live picture, at the bottom right, when live view is
+  running and the camera can zoom. Minus is on the left, plus is on the right.
+  The same buttons show in fullscreen, on each live grid tile that can zoom, and
+  on the patrol preview. They stay hidden on the "Tap to start live view" screen,
+  and on cameras that cannot zoom. With the *Zoom* slider (a `number` entity,
+  which a TrackMix has), a tap moves the zoom one tenth of its range and holding
+  repeats about twice a second until you let go or it reaches the end. With the
+  *PTZ zoom in* and *PTZ zoom out* buttons, the camera zooms while you hold. If
+  zoom is turned off in Home Assistant, the card says so.
+- **Wide and Tele.** A dual-lens camera shows a Wide / Tele switch at the top
+  left of the live view, once the picture is running. Auto (the default) switches
+  to Tele when you zoom in, and back to Wide when zoom reaches its minimum.
+  `lens: wide` or `lens: tele` stays on that lens. The card finds the telephoto
+  stream on its own. Set `tele_entity` to pick one, or `tele_entity: false` to
+  hide the switch. If that stream is turned off in Home Assistant, the card says
+  so and does not turn it on. Grid tiles keep the wide stream.
 - **Battery cameras** show a battery badge and *Waking the camera* while they wake
   (about 5 to 20 seconds).
 

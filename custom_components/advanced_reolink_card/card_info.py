@@ -41,6 +41,11 @@ CAMERA_STREAM_ORDER: tuple[str, ...] = (
     "autotrack_snapshots_main",
 )
 SNAPSHOT_STREAMS = frozenset(k for k in CAMERA_STREAM_ORDER if "snapshots" in k)
+# Wide lens is the best non-tele, non-snapshot stream. Tele is the autotrack pair.
+WIDE_STREAMS: tuple[str, ...] = tuple(
+    key for key in CAMERA_STREAM_ORDER if not key.startswith("autotrack") and key not in SNAPSHOT_STREAMS
+)
+TELE_STREAMS: tuple[str, ...] = ("autotrack_sub", "autotrack_main")
 
 # Reolink core PTZ button keys -> card role.
 PTZ_BUTTONS: Mapping[str, str] = {
@@ -91,6 +96,9 @@ class DeviceFeatures:
     guard_entity: str | None = None
     sleep_entity: str | None = None
     battery_entity: str | None = None
+    wide_entity: str | None = None
+    tele_entity: str | None = None
+    tele_disabled: bool = False
 
     @property
     def ptz_supported(self) -> bool:
@@ -120,18 +128,47 @@ class DeviceFeatures:
             "battery": self.battery,
             "sleep_entity": self.sleep_entity,
             "battery_entity": self.battery_entity,
+            "lenses": {
+                "wide": self.wide_entity,
+                "tele": self.tele_entity,
+                "tele_disabled": self.tele_disabled,
+            },
         }
+
+
+def _prefer_stream(rank: int | None, entity_id: str | None, new_rank: int, new_id: str) -> bool:
+    """True when ``new_id`` is a better lens candidate (lower stream rank, then id)."""
+    if entity_id is None or rank is None:
+        return True
+    if new_rank != rank:
+        return new_rank < rank
+    return new_id < entity_id
 
 
 def classify_entities(entities: Iterable[RegistryEntity]) -> DeviceFeatures:
     """Sort a Reolink core device's entities into card features (pure)."""
     feats = DeviceFeatures()
     cams: list[tuple[int, dict[str, Any]]] = []
+    wide_rank: int | None = None
+    tele_rank: int | None = None
+    tele_seen = False
     for ent in entities:
         if ent.domain == "camera":
+            key = _match_key(ent.unique_id, CAMERA_STREAM_ORDER)
+            if key in TELE_STREAMS:
+                # Disabled tele streams stay out of cameras but still count here.
+                tele_seen = True
+                tele_choice = TELE_STREAMS.index(key)
+                if not ent.disabled and _prefer_stream(tele_rank, feats.tele_entity, tele_choice, ent.entity_id):
+                    tele_rank = tele_choice
+                    feats.tele_entity = ent.entity_id
+            if not ent.disabled and key in WIDE_STREAMS:
+                rank = WIDE_STREAMS.index(key)
+                if _prefer_stream(wide_rank, feats.wide_entity, rank, ent.entity_id):
+                    wide_rank = rank
+                    feats.wide_entity = ent.entity_id
             if ent.disabled:
                 continue
-            key = _match_key(ent.unique_id, CAMERA_STREAM_ORDER)
             rank = CAMERA_STREAM_ORDER.index(key) if key else len(CAMERA_STREAM_ORDER)
             cams.append(
                 (
@@ -170,6 +207,7 @@ def classify_entities(entities: Iterable[RegistryEntity]) -> DeviceFeatures:
     cams.sort(key=lambda item: (item[0], item[1]["entity_id"]))
     feats.cameras = [c for _, c in cams]
     feats.ptz_disabled.sort()
+    feats.tele_disabled = tele_seen and feats.tele_entity is None
     return feats
 
 

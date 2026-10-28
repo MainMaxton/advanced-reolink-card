@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.5.8 (2026-10-28)
+
+### Added
+- Zoom buttons sit on the video, at the bottom right, with minus on the left and
+  plus on the right. They show on the card, in the fullscreen layout, on each
+  live grid tile, and on the patrol preview.
+- Dual-lens cameras, such as the TrackMix, get a Wide / Tele switch on the live
+  view. In Auto, zooming in switches to Tele, and reaching minimum zoom switches
+  back to Wide.
+- `tele_entity` and `lens` options. `tele_entity` picks the telephoto stream, or
+  `false` turns the switch off. `lens` is `auto`, `wide` or `tele`.
+
 ## 0.5.7 (2026-10-28)
 
 ### Added

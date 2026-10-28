@@ -2,7 +2,7 @@
  * Live view, pan, listen and talk.
  * custom:audiohook-talk-card stays as an alias for older dashboards.
  */
-const CARD_VERSION = "0.5.7";
+const CARD_VERSION = "0.5.8";
 const DOMAIN = "advanced_reolink_card";
 const WS_PTZ_MOVE = "advanced_reolink_card/ptz/move";
 const WS_PTZ_STOP = "advanced_reolink_card/ptz/stop";
@@ -265,16 +265,14 @@ const STYLE = `
   .pbody > * { margin: 0; }
   .pfoot { margin-top: 4px; }
   .patrol-dialog .dpad { display: grid; grid-template-columns: repeat(3, 44px); grid-template-rows: repeat(3, 44px); gap: 4px; }
-  .patrol-dialog .dpad button, .patrol-dialog .zoom button { all: unset; box-sizing: border-box; cursor: pointer; user-select: none;
+  .patrol-dialog .dpad button { all: unset; box-sizing: border-box; cursor: pointer; user-select: none;
     touch-action: none; display: flex; align-items: center; justify-content: center; border-radius: 12px;
     background: var(--secondary-background-color, #eee); color: var(--primary-text-color); }
   .patrol-dialog .dpad button[data-dir="up"] { grid-area: 1 / 2; }
   .patrol-dialog .dpad button[data-dir="left"] { grid-area: 2 / 1; }
   .patrol-dialog .dpad button[data-dir="right"] { grid-area: 2 / 3; }
   .patrol-dialog .dpad button[data-dir="down"] { grid-area: 3 / 2; }
-  .patrol-dialog .zoom { display: flex; flex-direction: column; gap: 4px; }
-  .patrol-dialog .zoom button { width: 44px; height: 44px; }
-  .patrol-dialog .dpad button.active, .patrol-dialog .zoom button.active { background: var(--primary-color); color: var(--text-primary-color, #fff); }
+  .patrol-dialog .dpad button.active { background: var(--primary-color); color: var(--text-primary-color, #fff); }
   .patrol-dialog .act { appearance: none; -webkit-appearance: none; box-sizing: border-box; cursor: pointer; min-height: 40px; padding: 0 16px; border-radius: 20px;
     border: none; background: var(--secondary-background-color, #eee); color: var(--primary-text-color);
     font: inherit; font-weight: 500; line-height: 1.2; display: inline-flex; align-items: center; justify-content: center; text-align: center; }
@@ -318,6 +316,7 @@ const STYLE = `
   .video canvas.holdframe { z-index: 2; filter: brightness(0.55); pointer-events: none; transition: opacity 200ms ease; }
   .video canvas.holdframe.fade { opacity: 0; }
   .video .overlay { position: absolute; left: 0; right: 0; bottom: 0; z-index: 3; padding: 6px 10px; font-size: 0.85em; color: #fff; background: linear-gradient(transparent, rgba(0,0,0,.65)); }
+  .video.zoom-on .overlay { padding-right: 112px; }
   @media (prefers-reduced-motion: reduce) {
     .video canvas.holdframe { transition: none; }
   }
@@ -325,9 +324,24 @@ const STYLE = `
   button { font: inherit; }
   .video button.play { all: unset; position: absolute; inset: 0; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; color: #fff; }
   .video button.play ha-icon { --mdc-icon-size: 56px; }
-  .video button.stopvideo { all: unset; position: absolute; top: 8px; right: 8px; cursor: pointer; width: 36px; height: 36px; border-radius: 18px; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.5); color: #fff; }
+  .video button.stopvideo { all: unset; position: absolute; top: 8px; right: 8px; z-index: 4; cursor: pointer; width: 36px; height: 36px; border-radius: 18px; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.5); color: #fff; }
+  .video button.lens { all: unset; position: absolute; top: 8px; left: 8px; z-index: 4; cursor: pointer; box-sizing: border-box;
+    display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border-radius: 16px;
+    background: rgba(0,0,0,.5); color: #fff; font: inherit; font-size: 14px; font-weight: 500; line-height: 1; white-space: nowrap; }
+  .video button.lens ha-icon { --mdc-icon-size: 18px; width: 18px; height: 18px; }
+  .video .zoomctl, .pmedia .zoomctl { position: absolute; bottom: 12px; right: 12px; z-index: 4; display: flex; gap: 8px; }
+  .video .zoomctl button, .pmedia .zoomctl button { all: unset; box-sizing: border-box; cursor: pointer; user-select: none; -webkit-user-select: none;
+    touch-action: none; -webkit-touch-callout: none; width: 40px; height: 40px; border-radius: 20px; display: flex; align-items: center; justify-content: center;
+    background: rgba(0,0,0,.5); color: #fff; }
+  .video .zoomctl button ha-icon, .pmedia .zoomctl button ha-icon { --mdc-icon-size: 22px; width: 22px; height: 22px; }
+  .video .zoomctl button.active, .pmedia .zoomctl button.active, .tile-media .zoomctl button.active { background: var(--primary-color); color: var(--text-primary-color, #fff); }
+  .tile-media .zoomctl { position: absolute; bottom: 8px; right: 8px; z-index: 4; display: flex; gap: 6px; }
+  .tile-media .zoomctl button { all: unset; box-sizing: border-box; cursor: pointer; user-select: none; -webkit-user-select: none;
+    touch-action: none; -webkit-touch-callout: none; width: 32px; height: 32px; border-radius: 16px; display: flex; align-items: center; justify-content: center;
+    background: rgba(0,0,0,.5); color: #fff; }
+  .tile-media .zoomctl button ha-icon { --mdc-icon-size: 18px; width: 18px; height: 18px; }
   .video button:focus-visible, .ptz button:focus-visible, button.presets-open:focus-visible, .presets-menu button.preset-option:focus-visible, button.listen:focus-visible, .tabs button[role="tab"]:focus-visible,
-  .viewtoggle:focus-visible, .tile-open:focus-visible, .gridstart:focus-visible, button.patrol-open:focus-visible, button.guard-open:focus-visible, .patrol-dialog button:focus-visible,
+  .viewtoggle:focus-visible, .tile-open:focus-visible, .tile-media .zoomctl button:focus-visible, .gridstart:focus-visible, button.patrol-open:focus-visible, button.guard-open:focus-visible, .patrol-dialog button:focus-visible,
   .patrol-dialog .act:focus-visible { outline: 3px solid var(--accent-color, #ff9800); outline-offset: 2px; }
   .presets-menu button.preset-option:focus-visible { outline-offset: -2px; }
   .ptz { display: flex; align-items: center; justify-content: center; gap: 20px; flex-wrap: wrap; }
@@ -337,7 +351,6 @@ const STYLE = `
   .ptz button[data-ptz].active { background: var(--primary-color); color: var(--text-primary-color, #fff); }
   .ptz button[data-ptz="up"] { grid-area: 1 / 2; } .ptz button[data-ptz="left"] { grid-area: 2 / 1; }
   .ptz button[data-ptz="right"] { grid-area: 2 / 3; } .ptz button[data-ptz="down"] { grid-area: 3 / 2; }
-  .zoom { display: flex; flex-direction: column; gap: 4px; } .zoom button { width: 48px; height: 48px; }
   .listenrow { display: flex; align-items: center; gap: 12px; }
   button.listen { all: unset; box-sizing: border-box; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 0 16px; min-height: 48px; border-radius: 24px;
     background: var(--secondary-background-color, #eee); color: var(--primary-text-color); }
@@ -370,8 +383,7 @@ const STYLE = `
     .presets-menu button.preset-option:hover { background: color-mix(in srgb, var(--primary-text-color) 8%, transparent); }
     .presets-menu button.preset-option[aria-checked="true"]:hover { background: color-mix(in srgb, var(--primary-color) 18%, transparent); }
     .ptz button[data-ptz]:hover:not(.active),
-    .patrol-dialog .dpad button:hover:not(.active),
-    .patrol-dialog .zoom button:hover:not(.active) {
+    .patrol-dialog .dpad button:hover:not(.active) {
       background: color-mix(in srgb, var(--primary-text-color) 10%, var(--secondary-background-color, #eee));
     }
   }
@@ -434,6 +446,8 @@ const CARD_DEFAULTS = {
 const CAMERA_OPTION_KEYS = [
   "entity",
   "camera_entity",
+  "tele_entity",
+  "lens",
   "name",
   "icon",
   "channel",
@@ -449,6 +463,8 @@ const CAMERA_OPTION_KEYS = [
   "show_level",
 ];
 
+const LENS_MODES = ["auto", "wide", "tele"];
+
 function _hasCameraTarget(c) {
   return !!(c && (c.entity || c.camera_entity || (c.channel !== undefined && c.channel !== "")));
 }
@@ -459,6 +475,12 @@ function _validateModeDuplex(c, prefix) {
   }
   if (c.duplex && !["half", "full"].includes(c.duplex)) {
     throw new Error(`${prefix}'duplex' must be 'half' or 'full'`);
+  }
+}
+
+function _validateLens(c, prefix) {
+  if (c && c.lens && !LENS_MODES.includes(c.lens)) {
+    throw new Error(`${prefix}'lens' must be 'auto', 'wide' or 'tele'`);
   }
 }
 
@@ -519,11 +541,13 @@ function normalizeCardConfig(config) {
       throw new Error("'cameras' must be a non-empty list of camera configs");
     }
     _validateModeDuplex(config, "");
+    _validateLens(config, "");
     const cameras = config.cameras.map((entry, i) => {
       if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
         throw new Error(`cameras[${i}] must be a camera config`);
       }
       _validateModeDuplex(entry, `cameras[${i}]: `);
+      _validateLens(entry, `cameras[${i}]: `);
       const merged = mergeCameraEntry(config, entry);
       if (!_hasCameraTarget(merged)) {
         throw new Error(`cameras[${i}]: set 'entity', 'channel' or 'camera_entity'`);
@@ -550,6 +574,7 @@ function normalizeCardConfig(config) {
   if (config.duplex && !["half", "full"].includes(config.duplex)) {
     throw new Error("'duplex' must be 'half' or 'full'");
   }
+  _validateLens(config, "");
   if (config.talk !== false && !config.entity && (config.channel === undefined || config.channel === "")) {
     throw new Error("Talk needs 'entity' (speaker) or 'channel'; set 'talk: false' for a view-only card");
   }
@@ -671,6 +696,16 @@ function zoomStepValue(current, attrs, role) {
   return next === from ? null : next;
 }
 
+function nextLensAfterZoom(mode, lens, role, value, min, hasTele) {
+  const current = lens === "tele" ? "tele" : "wide";
+  if (mode !== "auto" || !hasTele) return current;
+  if (role === "zoom_in" && current === "wide") return "tele";
+  const reading = value != null && value !== "" ? Number(value) : NaN;
+  const floor = Number(min);
+  if (role === "zoom_out" && current === "tele" && Number.isFinite(reading) && Number.isFinite(floor) && reading <= floor) return "wide";
+  return current;
+}
+
 function resolveCameraIndex(cameras, defaultCamera, fallback) {
   const n = cameras && cameras.length ? cameras.length : 0;
   if (!n) return 0;
@@ -694,6 +729,8 @@ class AdvancedReolinkCard extends HTMLElement {
     this._listen = { state: "off", message: "" };
     this._listening = false;
     this._listenBlocked = false;
+    this._lens = "wide";
+    this._lensPicked = false;
     this._ducked = false;
     this._status = { text: "", kind: "" };
     this._cameras = [];
@@ -767,6 +804,7 @@ class AdvancedReolinkCard extends HTMLElement {
     if (linked != null) index = linked;
     this._activeIndex = index;
     this._applyActiveConfig();
+    this._resetLens();
     if (prev && this._targetKey(prev) !== this._targetKey(this._config)) {
       this._stopTalk("config");
       this._stopAllStreams("config");
@@ -917,6 +955,7 @@ class AdvancedReolinkCard extends HTMLElement {
       if (key === this._targetKey(this._config)) {
         this._info = this._infoCache[key];
         this._infoError = this._infoErrorCache[key] || null;
+        this._adoptInitialLens();
         this._update();
         this._updatePresets();
         this._refreshNames();
@@ -946,6 +985,7 @@ class AdvancedReolinkCard extends HTMLElement {
         }
         this._info = info;
         this._infoError = null;
+        this._adoptInitialLens();
         this._update();
         this._updatePresets();
         this._refreshNames();
@@ -963,8 +1003,62 @@ class AdvancedReolinkCard extends HTMLElement {
     if (key === this._targetKey(this._config)) this._infoPromise = this._infoPromises[key];
   }
 
+  _lensMode() {
+    const lens = this._config && this._config.lens;
+    return lens === "wide" || lens === "tele" ? lens : "auto";
+  }
+
+  _teleEntity() {
+    const configured = this._config && this._config.tele_entity;
+    if (typeof configured === "string") {
+      const id = configured.trim();
+      if (id) return id;
+    }
+    if (configured === false) return null;
+    return this._info?.lenses?.tele || null;
+  }
+
+  _wideEntity() {
+    const own = this._config && this._config.camera_entity;
+    const lenses = this._info?.lenses;
+    if (own && !(lenses?.wide && own === this._teleEntity())) return own;
+    return lenses?.wide || own || this._info?.camera_entity || null;
+  }
+
+  _initialLens() {
+    const tele = this._teleEntity();
+    if (!tele) return "wide";
+    if (this._config.lens === "tele") return "tele";
+    return this._config.camera_entity === tele && this._config.lens !== "wide" ? "tele" : "wide";
+  }
+
+  _resetLens() {
+    this._lensPicked = false;
+    this._lens = this._initialLens();
+  }
+
+  _videoOn() {
+    return this._video.state !== "off" && this._video.state !== "error";
+  }
+
   _cameraEntity() {
-    return this._config.camera_entity || this._info?.camera_entity || null;
+    if (this._lens === "tele") {
+      const tele = this._teleEntity();
+      if (tele) return tele;
+    }
+    return this._wideEntity();
+  }
+
+  _adoptInitialLens() {
+    if (this._lensPicked) return;
+    const next = this._initialLens();
+    if (next === this._lens) return;
+    if (this._inGrid()) {
+      this._lens = next;
+      return;
+    }
+    if (this._videoOn() && this._config?.video) this._setLens(next);
+    else this._lens = next;
   }
 
   _battery() {
@@ -1118,15 +1212,19 @@ class AdvancedReolinkCard extends HTMLElement {
             <div class="slot" hidden></div>
             <button type="button" class="play" aria-label="Start live view"><ha-icon icon="mdi:play-circle-outline"></ha-icon><span>Tap to start live view</span></button>
             <button type="button" class="stopvideo" aria-label="Stop live view" title="Stop live view" hidden><ha-icon icon="mdi:stop"></ha-icon></button>
+            <button type="button" class="lens" aria-pressed="false" aria-label="Switch lens" title="Switch lens" hidden><ha-icon icon="mdi:camera-switch-outline"></ha-icon><span class="lens-label">Wide</span></button>
+            <div class="zoomctl" hidden>
+              <button type="button" data-ptz="zoom_out" aria-label="Zoom out" title="Zoom out"><ha-icon icon="mdi:magnify-minus-outline"></ha-icon></button>
+              <button type="button" data-ptz="zoom_in" aria-label="Zoom in" title="Zoom in"><ha-icon icon="mdi:magnify-plus-outline"></ha-icon></button>
+            </div>
             <div class="overlay" aria-live="polite"></div>
           </div>
         </div>` : ""}
         ${showPtz ? `
         <div class="ptz" hidden>
           <div class="dpad">${dir("up")}${dir("left")}${dir("right")}${dir("down")}</div>
-          <div class="zoom" hidden>${dir("zoom_in")}${dir("zoom_out")}</div>
-        </div>
-        <div class="note ptznote" hidden></div>` : ""}
+        </div>` : ""}
+        ${showVideo || showPtz ? `<div class="note ptznote" hidden></div>` : ""}
         ${showListen ? `
         <div class="listenrow">
           <button type="button" class="listen" aria-pressed="false"><ha-icon icon="mdi:volume-off"></ha-icon><span class="llabel">Listen</span></button>
@@ -1156,9 +1254,10 @@ class AdvancedReolinkCard extends HTMLElement {
     this._slotEl = $(".video .slot");
     this._playBtn = $(".video button.play");
     this._stopVideoBtn = $(".video button.stopvideo");
+    this._lensBtn = $(".video button.lens");
     this._overlayEl = $(".video .overlay");
     this._ptzEl = $(".ptz");
-    this._zoomEl = $(".zoom");
+    this._zoomEl = $(".video .zoomctl");
     this._ptzNoteEl = $(".ptznote");
     this._listenRow = $(".listenrow");
     this._listenBtn = $("button.listen");
@@ -1305,6 +1404,7 @@ class AdvancedReolinkCard extends HTMLElement {
     this._stopAllStreams("camera switch");
     this._activeIndex = next;
     this._applyActiveConfig();
+    this._resetLens();
     this._video = { state: "off", kind: null, message: "" };
     this._listen = { state: "off", message: "" };
     this._listening = false;
@@ -1686,6 +1786,11 @@ class AdvancedReolinkCard extends HTMLElement {
     let y0 = 0;
     let tracking = false;
     this._videoBox.addEventListener("touchstart", (ev) => {
+      const target = ev.target;
+      if (target && target.closest && target.closest("button, .zoomctl")) {
+        tracking = false;
+        return;
+      }
       if (ev.touches.length !== 1) {
         tracking = false;
         return;
@@ -1724,6 +1829,16 @@ class AdvancedReolinkCard extends HTMLElement {
       });
     }
     if (this._stopVideoBtn) this._stopVideoBtn.addEventListener("click", () => this._stopVideo("client"));
+    if (this._lensBtn) {
+      const keep = (ev) => ev.stopPropagation();
+      this._lensBtn.addEventListener("pointerdown", keep);
+      this._lensBtn.addEventListener("touchstart", keep, { passive: true });
+      this._lensBtn.addEventListener("click", (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        this._setLens(this._lens === "tele" ? "wide" : "tele");
+      });
+    }
     if (this._videoEl) {
       this._videoEl.addEventListener("playing", () => this._videoLive());
       this._videoEl.addEventListener("loadeddata", () => this._videoLive());
@@ -1737,7 +1852,10 @@ class AdvancedReolinkCard extends HTMLElement {
       });
     }
     if (this._ptzEl) {
-      for (const b of this.shadowRoot.querySelectorAll(".ptz button[data-ptz]")) this._bindPtz(b);
+      for (const b of this._ptzEl.querySelectorAll("button[data-ptz]")) this._bindPtz(b);
+    }
+    if (this._zoomEl) {
+      for (const b of this._zoomEl.querySelectorAll("button[data-ptz]")) this._bindPtz(b);
     }
     if (this._guardBtn) this._guardBtn.addEventListener("click", () => this._returnToGuard());
     if (this._patrolBtn) this._patrolBtn.addEventListener("click", () => this._openPatrol());
@@ -1787,10 +1905,16 @@ class AdvancedReolinkCard extends HTMLElement {
     b.addEventListener("pointerdown", (ev) => {
       if (ev.button !== undefined && ev.button !== 0) return;
       ev.preventDefault();
+      ev.stopPropagation();
       b.setPointerCapture?.(ev.pointerId);
       this._ptzStart(b.dataset.ptz, b);
     });
-    const release = () => this._ptzStop();
+    const release = (ev) => {
+      if (ev) ev.stopPropagation();
+      this._ptzStop();
+    };
+    b.addEventListener("click", (ev) => ev.stopPropagation());
+    b.addEventListener("touchstart", (ev) => ev.stopPropagation(), { passive: true });
     b.addEventListener("pointerup", release);
     b.addEventListener("pointercancel", release);
     b.addEventListener("lostpointercapture", release);
@@ -1848,16 +1972,31 @@ class AdvancedReolinkCard extends HTMLElement {
         v.state === "error" ? v.message || "Live view failed" :
         v.state === "live" && v.kind === "image" ? "Still image. Live video is not available." : "";
     }
-    if (this._ptzEl) {
-      const ptz = this._info?.ptz;
-      const show = this._ptzAvailable();
-      this._ptzEl.hidden = !show;
-      this._zoomEl.hidden = !(show && ptz && ptz.zoom);
+    const ptz = this._info?.ptz;
+    let showPad = false;
+    if (this._ptzEl || this._zoomEl || this._ptzNoteEl) showPad = this._ptzAvailable();
+    if (this._ptzEl) this._ptzEl.hidden = !showPad;
+    if (this._zoomEl) {
+      const zoomOn = !!(this._videoOn() && showPad && ptz && ptz.zoom);
+      this._zoomEl.hidden = !zoomOn;
+      if (this._videoBox) this._videoBox.classList.toggle("zoom-on", zoomOn);
+    }
+    if (this._lensBtn) {
+      const showLens = !!(this._videoOn() && c.video && this._teleEntity());
+      this._lensBtn.hidden = !showLens;
+      const label = this._lens === "tele" ? "Tele" : "Wide";
+      const span = this._lensBtn.querySelector(".lens-label");
+      if (span && span.textContent !== label) span.textContent = label;
+      this._lensBtn.setAttribute("aria-pressed", this._lens === "tele" ? "true" : "false");
+    }
+    if (this._ptzNoteEl) {
       let note = "";
-      if (c.ptz && this._info && !show && ptz && ptz.disabled_entities?.length && !ptz.supported) {
+      if (c.ptz && this._info && !showPad && ptz && ptz.disabled_entities?.length && !ptz.supported) {
         note = "Pan and tilt are turned off in Home Assistant. Turn them on to move this camera.";
-      } else if (show && ptz && !ptz.zoom && ptz.disabled_entities?.some((e) => /zoom/.test(e))) {
+      } else if (showPad && ptz && !ptz.zoom && ptz.disabled_entities?.some((e) => /zoom/.test(e))) {
         note = "Zoom is turned off in Home Assistant. Turn on zoom to use it.";
+      } else if ((c.ptz || c.video) && this._info?.lenses?.tele_disabled && !this._teleEntity()) {
+        note = "The telephoto stream is turned off in Home Assistant. Turn it on to use the Tele lens.";
       }
       this._ptzNoteEl.textContent = note;
       this._ptzNoteEl.hidden = !note;
@@ -2135,9 +2274,10 @@ class AdvancedReolinkCard extends HTMLElement {
     if (this._ptzActive) this._ptzStop();
     this._ptzActive = { role, button, zoom: !!zoomEnt };
     button?.classList.add("active");
+    if (role === "zoom_in") this._autoLensFromZoomIn();
     if (zoomEnt) {
-      this._zoomStep(zoomEnt, role);
-      this._zoomTimer = setInterval(() => this._zoomStep(zoomEnt, role), ZOOM_REPEAT_MS);
+      this._zoomStep(zoomEnt, role, true);
+      this._zoomTimer = setInterval(() => this._zoomStep(zoomEnt, role, true), ZOOM_REPEAT_MS);
       return;
     }
     this._hass.callService("button", "press", { entity_id: ent }).catch((err) => {
@@ -2164,18 +2304,69 @@ class AdvancedReolinkCard extends HTMLElement {
   }
 
   // The zoom number only updates after a poll, so keep stepping from the last value sent.
-  _zoomStep(entityId, role) {
+  _zoomStep(entityId, role, trackLens) {
     const st = this._hass?.states?.[entityId];
     if (!st) return;
     const last = this._zoomSent;
     const fresh = last && last.entityId === entityId && Date.now() - last.at < ZOOM_MEMORY_MS;
     const value = zoomStepValue(fresh ? last.value : st.state, st.attributes, role);
+    if (trackLens) this._autoLensFromZoomOut(role, value, st, fresh ? last.value : st.state);
     if (value == null) return;
     this._zoomSent = { entityId, value, at: Date.now() };
     this._hass.callService("number", "set_value", { entity_id: entityId, value }).catch((err) => {
       this._zoomSent = null;
       this._setStatus((err && err.message) || "Could not zoom the camera.", "error");
     });
+  }
+
+  _autoLensFromZoomIn() {
+    const next = nextLensAfterZoom(this._lensMode(), this._lens, "zoom_in", null, null, !!this._teleEntity());
+    if (next !== this._lens) this._setLens(next);
+  }
+
+  _autoLensFromZoomOut(role, value, st, current) {
+    if (role !== "zoom_out" || !st) return;
+    const min = st.attributes ? st.attributes.min : undefined;
+    const compare = value == null ? current : value;
+    const next = nextLensAfterZoom(this._lensMode(), this._lens, role, compare, min, !!this._teleEntity());
+    if (next !== this._lens) this._setLens(next);
+  }
+
+  _setLens(next) {
+    if (next !== "wide" && next !== "tele") return;
+    if (next === "tele" && !this._teleEntity()) return;
+    if (next === this._lens) return;
+    const live = !!(this._videoOn() && this._config?.video && !this._inGrid());
+    if (live) {
+      this._lockCardHeight(true);
+      this._captureHoldFrame();
+    }
+    this._lens = next;
+    this._lensPicked = true;
+    this._update();
+    if (live) this._restartVideoForLens();
+  }
+
+  async _restartVideoForLens() {
+    const run = (this._lensRun || 0) + 1;
+    this._lensRun = run;
+    this._videoGen = (this._videoGen || 0) + 1;
+    clearInterval(this._stillTimer);
+    this._stillTimer = null;
+    if (this._streamEl) {
+      this._streamEl.remove();
+      this._streamEl = null;
+    }
+    if (this._stillEl) this._stillEl.removeAttribute("src");
+    if (this._videoEl) this._videoEl.srcObject = null;
+    this._closePipe();
+    this._video = { state: "off", kind: null, message: "" };
+    await this._startVideo();
+    if (run !== this._lensRun) return;
+    const videoPipe = this._video.kind === "webrtc" && this._video.state !== "off" && this._pipe && !this._pipe.closed;
+    if (this._listening && !videoPipe && this._video.state !== "off") await this._openPipe(false);
+    if (run !== this._lensRun) return;
+    this._queueSettleCardHeight();
   }
 
   _selectPreset(option) {
@@ -2391,13 +2582,15 @@ class AdvancedReolinkCard extends HTMLElement {
 
   async _startVideo() {
     if (!this._hass || (this._video.state !== "off" && this._video.state !== "error")) return;
+    const gen = (this._videoGen || 0) + 1;
+    this._videoGen = gen;
     this._status = { text: "", kind: "" };
     this._video = { state: this._pipeConnecting(), kind: null, message: "" };
     this._update();
     let cam = this._cameraEntity();
     if (!cam) {
       if (this._infoPromise && this._info === undefined) await this._infoPromise;
-      if (this._video.state === "off") return;
+      if (gen !== this._videoGen || this._video.state === "off") return;
       cam = this._cameraEntity();
       if (!cam) {
         this._video = { state: "error", kind: null, message: "No camera found for live view." };
@@ -2412,7 +2605,7 @@ class AdvancedReolinkCard extends HTMLElement {
       }
     }
     const types = this._snapshotOnly(cam) ? [] : await this._capabilities(cam);
-    if (this._video.state === "off") return; // stopped while asking
+    if (gen !== this._videoGen || this._video.state === "off") return; // stopped while asking
     if (types.includes("web_rtc") && typeof RTCPeerConnection !== "undefined") {
       this._video.kind = "webrtc";
       this._update();
@@ -2556,6 +2749,8 @@ class AdvancedReolinkCard extends HTMLElement {
   }
 
   _stopAllStreams(reason) {
+    this._lensRun = (this._lensRun || 0) + 1;
+    this._videoGen = (this._videoGen || 0) + 1;
     this._ptzStop();
     this._stopGrid();
     if (this._listening) this._stopListen(reason);
@@ -2794,7 +2989,10 @@ class AdvancedReolinkCard extends HTMLElement {
         btn.textContent = name;
         btn.setAttribute("aria-label", `Open ${name}`);
       }
-      tile.addEventListener("click", () => this._leaveGrid(i));
+      tile.addEventListener("click", (ev) => {
+        if (ev.target.closest && ev.target.closest(".zoomctl")) return;
+        this._leaveGrid(i);
+      });
     });
   }
 
@@ -2839,6 +3037,7 @@ class AdvancedReolinkCard extends HTMLElement {
 
   _leaveGrid(index) {
     if (!this._inGrid()) return;
+    this._tileZoomStop();
     const n = this._cameras.length || 1;
     const next = ((index % n) + n) % n;
     const sessions = this._gridSessions;
@@ -2868,6 +3067,7 @@ class AdvancedReolinkCard extends HTMLElement {
     this._viewMode = "tabs";
     this._activeIndex = next;
     this._applyActiveConfig();
+    this._resetLens();
     this._video = { state: "off", kind: null, message: "" };
     this._listen = { state: "off", message: "" };
     this._listening = false;
@@ -2897,6 +3097,7 @@ class AdvancedReolinkCard extends HTMLElement {
   }
 
   _stopGrid() {
+    this._tileZoomStop();
     if (this._gridSessions) {
       for (const session of this._gridSessions.values()) this._destroyGridSession(session);
       this._gridSessions = null;
@@ -2940,6 +3141,7 @@ class AdvancedReolinkCard extends HTMLElement {
         stillEl: tile.querySelector("img"),
         slotEl: tile.querySelector(".slot"),
         statusEl: tile.querySelector(".tile-status"),
+        mediaEl: tile.querySelector(".tile-media"),
         state: "off",
         kind: null,
         stream: null,
@@ -2975,6 +3177,7 @@ class AdvancedReolinkCard extends HTMLElement {
     const idx = this._cameras.findIndex((c) => this._targetKey(c) === this._targetKey(cam));
     const session = idx >= 0 ? this._gridSessions?.get(idx) : null;
     if (session && session.state === "wait" && !session.dead) this._startGridTile(session);
+    if (session) this._syncTileZoom(session);
     this._refreshNames();
   }
 
@@ -3001,6 +3204,102 @@ class AdvancedReolinkCard extends HTMLElement {
 
   _paintGridTile(session, text) {
     if (session?.statusEl) session.statusEl.textContent = text || "";
+    this._syncTileZoom(session);
+  }
+
+  _tileCanZoom(index) {
+    const cam = this._cameras[index];
+    if (!cam || !cam.ptz) return false;
+    const info = this._infoForCam(cam);
+    return !!(info && info.ptz && info.ptz.zoom);
+  }
+
+  _syncTileZoom(session) {
+    const media = session && session.mediaEl;
+    if (!media || session.dead) return;
+    const show = session.state === "live" && this._tileCanZoom(session.index);
+    const group = media.querySelector(".zoomctl");
+    if (!show) {
+      if (group) {
+        if (this._tileZoom && group.contains(this._tileZoom.button)) this._tileZoomStop();
+        group.remove();
+      }
+      return;
+    }
+    if (group) return;
+    const wrap = document.createElement("div");
+    wrap.className = "zoomctl";
+    const stop = (ev) => ev.stopPropagation();
+    wrap.addEventListener("click", stop);
+    wrap.addEventListener("pointerdown", stop);
+    for (const role of ["zoom_out", "zoom_in"]) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.dataset.ptz = role;
+      button.setAttribute("aria-label", PTZ_LABELS[role]);
+      button.title = PTZ_LABELS[role];
+      const icon = document.createElement("ha-icon");
+      icon.setAttribute("icon", PTZ_ICONS[role]);
+      button.appendChild(icon);
+      this._bindTileZoom(button, session.index);
+      wrap.appendChild(button);
+    }
+    media.appendChild(wrap);
+  }
+
+  _bindTileZoom(button, index) {
+    button.addEventListener("pointerdown", (ev) => {
+      if (ev.button !== undefined && ev.button !== 0) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      button.setPointerCapture?.(ev.pointerId);
+      this._tileZoomStart(button, index);
+    });
+    const release = (ev) => {
+      if (ev) ev.stopPropagation();
+      if (this._tileZoom && this._tileZoom.button === button) this._tileZoomStop();
+    };
+    button.addEventListener("pointerup", release);
+    button.addEventListener("pointercancel", release);
+    button.addEventListener("lostpointercapture", release);
+    button.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+    });
+    button.addEventListener("touchstart", (ev) => ev.stopPropagation(), { passive: true });
+    button.addEventListener("contextmenu", (ev) => ev.preventDefault());
+  }
+
+  _tileZoomStart(button, index) {
+    const info = this._infoForCam(this._cameras[index]);
+    const role = button.dataset.ptz;
+    const ent = info?.ptz?.entities?.[role];
+    const zoomEnt = !ent && (role === "zoom_in" || role === "zoom_out") ? info?.ptz?.zoom_entity : null;
+    if ((!ent && !zoomEnt) || !this._hass) return;
+    this._tileZoomStop();
+    button.classList.add("active");
+    this._tileZoom = { button, zoom: !!zoomEnt, stop: info?.ptz?.entities?.stop || null };
+    if (zoomEnt) {
+      this._zoomStep(zoomEnt, role);
+      this._tileZoomTimer = setInterval(() => this._zoomStep(zoomEnt, role), ZOOM_REPEAT_MS);
+      return;
+    }
+    this._hass.callService("button", "press", { entity_id: ent }).catch((err) => {
+      this._setStatus((err && err.message) || "Could not zoom the camera.", "error");
+    });
+  }
+
+  _tileZoomStop() {
+    const active = this._tileZoom;
+    if (!active) return;
+    this._tileZoom = null;
+    clearInterval(this._tileZoomTimer);
+    this._tileZoomTimer = null;
+    active.button?.classList.remove("active");
+    if (active.zoom || !active.stop || !this._hass) return;
+    this._hass.callService("button", "press", { entity_id: active.stop }).catch((err) => {
+      this._setStatus((err && err.message) || "Could not stop the camera.", "error");
+    });
   }
 
   _armGridTimeout(session) {
@@ -3294,6 +3593,7 @@ class AdvancedReolinkCard extends HTMLElement {
         <div class="pmedia">
           <video class="pvideo" muted playsinline autoplay disablepictureinpicture controlslist="nodownload nofullscreen noremoteplayback noplaybackrate" hidden></video>
           <div class="pslot" hidden></div>
+          ${this._info?.ptz?.zoom ? `<div class="zoomctl"><button type="button" data-dir="zoom_out" aria-label="Zoom out" title="Zoom out"><ha-icon icon="${PTZ_ICONS.zoom_out}"></ha-icon></button><button type="button" data-dir="zoom_in" aria-label="Zoom in" title="Zoom in"><ha-icon icon="${PTZ_ICONS.zoom_in}"></ha-icon></button></div>` : ""}
         </div>
         <div class="pbody"></div>
         <p class="presult" aria-live="polite"></p>
@@ -3319,6 +3619,7 @@ class AdvancedReolinkCard extends HTMLElement {
       msg: "",
       saved: false,
     };
+    el.querySelectorAll(".pmedia .zoomctl button[data-dir]").forEach((button) => this._bindWizHold(button, button.dataset.dir));
     el.addEventListener("keydown", (ev) => {
       if (ev.key !== "Escape") return;
       ev.preventDefault();
@@ -3494,10 +3795,7 @@ class AdvancedReolinkCard extends HTMLElement {
       btn("right", "Pan right"),
       tilt ? btn("down", "Tilt down") : "",
     ].join("");
-    const zoom = this._info?.ptz?.zoom
-      ? `<div class="zoom">${btn("zoom_in", "Zoom in")}${btn("zoom_out", "Zoom out")}</div>`
-      : "";
-    return `<div class="padrow"><div class="dpad">${cells}</div>${zoom}</div>`;
+    return `<div class="padrow"><div class="dpad">${cells}</div></div>`;
   }
 
   _sliderHtml() {
@@ -3575,6 +3873,8 @@ class AdvancedReolinkCard extends HTMLElement {
     }
     this._bindGo(bodyEl);
     bodyEl.querySelectorAll("[data-dir]").forEach((button) => this._bindWizHold(button, button.dataset.dir));
+    const zoom = el.querySelector(".pmedia .zoomctl");
+    if (zoom) zoom.hidden = wiz.step > 1;
     const slider = bodyEl.querySelector(".speed");
     if (slider) {
       const onSpeed = () => {
@@ -4136,6 +4436,20 @@ class AdvancedReolinkCard extends HTMLElement {
 const EDITOR_SCHEMA = [
   { name: "entity", selector: { entity: { filter: { integration: DOMAIN, domain: "media_player" } } } },
   { name: "camera_entity", selector: { entity: { filter: { integration: "reolink", domain: "camera" } } } },
+  { name: "tele_entity", selector: { entity: { filter: { integration: "reolink", domain: "camera" } } } },
+  {
+    name: "lens",
+    selector: {
+      select: {
+        mode: "dropdown",
+        options: [
+          { value: "auto", label: "Auto" },
+          { value: "wide", label: "Wide" },
+          { value: "tele", label: "Tele" },
+        ],
+      },
+    },
+  },
   {
     type: "grid",
     name: "",
@@ -4211,6 +4525,8 @@ const EDITOR_SCHEMA = [
 const EDITOR_LABELS = {
   entity: "Speaker",
   camera_entity: "Camera",
+  tele_entity: "Telephoto camera",
+  lens: "Lens",
   name: "Name",
   icon: "Icon",
   video: "Live view",
@@ -4228,7 +4544,9 @@ const EDITOR_LABELS = {
 
 const EDITOR_HELPERS = {
   camera_entity: "Leave empty to use the camera that belongs to this speaker.",
-  ptz: "Shown when this camera can pan. Zoom joins it when the camera can zoom. Presets, if the camera has any, are a header button.",
+  tele_entity: "Telephoto stream for dual-lens cameras. Found automatically. Leave empty to use it.",
+  lens: "Auto switches to Tele when you zoom in and back to Wide at minimum zoom.",
+  ptz: "Shown when this camera can pan. Zoom buttons show on the live view when the camera can zoom. Presets, if the camera has any, are a header button.",
   talk_auto_listen: "Turn on Listen as well.",
   start_camera: "Entity id or short name. Used when the URL has no camera parameter.",
   layout: "Fill the screen for a panel or a subview.",
@@ -4236,7 +4554,7 @@ const EDITOR_HELPERS = {
 
 class AdvancedReolinkCardEditor extends HTMLElement {
   setConfig(config) {
-    this._config = { mode: "hold", show_level: true, video: false, ptz: false, listen: false, talk: true, duplex: "half", volume: 80, talk_auto_listen: false, layout: "card", ...config };
+    this._config = { mode: "hold", show_level: true, video: false, ptz: false, listen: false, talk: true, duplex: "half", volume: 80, talk_auto_listen: false, layout: "card", lens: "auto", ...config };
     this._render();
   }
 
