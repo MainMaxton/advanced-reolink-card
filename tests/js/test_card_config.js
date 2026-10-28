@@ -414,7 +414,7 @@ const leaveStart = src.indexOf("  _leaveGrid(index) {");
 const leaveBody = src.slice(leaveStart, src.indexOf("\n  }\n", leaveStart));
 assert(leaveBody.includes("_resetLens()"), "leaving the grid starts on the wide lens");
 
-assert(src.includes('const CARD_VERSION = "0.5.8"'), "CARD_VERSION is 0.5.8");
+assert(src.includes('const CARD_VERSION = "0.5.9"'), "CARD_VERSION is 0.5.9");
 assert(src.includes('layout: "fullscreen"') || src.includes('layout === "fullscreen"'), "fullscreen layout is supported");
 assert(src.includes("100dvh"), "fullscreen uses 100dvh");
 assert(src.includes("100vh"), "fullscreen falls back to 100vh");
@@ -1456,6 +1456,190 @@ try {
 }
 assert(!crashed, "a read-only volume does not crash");
 assert(readOnly._audioEl.muted === false, "listening still unmutes when volume cannot be set");
+
+
+// Lens swap: the other lens opens in the background and takes over without a reconnect.
+const lensMethods = [
+  ["_setLens", "next"],
+  ["_startLensWait", ""],
+  ["_lensHint", ""],
+  ["_spareWanted", ""],
+  ["_otherLensEntity", ""],
+  ["_queueSpare", ""],
+  ["_warmSpare", ""],
+  ["_spareTouch", "warm"],
+  ["_openSpare", "entity"],
+  ["_dropSpare", ""],
+  ["_spareFailed", "spare"],
+  ["_routeTrack", "pipe, track"],
+  ["_routeError", "pipe, message"],
+  ["_onVideoFrame", "el"],
+  ["_swapToSpare", ""],
+  ["_videoLive", ""],
+];
+const lensCtx = {
+  setTimeout: () => 0,
+  clearTimeout: () => {},
+  document: { visibilityState: "visible" },
+  RTCPeerConnection: function () {},
+  MediaStream: function (tracks) {
+    this.tracks = tracks;
+  },
+  CONNECT_TIMEOUT_MS: 20000,
+  SPARE_DELAY_MS: 2000,
+  SPARE_IDLE_MS: 300000,
+  LENS_HINT_MS: 400,
+  WebRtcPipe: class {
+    constructor(hass, entityId, opts) {
+      this.entityId = entityId;
+      this.opts = opts;
+      this.closed = false;
+    }
+    start() {
+      return Promise.resolve();
+    }
+    stop() {
+      this.closed = true;
+    }
+  },
+};
+vm.runInNewContext(
+  `this.methods = {${lensMethods.map(([name, args]) => `${name}: function(${args}) ${methodFn(name)}`).join(",\n")}};`,
+  lensCtx,
+  { filename: "lens-swap.js" }
+);
+
+function videoEl(behind) {
+  const classes = new Set(behind ? ["behind"] : []);
+  return {
+    hidden: true,
+    srcObject: null,
+    videoWidth: 0,
+    classList: {
+      add: (c) => classes.add(c),
+      remove: (c) => classes.delete(c),
+      contains: (c) => classes.has(c),
+    },
+    play: () => Promise.resolve(),
+  };
+}
+
+function lensCard() {
+  const card = Object.assign(Object.create(null), lensCtx.methods);
+  const mainPipe = new lensCtx.WebRtcPipe(null, "camera.fy_fluent", {});
+  mainPipe.tracks = { audio: { kind: "audio", id: "wide-audio" } };
+  Object.assign(card, {
+    _config: { video: true },
+    _hass: {},
+    _lens: "wide",
+    _lensWait: 0,
+    _spare: null,
+    _spareBroken: null,
+    _patrolEl: null,
+    _video: { state: "live", kind: "webrtc", message: "" },
+    _pipe: mainPipe,
+    _videoEl: videoEl(false),
+    _spareEl: videoEl(true),
+    _listening: true,
+    _listen: { state: "live", message: "" },
+    restarts: 0,
+    attached: [],
+    updates: 0,
+    _now: 1000,
+    _nowMs() { return this._now; },
+    _update() { this.updates += 1; },
+    _inGrid: () => false,
+    _battery: () => false,
+    _videoOn() { return this._video.state !== "off" && this._video.state !== "error"; },
+    _teleEntity: () => "camera.fy_telephoto_fluent",
+    _wideEntity: () => "camera.fy_fluent",
+    _cameraEntity() { return this._lens === "tele" ? "camera.fy_telephoto_fluent" : "camera.fy_fluent"; },
+    _lockCardHeight() {},
+    _captureHoldFrame() {},
+    _releaseHoldFrame() {},
+    _armTimeout() {},
+    _pipeConnecting: () => "connecting",
+    _restartVideoForLens() { this.restarts += 1; },
+    _attachAudio(track) { this.attached.push(track.id); },
+    _detachAudio() { this.attached.push(null); },
+    _onTrack() {},
+    _onPipeError() {},
+  });
+  return card;
+}
+
+function feedSpare(card, id) {
+  const pipe = card._spare.pipe;
+  card._routeTrack(pipe, { kind: "audio", id: `${id}-audio` });
+  card._routeTrack(pipe, { kind: "video", id: `${id}-video` });
+  card._spareEl.videoWidth = 896;
+  card._onVideoFrame(card._spareEl);
+}
+
+const warm = lensCard();
+const wideEl = warm._videoEl;
+const wideSpareEl = warm._spareEl;
+warm._warmSpare();
+assert(warm._spare && warm._spare.entity === "camera.fy_telephoto_fluent", "the tele stream opens in the background");
+feedSpare(warm, "tele");
+assert(warm._spare.ready, "the background stream is ready once it has a frame");
+assert(warm._pipe.entityId === "camera.fy_fluent", "a ready background stream does not take over on its own");
+warm._setLens("tele");
+assert(warm._pipe.entityId === "camera.fy_telephoto_fluent", "a warm swap moves the live view to tele");
+assert(warm._videoEl === wideSpareEl && warm._spareEl === wideEl, "a warm swap trades the two video elements");
+assert(!warm._videoEl.classList.contains("behind") && warm._spareEl.classList.contains("behind"), "the new lens is shown and the old one hidden");
+equal(warm.restarts, 0, "a warm swap does not reconnect");
+equal(warm._lensWait, 0, "a warm swap has no wait");
+equal(warm._video.state, "live", "a warm swap never shows Connecting");
+equal(warm.attached, ["tele-audio"], "Listen moves to the tele audio");
+equal(warm._listen.state, "live", "Listen stays live across the swap");
+assert(warm._spare && warm._spare.entity === "camera.fy_fluent" && warm._spare.ready, "the wide stream waits as the spare");
+warm._setLens("wide");
+assert(warm._pipe.entityId === "camera.fy_fluent", "zooming back out swaps straight back to wide");
+equal(warm.restarts, 0, "swapping back does not reconnect");
+
+const cold = lensCard();
+const coldMain = cold._pipe;
+cold._setLens("tele");
+assert(cold._spare && cold._spare.entity === "camera.fy_telephoto_fluent", "a cold swap opens tele beside the live view");
+assert(cold._pipe === coldMain && !coldMain.closed, "wide keeps playing while tele connects");
+equal(cold._video.state, "live", "a cold swap does not show Connecting");
+assert(cold._lensWait > 0, "a cold swap waits for the first tele frame");
+assert(!cold._lensHint(), "the hint stays hidden for a quick swap");
+cold._now += 500;
+assert(cold._lensHint(), "a slow swap shows the Switching lens hint");
+feedSpare(cold, "tele");
+assert(cold._pipe.entityId === "camera.fy_telephoto_fluent", "the first tele frame finishes the swap");
+equal(cold._lensWait, 0, "the wait ends with the swap");
+equal(cold.restarts, 0, "a cold swap does not restart the live view");
+
+const undo = lensCard();
+undo._setLens("tele");
+undo._setLens("wide");
+equal(undo._lensWait, 0, "switching back before tele is ready ends the wait");
+assert(undo._pipe.entityId === "camera.fy_fluent", "switching back keeps the wide stream");
+feedSpare(undo, "tele");
+assert(undo._pipe.entityId === "camera.fy_fluent", "a late tele frame does not take over after switching back");
+
+const broken = lensCard();
+broken._setLens("tele");
+broken._routeError(broken._spare.pipe, "no answer");
+equal(broken.restarts, 1, "a failed background stream falls back to a normal restart");
+equal(broken._spareBroken, "camera.fy_telephoto_fluent", "a failed lens is not retried in the background");
+assert(broken._spare === null, "the failed stream is closed");
+broken._warmSpare();
+assert(broken._spare === null, "a broken lens does not reopen on its own");
+
+const battery = lensCard();
+battery._battery = () => true;
+battery._warmSpare();
+assert(battery._spare === null, "battery cameras do not open a second stream");
+
+assert(methodSource("_stopVideo").includes("_dropSpare()"), "stopping live view closes the spare stream");
+assert(methodSource("_stopAllStreams").includes("_dropSpare()"), "camera switch and hiding the page close the spare stream");
+assert(methodSource("_render").includes("_dropSpare()"), "a rebuild closes the spare stream");
+assert(methodSource("_resetLens").includes("_spareBroken = null"), "a camera switch forgets a failed lens");
+assert(/const switching = [^;]*_lensWait/.test(methodSource("_update")), "the lens wait replaces the Connecting text");
 
 if (failed) {
   console.error(`${failed} assertion(s) failed`);

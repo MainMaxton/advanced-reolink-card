@@ -416,6 +416,10 @@ the arrow.
   stream on its own. Set `tele_entity` to pick one, or `tele_entity: false` to
   hide the switch. If that stream is turned off in Home Assistant, the card says
   so and does not turn it on. Grid tiles keep the wide stream.
+  While the live view plays, the card quietly opens the other lens in the
+  background, so the swap is instant. It closes that stream when you change
+  camera, stop the live view or leave the card alone for five minutes. Battery
+  cameras do not get the background stream.
 - **Battery cameras** show a battery badge and *Waking the camera* while they wake
   (about 5 to 20 seconds).
 

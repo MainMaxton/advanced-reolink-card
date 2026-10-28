@@ -2,7 +2,7 @@
  * Live view, pan, listen and talk.
  * custom:audiohook-talk-card stays as an alias for older dashboards.
  */
-const CARD_VERSION = "0.5.8";
+const CARD_VERSION = "0.5.9";
 const DOMAIN = "advanced_reolink_card";
 const WS_PTZ_MOVE = "advanced_reolink_card/ptz/move";
 const WS_PTZ_STOP = "advanced_reolink_card/ptz/stop";
@@ -23,6 +23,9 @@ const SEND_MS = 40; // send a frame every ~40 ms
 const DUCK_TAIL_MS = 1500; // half-duplex: keep playback muted this long after talking
 const CONNECT_TIMEOUT_MS = 20000;
 const WAKE_TIMEOUT_MS = 45000; // battery cameras need to wake up first
+const SPARE_DELAY_MS = 2000; // wait for the live view to settle before opening the other lens
+const SPARE_IDLE_MS = 300000; // close the other lens after this long without a tap
+const LENS_HINT_MS = 400;
 const STILL_REFRESH_MS = 10000;
 const CAMERA_SUPPORT_STREAM = 2; // CameraEntityFeature.STREAM
 
@@ -315,12 +318,15 @@ const STYLE = `
   .video video, .video img, .video .slot, .video .slot > *, .video canvas.holdframe { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
   .video canvas.holdframe { z-index: 2; filter: brightness(0.55); pointer-events: none; transition: opacity 200ms ease; }
   .video canvas.holdframe.fade { opacity: 0; }
+  .video canvas.holdframe.soft { filter: none; }
+  .video video.behind { opacity: 0; pointer-events: none; }
   .video .overlay { position: absolute; left: 0; right: 0; bottom: 0; z-index: 3; padding: 6px 10px; font-size: 0.85em; color: #fff; background: linear-gradient(transparent, rgba(0,0,0,.65)); }
   .video.zoom-on .overlay { padding-right: 112px; }
   @media (prefers-reduced-motion: reduce) {
     .video canvas.holdframe { transition: none; }
   }
   .video .overlay:empty { display: none; }
+  .video .overlay.soft { background: none; text-shadow: 0 1px 3px rgba(0,0,0,.9); }
   button { font: inherit; }
   .video button.play { all: unset; position: absolute; inset: 0; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; color: #fff; }
   .video button.play ha-icon { --mdc-icon-size: 56px; }
@@ -1035,6 +1041,8 @@ class AdvancedReolinkCard extends HTMLElement {
   _resetLens() {
     this._lensPicked = false;
     this._lens = this._initialLens();
+    this._lensWait = 0;
+    this._spareBroken = null;
   }
 
   _videoOn() {
@@ -1153,6 +1161,7 @@ class AdvancedReolinkCard extends HTMLElement {
     this._syncLayoutAttr();
     this._closePresets(false);
     this._abandonPatrol();
+    this._dropSpare();
     this._cancelHeightAnim();
     this._clearHostPad();
     this._cardMinHeight = 0;
@@ -1208,6 +1217,7 @@ class AdvancedReolinkCard extends HTMLElement {
           <div class="stage">
             <canvas class="holdframe" hidden></canvas>
             <video muted playsinline autoplay disablepictureinpicture hidden></video>
+            <video class="behind" muted playsinline autoplay disablepictureinpicture hidden></video>
             <img class="still" alt="" hidden>
             <div class="slot" hidden></div>
             <button type="button" class="play" aria-label="Start live view"><ha-icon icon="mdi:play-circle-outline"></ha-icon><span>Tap to start live view</span></button>
@@ -1249,7 +1259,9 @@ class AdvancedReolinkCard extends HTMLElement {
     this._videoBox = $(".video");
     this._videoStage = $(".video .stage");
     this._holdEl = $("canvas.holdframe");
-    this._videoEl = $(".video video");
+    const videos = this.shadowRoot.querySelectorAll(".video .stage video");
+    this._videoEl = videos[0] || null;
+    this._spareEl = videos[1] || null;
     this._stillEl = $(".video img.still");
     this._slotEl = $(".video .slot");
     this._playBtn = $(".video button.play");
@@ -1839,9 +1851,15 @@ class AdvancedReolinkCard extends HTMLElement {
         this._setLens(this._lens === "tele" ? "wide" : "tele");
       });
     }
-    if (this._videoEl) {
-      this._videoEl.addEventListener("playing", () => this._videoLive());
-      this._videoEl.addEventListener("loadeddata", () => this._videoLive());
+    for (const el of [this._videoEl, this._spareEl]) {
+      if (!el) continue;
+      el.addEventListener("playing", () => this._onVideoFrame(el));
+      el.addEventListener("loadeddata", () => this._onVideoFrame(el));
+    }
+    if (this._videoBox) {
+      const wake = () => this._spareTouch(true);
+      this._videoBox.addEventListener("pointerenter", wake);
+      this._videoBox.addEventListener("pointerdown", wake, true);
     }
     if (this._stillEl) this._stillEl.addEventListener("load", () => this._videoLive());
     if (this._listenBtn) this._listenBtn.addEventListener("click", () => this._onListenClick());
@@ -1963,10 +1981,15 @@ class AdvancedReolinkCard extends HTMLElement {
       this._playBtn.hidden = on || !!this._patrolEl;
       this._stopVideoBtn.hidden = !on;
       this._videoEl.hidden = !(on && v.kind === "webrtc");
+      if (this._spareEl) this._spareEl.hidden = !(on && v.kind === "webrtc" && this._spare && this._spareEl.srcObject);
       this._stillEl.hidden = !(on && v.kind === "image");
       this._slotEl.hidden = !(on && v.kind === "stream");
       const waking = v.state === "waking";
+      const switching = !!(this._lensWait && v.state !== "error");
+      this._overlayEl.classList.toggle("soft", switching);
+      if (this._holdEl) this._holdEl.classList.toggle("soft", switching);
       this._overlayEl.textContent =
+        switching ? (this._lensHint() ? "Switching lens" : "") :
         v.state === "connecting" ? "Connecting" :
         waking ? "Waking the camera" :
         v.state === "error" ? v.message || "Live view failed" :
@@ -2337,14 +2360,189 @@ class AdvancedReolinkCard extends HTMLElement {
     if (next === "tele" && !this._teleEntity()) return;
     if (next === this._lens) return;
     const live = !!(this._videoOn() && this._config?.video && !this._inGrid());
-    if (live) {
-      this._lockCardHeight(true);
-      this._captureHoldFrame();
-    }
     this._lens = next;
     this._lensPicked = true;
+    if (!live) {
+      this._update();
+      return;
+    }
+    this._spareTouch(false);
+    const want = this._cameraEntity();
+    const pipe = this._video.kind === "webrtc" && this._pipe && !this._pipe.closed ? this._pipe : null;
+    if (pipe && pipe.entityId === want) {
+      // Switched back before the other lens was ready. The current stream is already right.
+      this._lensWait = 0;
+      this._update();
+      return;
+    }
+    this._startLensWait();
+    if (pipe && !this._battery() && this._spareEl) {
+      // Keep the current lens playing until the other one has a frame, then swap.
+      const spare = this._spare;
+      if (spare && spare.entity === want && spare.ready) this._swapToSpare();
+      else if (!spare || spare.entity !== want) this._openSpare(want);
+      return;
+    }
+    this._lockCardHeight(true);
+    this._captureHoldFrame();
     this._update();
-    if (live) this._restartVideoForLens();
+    this._restartVideoForLens();
+  }
+
+  _startLensWait() {
+    this._lensWait = this._nowMs();
+    clearTimeout(this._lensHintTimer);
+    this._lensHintTimer = setTimeout(() => this._update(), LENS_HINT_MS);
+    this._update();
+  }
+
+  _lensHint() {
+    return !!(this._lensWait && this._nowMs() - this._lensWait >= LENS_HINT_MS);
+  }
+
+  _spareWanted() {
+    return !!(
+      this._config?.video &&
+      !this._inGrid() &&
+      !this._patrolEl &&
+      !this._battery() &&
+      this._spareEl &&
+      this._video.state === "live" &&
+      this._video.kind === "webrtc" &&
+      this._pipe &&
+      !this._pipe.closed &&
+      this._teleEntity() &&
+      typeof RTCPeerConnection !== "undefined" &&
+      document.visibilityState !== "hidden"
+    );
+  }
+
+  _otherLensEntity() {
+    return this._lens === "tele" ? this._wideEntity() : this._teleEntity();
+  }
+
+  _queueSpare() {
+    clearTimeout(this._spareQueue);
+    this._spareQueue = setTimeout(() => this._warmSpare(), SPARE_DELAY_MS);
+  }
+
+  _warmSpare() {
+    if (!this._spareWanted()) return;
+    const other = this._otherLensEntity();
+    if (!other || other === this._pipe.entityId || other === this._spareBroken) return;
+    if (this._spare && this._spare.entity === other) return;
+    this._openSpare(other);
+  }
+
+  /* Any tap or hover on the video counts as use. A closed spare opens again. */
+  _spareTouch(warm) {
+    clearTimeout(this._spareIdle);
+    this._spareIdle = setTimeout(() => {
+      if (this._spare && !this._lensWait) this._dropSpare();
+    }, SPARE_IDLE_MS);
+    if (warm && !this._spare) this._warmSpare();
+  }
+
+  _openSpare(entity) {
+    this._dropSpare();
+    if (!entity || !this._hass || typeof RTCPeerConnection === "undefined") return;
+    const pipe = new WebRtcPipe(this._hass, entity, {
+      video: true,
+      onTrack: (track) => this._routeTrack(pipe, track),
+      onError: (message) => this._routeError(pipe, message),
+    });
+    const spare = { pipe, entity, ready: false };
+    this._spare = spare;
+    this._spareTimer = setTimeout(() => {
+      if (this._spare === spare && !spare.ready) this._spareFailed(spare);
+    }, CONNECT_TIMEOUT_MS);
+    this._spareTouch(false);
+    pipe.start().catch((err) => this._routeError(pipe, (err && err.message) || String(err)));
+  }
+
+  _dropSpare() {
+    clearTimeout(this._spareTimer);
+    const spare = this._spare;
+    this._spare = null;
+    if (spare) spare.pipe.stop();
+    if (this._spareEl) {
+      this._spareEl.srcObject = null;
+      this._spareEl.hidden = true;
+    }
+  }
+
+  _spareFailed(spare) {
+    if (this._spare !== spare) return;
+    const waiting = !!(this._lensWait && spare.entity === this._cameraEntity());
+    this._spareBroken = spare.entity;
+    this._dropSpare();
+    if (!waiting) return;
+    this._lockCardHeight(true);
+    this._captureHoldFrame();
+    this._restartVideoForLens();
+  }
+
+  _routeTrack(pipe, track) {
+    if (!pipe.tracks) pipe.tracks = {};
+    pipe.tracks[track.kind] = track;
+    const spare = this._spare;
+    if (spare && spare.pipe === pipe) {
+      if (track.kind === "video" && this._spareEl) {
+        this._spareEl.srcObject = new MediaStream([track]);
+        this._spareEl.hidden = false;
+        this._spareEl.play?.().catch(() => {});
+      }
+      return;
+    }
+    this._onTrack(pipe, track);
+  }
+
+  _routeError(pipe, message) {
+    const spare = this._spare;
+    if (spare && spare.pipe === pipe) {
+      this._spareFailed(spare);
+      return;
+    }
+    this._onPipeError(pipe, message);
+  }
+
+  _onVideoFrame(el) {
+    if (el === this._videoEl) {
+      this._videoLive();
+      return;
+    }
+    const spare = this._spare;
+    if (el !== this._spareEl || !spare || spare.ready || !el.videoWidth) return;
+    spare.ready = true;
+    clearTimeout(this._spareTimer);
+    if (this._lensWait && spare.entity === this._cameraEntity()) this._swapToSpare();
+  }
+
+  /* The spare stream becomes the live view and the old one waits as the spare. */
+  _swapToSpare() {
+    const spare = this._spare;
+    if (!spare) return;
+    const oldPipe = this._pipe;
+    const oldEl = this._videoEl;
+    clearTimeout(this._pipeTimer);
+    this._spare = oldPipe && !oldPipe.closed ? { pipe: oldPipe, entity: oldPipe.entityId, ready: true } : null;
+    if (!this._spare && oldPipe) oldPipe.stop();
+    this._pipe = spare.pipe;
+    this._videoEl = this._spareEl;
+    this._spareEl = oldEl;
+    this._videoEl.classList.remove("behind");
+    this._spareEl.classList.add("behind");
+    if (!this._spare) this._spareEl.srcObject = null;
+    const audio = spare.pipe.tracks?.audio;
+    if (audio) this._attachAudio(audio);
+    else this._detachAudio();
+    if (this._listening) {
+      this._listen = { state: audio ? "live" : this._pipeConnecting(), message: "" };
+      if (!audio) this._armTimeout(this._pipe);
+    }
+    this._lensWait = 0;
+    this._releaseHoldFrame();
+    this._update();
   }
 
   async _restartVideoForLens() {
@@ -2359,6 +2557,7 @@ class AdvancedReolinkCard extends HTMLElement {
     }
     if (this._stillEl) this._stillEl.removeAttribute("src");
     if (this._videoEl) this._videoEl.srcObject = null;
+    this._dropSpare();
     this._closePipe();
     this._video = { state: "off", kind: null, message: "" };
     await this._startVideo();
@@ -2408,8 +2607,8 @@ class AdvancedReolinkCard extends HTMLElement {
     this._closePipe();
     const pipe = new WebRtcPipe(this._hass, entity, {
       video,
-      onTrack: (track) => this._onTrack(pipe, track),
-      onError: (message) => this._onPipeError(pipe, message),
+      onTrack: (track) => this._routeTrack(pipe, track),
+      onError: (message) => this._routeError(pipe, message),
     });
     this._pipe = pipe;
     if (this._listening) {
@@ -2462,6 +2661,8 @@ class AdvancedReolinkCard extends HTMLElement {
 
   _onPipeError(pipe, message) {
     if (this._pipe !== pipe) return;
+    this._lensWait = 0;
+    this._dropSpare();
     this._closePipe();
     if (this._video.kind === "webrtc" && this._video.state !== "off") {
       this._video = { state: "error", kind: "webrtc", message };
@@ -2619,11 +2820,13 @@ class AdvancedReolinkCard extends HTMLElement {
 
   _videoLive() {
     if (this._video.state === "off" || this._video.state === "error") return;
-    if (this._video.state !== "live") {
+    if (this._video.state !== "live" || this._lensWait) {
       this._video.state = "live";
+      if (!this._spare || this._spare.entity !== this._cameraEntity()) this._lensWait = 0;
       this._update();
     }
     this._releaseHoldFrame();
+    if (!this._spare) this._queueSpare();
   }
 
   /* Fallback: Home Assistant's own player (HLS), always muted. */
@@ -2664,6 +2867,8 @@ class AdvancedReolinkCard extends HTMLElement {
   _stopVideo(reason) {
     const wasWebRtc = this._video.kind === "webrtc";
     this._video = { state: "off", kind: null, message: "" };
+    this._lensWait = 0;
+    this._dropSpare();
     clearInterval(this._stillTimer);
     this._stillTimer = null;
     if (this._streamEl) {
@@ -2755,6 +2960,7 @@ class AdvancedReolinkCard extends HTMLElement {
     this._stopGrid();
     if (this._listening) this._stopListen(reason);
     if (this._video.state !== "off") this._stopVideo(reason);
+    this._dropSpare();
     this._closePipe();
   }
 
@@ -3077,8 +3283,8 @@ class AdvancedReolinkCard extends HTMLElement {
     this._render();
     const entity = this._cameraEntity();
     if (pipe && kind === "webrtc" && entity && pipe.entityId === entity) {
-      pipe.onTrack = (track) => this._onTrack(pipe, track);
-      pipe.onError = (message) => this._onPipeError(pipe, message);
+      pipe.onTrack = (track) => this._routeTrack(pipe, track);
+      pipe.onError = (message) => this._routeError(pipe, message);
       this._pipe = pipe;
       this._video = { state: state === "live" ? "live" : "connecting", kind: "webrtc", message: "" };
       if (this._videoEl && stream) {

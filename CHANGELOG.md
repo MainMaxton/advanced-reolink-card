@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.9 (2026-10-28)
+
+### Fixed
+- Switching between Wide and Tele no longer drops to the Connecting screen. The
+  other lens opens quietly in the background while the live view plays, so the
+  swap is instant and Listen carries on. The background stream closes when you
+  change camera, stop the live view or leave the card alone for five minutes.
+  If the other lens is not ready yet, the current lens keeps playing and a small
+  "Switching lens" note shows until the new one has a picture.
+
 ## 0.5.8 (2026-10-28)
 
 ### Added
