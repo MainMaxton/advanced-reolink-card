@@ -47,7 +47,7 @@
       },
       "live_page": {
         "title": "Live page",
-        "description": "Add a fullscreen Live page to a dashboard, for links like /<dashboard>/live?camera=<camera>. You can also do this later in Configure.{yaml_note}",
+        "description": "Add a fullscreen Live page to a dashboard, for links like /DASHBOARD/live?camera=CAMERA_ENTITY. You can also do this later in Configure.{yaml_note}",
         "data": {
           "live_page": "Create a fullscreen Live page",
           "live_dashboard": "Dashboard"

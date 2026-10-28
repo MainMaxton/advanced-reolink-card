@@ -3,7 +3,8 @@
   "name": "Advanced Reolink Card",
   "after_dependencies": [
     "frontend",
-    "http"
+    "http",
+    "lovelace"
   ],
   "codeowners": [
     "@MainMaxton"
