@@ -69,8 +69,9 @@ Not affiliated with or endorsed by Reolink.
   integration only reads presets from the camera at startup, so after saving a
   new preset on the camera, reload the Reolink integration. The last preset you
   used stays selected. The button is hidden when the camera has none.
-- **Listen** to the camera microphone, with a volume slider. On iPhone, tap
-  Listen to allow sound; volume follows the phone buttons there.
+- **Listen** to the camera microphone. A speaker icon at the bottom left of the
+  live view mutes and unmutes the sound. Volume is set on your phone or
+  computer. On iPhone, tap the icon to allow sound.
 - **Hold to talk** through the camera speaker. Talk is half duplex by default:
   listening is muted while you talk, so you do not hear yourself.
 
@@ -98,7 +99,7 @@ before they speak. Nothing streams until you tap, so they are not kept awake.
 <table>
   <tr>
     <td align="center"><img src="docs/images/card-switch-camera.png" alt="Switched to a doorbell tab, which has no pan and tilt" width="260"><br><sub>Switch cameras with a tab or a swipe</sub></td>
-    <td align="center"><img src="docs/images/card-ptz-presets-talk.png" alt="Pan and tilt pad, listen with volume, and the talk button" width="260"><br><sub>Pan and tilt, listen and talk</sub></td>
+    <td align="center"><img src="docs/images/card-ptz-presets-talk.png" alt="Pan and tilt pad, listen and the talk button" width="260"><br><sub>Pan and tilt, listen and talk</sub></td>
   </tr>
 </table>
 
@@ -191,10 +192,9 @@ starting camera, the layout and the grid warning.
 | `icon` | string | `mdi:cctv` | Header and tab icon. A talk only card uses `mdi:microphone`. |
 | `video` | boolean | `false` | Live view. |
 | `ptz` | boolean | `false` | Pan and tilt pad. Shown only when the camera can pan. Zoom buttons show on the live view when the camera can zoom. |
-| `listen` | boolean | `false` | Listen button and volume slider. |
+| `listen` | boolean | `false` | Mute and unmute icon at the bottom left of the live view. Without live view it is a Listen button. |
 | `talk` | boolean | `true` | Talk button. Set `false` for a view only camera. |
 | `talk_auto_listen` | boolean | `false` | Pressing talk also turns on Listen. |
-| `volume` | number | `80` | Starting listen volume, 0 to 100. |
 | `duplex` | string | `half` | `half` mutes listening while you talk. `full` keeps it on and may echo. |
 | `mode` | string | `hold` | Talk button: `hold` to talk, or `toggle` to tap on and off. |
 | `show_level` | boolean | `true` | Microphone level bar under the talk button. |
@@ -235,7 +235,6 @@ video: true
 ptz: true
 listen: true
 talk: true
-volume: 80
 start_camera: front_yard
 cameras:
   - entity: media_player.front_yard_speaker
@@ -282,7 +281,7 @@ panel view or a hidden subview on a phone.
 - The video takes all the space the controls do not need.
 - Tabs, pan and tilt, zoom, presets, Guard, Patrol, Listen and hold to talk all
   stay, and work the same as on the normal card. Only the layout changes.
-- On iPhone, tap Listen to allow sound. If the button says *Tap to hear*, tap it
+- On iPhone, tap the speaker icon to allow sound. If it turns orange, tap it
   again. Volume follows the phone buttons there.
 - If the controls do not fit, for example on a phone turned sideways, the card
   scrolls. The video always keeps at least 40% of the card's height.
@@ -457,7 +456,7 @@ longer if a battery camera has to wake.
   or when the connection drops.
 - With `duplex: half` (the default), listening is muted while you talk and for
   about 1.5 seconds after.
-- On iPhone, tap Listen to allow sound; volume follows the phone buttons there.
+- On iPhone, tap the speaker icon to allow sound; volume follows the phone buttons there.
 
 <table>
   <tr>
@@ -588,7 +587,7 @@ optional `volume` from 0 to 200 percent. `say` also takes `voice`.
 | No Presets button | The camera needs at least one preset, and pan and tilt must be on. It is hidden in the grid. The names come from the camera's preset list in Home Assistant. |
 | Talk button says it needs a secure page | Open Home Assistant over HTTPS or use the companion app. |
 | *Microphone permission was denied* | Allow the microphone for Home Assistant in the browser or phone settings. |
-| No sound when listening | Turn on the camera's *Record audio* switch in the Reolink integration, and check the volume slider and phone volume. On an iPhone, tap Listen. If the button says *Tap to hear*, tap it again. Volume follows the phone buttons there. |
+| No sound when listening | Turn on the camera's *Record audio* switch in the Reolink integration, and check the speaker icon is not muted and the phone volume is up. On an iPhone, tap the speaker icon. If it turns orange, tap it again. Volume follows the phone buttons there. |
 | Talk says the camera is busy | A message is already playing on that NVR. Try again when it ends. |
 | The test sweep does not reach the edges | Open the wizard and set the right limit again. If auto tracking takes over, save `disable_tracking: true` with `set_patrol_limits`. |
 | The card looks out of date on a phone | In the companion app: Settings, Companion app, Debugging, Reset frontend cache. |

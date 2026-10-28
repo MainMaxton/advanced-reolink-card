@@ -160,7 +160,8 @@ equal(multi.cameras[1].video, true, "garage still inherits video");
 equal(multi.cameras[2].talk, false, "doorbell talk override");
 equal(multi.cameras[2].listen, true, "doorbell inherits listen");
 equal(multi.cameras[2].camera_entity, "camera.doorbell_fluent", "doorbell camera_entity");
-equal(multi.cameras[0].volume, 80, "volume default");
+equal(multi.cameras[0].volume, undefined, "an old volume key is ignored");
+assert(!("volume" in context.CARD_DEFAULTS), "no volume default");
 equal(multi.default_camera, "Garage", "default_camera passed through");
 equal(multi.cameras[1].icon, "mdi:garage", "per-camera icon");
 
@@ -392,7 +393,6 @@ const keys = [
   "listen",
   "talk",
   "talk_auto_listen",
-  "volume",
   "duplex",
   "mode",
   "show_level",
@@ -414,7 +414,7 @@ const leaveStart = src.indexOf("  _leaveGrid(index) {");
 const leaveBody = src.slice(leaveStart, src.indexOf("\n  }\n", leaveStart));
 assert(leaveBody.includes("_resetLens()"), "leaving the grid starts on the wide lens");
 
-assert(src.includes('const CARD_VERSION = "0.6.0"'), "CARD_VERSION is 0.6.0");
+assert(src.includes('const CARD_VERSION = "0.6.1"'), "CARD_VERSION is 0.6.1");
 assert(src.includes('layout: "fullscreen"') || src.includes('layout === "fullscreen"'), "fullscreen layout is supported");
 assert(src.includes("100dvh"), "fullscreen uses 100dvh");
 assert(src.includes("100vh"), "fullscreen falls back to 100vh");
@@ -1258,7 +1258,6 @@ function freshListen() {
   const host = {
     _hass: { id: 1 },
     _config: { listen: true, talk: false, duplex: "half", volume: 80, video: true },
-    _volume: 0.8,
     _listening: false,
     _listenBlocked: false,
     _listen: { state: "off", message: "" },
@@ -1266,10 +1265,8 @@ function freshListen() {
     _status: { text: "", kind: "" },
     _video: { state: "off", kind: null, message: "" },
     _audioEl: makeAudio(),
-    _listenBtn: makeListenButton(),
     _listenRow: { hidden: false },
     _statusEl: { className: "", textContent: "" },
-    _volumeEl: { value: "80" },
     shadowRoot: { activeElement: null },
     _pipe: null,
     _info: { ok: true },
@@ -1290,6 +1287,8 @@ function freshListen() {
   for (const name of Object.keys(listenCtx)) {
     if (name.startsWith("_")) host[name] = listenCtx[name];
   }
+  host._listenBtn = makeListenButton();
+  host._listenBtns = [host._listenBtn];
   return host;
 }
 
@@ -1354,13 +1353,11 @@ assert(!noMedia._listenBtn.className.split(/\s+/).includes("blocked"), "an empty
 const attached = freshListen();
 attached._listening = true;
 attached._listen = { state: "connecting", message: "" };
-attached._config.volume = 80;
-attached._volume = Math.max(0, Math.min(100, Number(attached._config.volume))) / 100;
 attached._audioEl.muted = true;
-attached._audioEl.volume = 0;
+attached._audioEl.volume = 0.35;
 attached._attachAudio({ kind: "audio" });
 assert(attached._audioEl.muted === false, "attaching an audio track while listening leaves the sink unmuted");
-assert(attached._audioEl.volume === 0.8, "config volume 80 is element volume 0.8");
+assert(attached._audioEl.volume === 0.35, "the card never sets the element volume");
 assert(attached._audioEl.srcObject && attached._audioEl.srcObject.tracks[0].kind === "audio", "the sink plays the remote audio track");
 attached._stopListen("client");
 assert(attached._listening === false, "stopping listen clears listening");
@@ -1405,12 +1402,12 @@ redraw._unlockedEl = redraw._audioEl;
 redraw._audioStream = { id: "keep" };
 const rebuilt = makeAudio();
 rebuilt.muted = true;
-rebuilt.volume = 0;
+rebuilt.volume = 0.5;
 rebuilt.playMode = "reject";
 redraw._audioEl = rebuilt;
 redraw._resumeSink();
 assert(rebuilt.muted === false, "a re-render while listening does not leave the sink muted");
-assert(rebuilt.volume === 0.8, "a re-render keeps the listen volume");
+assert(rebuilt.volume === 0.5, "a re-render leaves the volume to the device");
 assert(rebuilt.srcObject === redraw._audioStream, "a re-render keeps the audio stream on the new sink");
 assert(redraw._unlockedEl !== rebuilt, "a re-render does not mark the new element unlocked");
 assert(redraw._listenBtn.label.textContent === "Tap to hear", "a redraw outside a tap can ask for another tap");
@@ -1456,6 +1453,51 @@ try {
 }
 assert(!crashed, "a read-only volume does not crash");
 assert(readOnly._audioEl.muted === false, "listening still unmutes when volume cannot be set");
+
+// Listen is one mute toggle on the video. No slider, no volume.
+const renderSrc = methodSource("_render");
+assert(!src.includes('class="volume"'), "no listening volume slider is rendered");
+assert(!src.includes("_volumeEl"), "no volume slider wiring");
+assert(!/\.volume\s*=[^=]/.test(src), "the card never writes element volume");
+assert(!src.includes("Listening volume"), "no volume option in the editor");
+const stageStart = renderSrc.indexOf('<div class="stage">');
+const stageListen = renderSrc.indexOf('class="listen"', stageStart);
+assert(stageStart > 0 && stageListen > stageStart && stageListen < renderSrc.indexOf('class="overlay"', stageStart), "the Listen icon sits on the live view");
+assert(/<button type="button" class="listen" aria-pressed="false" aria-label="[^"]+"/.test(renderSrc), "the Listen icon has aria-label and aria-pressed");
+assert(/\.video button\.listen \{[^}]*bottom: 12px; left: 12px;/.test(src), "the Listen icon is bottom left");
+
+const oldVolume = normalizeCardConfig({ type: "custom:advanced-reolink-card", entity: "media_player.x", video: true, listen: true, volume: 80 });
+equal(oldVolume.cameras[0].volume, undefined, "a saved volume is accepted and dropped");
+const oldMulti = normalizeCardConfig({
+  entity: "media_player.x",
+  listen: true,
+  volume: 80,
+  cameras: [{ name: "A", volume: 40 }, { name: "B" }],
+});
+equal(oldMulti.cameras.map((cam) => cam.volume), [undefined, undefined], "per camera volume is dropped too");
+
+const toggle = freshListen();
+toggle._audioEl.srcObject = { id: "live" };
+toggle._pipe = { closed: false, entityId: "camera.front" };
+toggle._onListenClick();
+assert(toggle._audioEl.muted === false, "the first tap unmutes");
+equal(toggle._listenBtn.attrs["aria-pressed"], "true", "pressed while listening");
+toggle._onListenClick();
+assert(toggle._audioEl.muted === true, "the second tap mutes");
+equal(toggle._listenBtn.attrs["aria-pressed"], "false", "not pressed when muted");
+toggle._onListenClick();
+assert(toggle._audioEl.muted === false, "the third tap unmutes again");
+equal(toggle._audioEl.volume, 1, "toggling leaves volume alone");
+
+const iconOnly = freshListen();
+const videoIcon = makeListenButton();
+videoIcon.querySelector = (sel) => (sel === "ha-icon" ? { setAttribute() {} } : null);
+iconOnly._listenBtns = [videoIcon, iconOnly._listenBtn];
+iconOnly._audioEl.srcObject = { id: "live" };
+iconOnly._pipe = { closed: false, entityId: "camera.front" };
+iconOnly._onListenClick();
+equal(videoIcon.attrs.title, "Listening", "the icon without a label shows state in its title");
+equal(videoIcon.attrs["aria-pressed"], "true", "both Listen buttons stay in step");
 
 
 // Lens swap: the other lens opens in the background and takes over without a reconnect.

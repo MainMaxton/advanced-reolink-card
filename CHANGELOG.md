@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.6.1 (2026-10-29)
+
+### Changed
+- Listen is now a single mute and unmute icon at the bottom left of the live
+  view, in the normal card, the fullscreen layout and every camera tab. It sits
+  away from the Wide / Tele switch at the top left and the zoom buttons at the
+  bottom right. A card without live view keeps a Listen button.
+- The card no longer sets a volume. It only mutes and unmutes, so sound follows
+  the device volume, which is how iPhone works anyway.
+
+### Removed
+- The listening volume slider and the `volume` option. Saved cards that still
+  have `volume` keep working; the value is ignored.
+
 ## 0.6.0 (2026-10-28)
 
 ### Added
