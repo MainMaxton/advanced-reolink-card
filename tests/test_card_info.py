@@ -113,6 +113,24 @@ def test_classify_zoom_enabled() -> None:
     assert info["ptz"]["disabled_entities"] == []
 
 
+def test_classify_zoom_number() -> None:
+    """TrackMix on current core: no zoom buttons, only the absolute zoom number."""
+    ents = [e for e in _trackmix_entities() if "zoom" not in e.unique_id]
+    info = classify_entities([*ents, _ent("number", "zoom")]).as_dict()
+    assert info["ptz"]["zoom"] is True
+    assert info["ptz"]["zoom_entity"] == "number.cam_zoom"
+    assert "zoom_in" not in info["ptz"]["entities"]
+
+    off = classify_entities([*ents, _ent("number", "zoom", disabled=True)]).as_dict()
+    assert off["ptz"]["zoom"] is False
+    assert off["ptz"]["zoom_entity"] is None
+    assert off["ptz"]["disabled_entities"] == ["number.cam_zoom"]
+
+    plain = classify_entities(ents).as_dict()
+    assert plain["ptz"]["zoom"] is False
+    assert plain["ptz"]["zoom_entity"] is None
+
+
 def test_classify_fixed_camera_and_doorbell() -> None:
     fixed = classify_entities([_ent("camera", "sub"), _ent("button", "guard_go_to")]).as_dict()
     assert fixed["ptz"]["supported"] is False
@@ -149,6 +167,73 @@ def test_classify_snapshot_only() -> None:
     assert info["cameras"] == [
         {"entity_id": "camera.cam_snapshots_sub", "stream": "snapshots_sub", "snapshot_only": True}
     ]
+    assert info["lenses"] == {"wide": None, "tele": None, "tele_disabled": False}
+
+
+def test_classify_lenses_trackmix() -> None:
+    """TrackMix: fluent wide, telephoto fluent, disabled clear streams ignored."""
+    prefix = f"{NVR_ID}_{UID_A}"
+    ents = [
+        RegistryEntity("camera.front_door_snapshots", f"{prefix}_snapshots", "camera"),
+        RegistryEntity("camera.front_door_clear", f"{prefix}_main", "camera", True),
+        RegistryEntity("camera.front_door_telephoto_clear", f"{prefix}_autotrack_main", "camera", True),
+        RegistryEntity("camera.front_door_telephoto_fluent", f"{prefix}_autotrack_sub", "camera"),
+        RegistryEntity("camera.front_door_fluent", f"{prefix}_sub", "camera"),
+    ]
+    info = classify_entities(ents).as_dict()
+    assert info["lenses"] == {
+        "wide": "camera.front_door_fluent",
+        "tele": "camera.front_door_telephoto_fluent",
+        "tele_disabled": False,
+    }
+    assert info["camera_entity"] == "camera.front_door_fluent"
+    streams = {c["entity_id"]: c["stream"] for c in info["cameras"]}
+    assert "camera.front_door_clear" not in streams
+    assert "camera.front_door_telephoto_clear" not in streams
+    assert streams["camera.front_door_fluent"] == "sub"
+    assert streams["camera.front_door_telephoto_fluent"] == "autotrack_sub"
+
+
+def test_classify_lenses_single_lens() -> None:
+    """CX820 style: wide streams only, no telephoto entity at all."""
+    prefix = f"{NVR_ID}_{UID_A}"
+    info = classify_entities(
+        [
+            RegistryEntity("camera.cx820_clear", f"{prefix}_main", "camera"),
+            RegistryEntity("camera.cx820_fluent", f"{prefix}_sub", "camera"),
+            RegistryEntity("camera.cx820_snapshots", f"{prefix}_snapshots_sub", "camera"),
+        ]
+    ).as_dict()
+    assert info["lenses"] == {"wide": "camera.cx820_fluent", "tele": None, "tele_disabled": False}
+    assert info["camera_entity"] == "camera.cx820_fluent"
+
+
+def test_classify_lenses_tele_disabled() -> None:
+    prefix = f"{NVR_ID}_{UID_A}"
+    info = classify_entities(
+        [
+            RegistryEntity("camera.trackmix_fluent", f"{prefix}_sub", "camera"),
+            RegistryEntity("camera.trackmix_telephoto_fluent", f"{prefix}_autotrack_sub", "camera", True),
+            RegistryEntity("camera.trackmix_telephoto_clear", f"{prefix}_autotrack_main", "camera", True),
+            RegistryEntity("camera.trackmix_autotrack_snapshots", f"{prefix}_autotrack_snapshots_sub", "camera", True),
+        ]
+    ).as_dict()
+    assert info["lenses"] == {"wide": "camera.trackmix_fluent", "tele": None, "tele_disabled": True}
+    assert [c["entity_id"] for c in info["cameras"]] == ["camera.trackmix_fluent"]
+
+
+def test_classify_lenses_tele_main_only() -> None:
+    prefix = f"{NVR_ID}_{UID_A}"
+    info = classify_entities(
+        [
+            RegistryEntity("camera.trackmix_fluent", f"{prefix}_sub", "camera"),
+            RegistryEntity("camera.trackmix_telephoto_fluent", f"{prefix}_autotrack_sub", "camera", True),
+            RegistryEntity("camera.trackmix_telephoto_clear", f"{prefix}_autotrack_main", "camera"),
+        ]
+    ).as_dict()
+    assert info["lenses"]["tele"] == "camera.trackmix_telephoto_clear"
+    assert info["lenses"]["tele_disabled"] is False
+    assert info["lenses"]["wide"] == "camera.trackmix_fluent"
 
 
 # ---------------------------------------------------------------------------
@@ -292,6 +377,11 @@ async def test_ws_card_info_ptz_camera(
     assert info["speaker_entity"] == SPEAKER_A
     assert info["talk"] is True
     assert info["camera_entity"] == "camera.front_yard_sub"
+    assert info["lenses"] == {
+        "wide": "camera.front_yard_sub",
+        "tele": "camera.front_yard_autotrack_sub",
+        "tele_disabled": False,
+    }
     assert info["ptz"]["supported"] is True
     assert info["ptz"]["entities"]["stop"] == "button.front_yard_ptz_stop"
     assert info["ptz"]["preset_entity"] == "select.front_yard_ptz_preset"
@@ -361,6 +451,10 @@ async def test_ws_card_info_channel_and_override(
     assert msg["result"]["camera_entity"] == "camera.front_yard_autotrack_sub"
     assert msg["result"]["device_id"] == reolink_core["a"]
     assert msg["result"]["ptz"]["supported"] is True
+    # Explicit tele stream does not replace the wide lens found on the device.
+    assert msg["result"]["lenses"]["wide"] == "camera.front_yard_sub"
+    assert msg["result"]["lenses"]["tele"] == "camera.front_yard_autotrack_sub"
+    assert msg["result"]["lenses"]["tele_disabled"] is False
 
     # camera only (view-only card without talk)
     msg = await _info(ws, camera_entity="camera.garage_sub")

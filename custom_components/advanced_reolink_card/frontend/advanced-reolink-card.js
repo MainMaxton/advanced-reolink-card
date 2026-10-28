@@ -2,7 +2,7 @@
  * Live view, pan, listen and talk.
  * custom:audiohook-talk-card stays as an alias for older dashboards.
  */
-const CARD_VERSION = "0.5.6";
+const CARD_VERSION = "0.6.0";
 const DOMAIN = "advanced_reolink_card";
 const WS_PTZ_MOVE = "advanced_reolink_card/ptz/move";
 const WS_PTZ_STOP = "advanced_reolink_card/ptz/stop";
@@ -23,6 +23,9 @@ const SEND_MS = 40; // send a frame every ~40 ms
 const DUCK_TAIL_MS = 1500; // half-duplex: keep playback muted this long after talking
 const CONNECT_TIMEOUT_MS = 20000;
 const WAKE_TIMEOUT_MS = 45000; // battery cameras need to wake up first
+const SPARE_DELAY_MS = 2000; // wait for the live view to settle before opening the other lens
+const SPARE_IDLE_MS = 300000; // close the other lens after this long without a tap
+const LENS_HINT_MS = 400;
 const STILL_REFRESH_MS = 10000;
 const CAMERA_SUPPORT_STREAM = 2; // CameraEntityFeature.STREAM
 
@@ -162,6 +165,16 @@ class WebRtcPipe {
 
 const STYLE = `
   :host { display: block; }
+  :host([data-layout="fullscreen"]) {
+    display: flex; flex-direction: column; box-sizing: border-box;
+    height: calc(100vh - var(--header-height, 56px) - env(safe-area-inset-top, 0px));
+    height: calc(100dvh - var(--header-height, 56px) - env(safe-area-inset-top, 0px));
+    padding: 0 env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+  }
+  :host([data-layout="fullscreen"]) ha-card {
+    flex: 1 1 auto; min-height: 0; border-radius: 0; box-shadow: none; border: none; overflow-y: auto;
+  }
+  :host([data-layout="fullscreen"]) .video { flex: 1 1 auto; min-height: 40%; aspect-ratio: auto; border-radius: 0; }
   ha-card { position: relative; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
   .header { display: flex; align-items: center; flex-wrap: nowrap; gap: 8px; min-width: 0; }
   .header .icon { flex: none; }
@@ -255,16 +268,14 @@ const STYLE = `
   .pbody > * { margin: 0; }
   .pfoot { margin-top: 4px; }
   .patrol-dialog .dpad { display: grid; grid-template-columns: repeat(3, 44px); grid-template-rows: repeat(3, 44px); gap: 4px; }
-  .patrol-dialog .dpad button, .patrol-dialog .zoom button { all: unset; box-sizing: border-box; cursor: pointer; user-select: none;
+  .patrol-dialog .dpad button { all: unset; box-sizing: border-box; cursor: pointer; user-select: none;
     touch-action: none; display: flex; align-items: center; justify-content: center; border-radius: 12px;
     background: var(--secondary-background-color, #eee); color: var(--primary-text-color); }
   .patrol-dialog .dpad button[data-dir="up"] { grid-area: 1 / 2; }
   .patrol-dialog .dpad button[data-dir="left"] { grid-area: 2 / 1; }
   .patrol-dialog .dpad button[data-dir="right"] { grid-area: 2 / 3; }
   .patrol-dialog .dpad button[data-dir="down"] { grid-area: 3 / 2; }
-  .patrol-dialog .zoom { display: flex; flex-direction: column; gap: 4px; }
-  .patrol-dialog .zoom button { width: 44px; height: 44px; }
-  .patrol-dialog .dpad button.active, .patrol-dialog .zoom button.active { background: var(--primary-color); color: var(--text-primary-color, #fff); }
+  .patrol-dialog .dpad button.active { background: var(--primary-color); color: var(--text-primary-color, #fff); }
   .patrol-dialog .act { appearance: none; -webkit-appearance: none; box-sizing: border-box; cursor: pointer; min-height: 40px; padding: 0 16px; border-radius: 20px;
     border: none; background: var(--secondary-background-color, #eee); color: var(--primary-text-color);
     font: inherit; font-weight: 500; line-height: 1.2; display: inline-flex; align-items: center; justify-content: center; text-align: center; }
@@ -307,17 +318,36 @@ const STYLE = `
   .video video, .video img, .video .slot, .video .slot > *, .video canvas.holdframe { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
   .video canvas.holdframe { z-index: 2; filter: brightness(0.55); pointer-events: none; transition: opacity 200ms ease; }
   .video canvas.holdframe.fade { opacity: 0; }
+  .video canvas.holdframe.soft { filter: none; }
+  .video video.behind { opacity: 0; pointer-events: none; }
   .video .overlay { position: absolute; left: 0; right: 0; bottom: 0; z-index: 3; padding: 6px 10px; font-size: 0.85em; color: #fff; background: linear-gradient(transparent, rgba(0,0,0,.65)); }
+  .video.zoom-on .overlay { padding-right: 112px; }
   @media (prefers-reduced-motion: reduce) {
     .video canvas.holdframe { transition: none; }
   }
   .video .overlay:empty { display: none; }
+  .video .overlay.soft { background: none; text-shadow: 0 1px 3px rgba(0,0,0,.9); }
   button { font: inherit; }
   .video button.play { all: unset; position: absolute; inset: 0; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; color: #fff; }
   .video button.play ha-icon { --mdc-icon-size: 56px; }
-  .video button.stopvideo { all: unset; position: absolute; top: 8px; right: 8px; cursor: pointer; width: 36px; height: 36px; border-radius: 18px; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.5); color: #fff; }
+  .video button.stopvideo { all: unset; position: absolute; top: 8px; right: 8px; z-index: 4; cursor: pointer; width: 36px; height: 36px; border-radius: 18px; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.5); color: #fff; }
+  .video button.lens { all: unset; position: absolute; top: 8px; left: 8px; z-index: 4; cursor: pointer; box-sizing: border-box;
+    display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border-radius: 16px;
+    background: rgba(0,0,0,.5); color: #fff; font: inherit; font-size: 14px; font-weight: 500; line-height: 1; white-space: nowrap; }
+  .video button.lens ha-icon { --mdc-icon-size: 18px; width: 18px; height: 18px; }
+  .video .zoomctl, .pmedia .zoomctl { position: absolute; bottom: 12px; right: 12px; z-index: 4; display: flex; gap: 8px; }
+  .video .zoomctl button, .pmedia .zoomctl button { all: unset; box-sizing: border-box; cursor: pointer; user-select: none; -webkit-user-select: none;
+    touch-action: none; -webkit-touch-callout: none; width: 40px; height: 40px; border-radius: 20px; display: flex; align-items: center; justify-content: center;
+    background: rgba(0,0,0,.5); color: #fff; }
+  .video .zoomctl button ha-icon, .pmedia .zoomctl button ha-icon { --mdc-icon-size: 22px; width: 22px; height: 22px; }
+  .video .zoomctl button.active, .pmedia .zoomctl button.active, .tile-media .zoomctl button.active { background: var(--primary-color); color: var(--text-primary-color, #fff); }
+  .tile-media .zoomctl { position: absolute; bottom: 8px; right: 8px; z-index: 4; display: flex; gap: 6px; }
+  .tile-media .zoomctl button { all: unset; box-sizing: border-box; cursor: pointer; user-select: none; -webkit-user-select: none;
+    touch-action: none; -webkit-touch-callout: none; width: 32px; height: 32px; border-radius: 16px; display: flex; align-items: center; justify-content: center;
+    background: rgba(0,0,0,.5); color: #fff; }
+  .tile-media .zoomctl button ha-icon { --mdc-icon-size: 18px; width: 18px; height: 18px; }
   .video button:focus-visible, .ptz button:focus-visible, button.presets-open:focus-visible, .presets-menu button.preset-option:focus-visible, button.listen:focus-visible, .tabs button[role="tab"]:focus-visible,
-  .viewtoggle:focus-visible, .tile-open:focus-visible, .gridstart:focus-visible, button.patrol-open:focus-visible, button.guard-open:focus-visible, .patrol-dialog button:focus-visible,
+  .viewtoggle:focus-visible, .tile-open:focus-visible, .tile-media .zoomctl button:focus-visible, .gridstart:focus-visible, button.patrol-open:focus-visible, button.guard-open:focus-visible, .patrol-dialog button:focus-visible,
   .patrol-dialog .act:focus-visible { outline: 3px solid var(--accent-color, #ff9800); outline-offset: 2px; }
   .presets-menu button.preset-option:focus-visible { outline-offset: -2px; }
   .ptz { display: flex; align-items: center; justify-content: center; gap: 20px; flex-wrap: wrap; }
@@ -327,7 +357,6 @@ const STYLE = `
   .ptz button[data-ptz].active { background: var(--primary-color); color: var(--text-primary-color, #fff); }
   .ptz button[data-ptz="up"] { grid-area: 1 / 2; } .ptz button[data-ptz="left"] { grid-area: 2 / 1; }
   .ptz button[data-ptz="right"] { grid-area: 2 / 3; } .ptz button[data-ptz="down"] { grid-area: 3 / 2; }
-  .zoom { display: flex; flex-direction: column; gap: 4px; } .zoom button { width: 48px; height: 48px; }
   .listenrow { display: flex; align-items: center; gap: 12px; }
   button.listen { all: unset; box-sizing: border-box; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 0 16px; min-height: 48px; border-radius: 24px;
     background: var(--secondary-background-color, #eee); color: var(--primary-text-color); }
@@ -360,8 +389,7 @@ const STYLE = `
     .presets-menu button.preset-option:hover { background: color-mix(in srgb, var(--primary-text-color) 8%, transparent); }
     .presets-menu button.preset-option[aria-checked="true"]:hover { background: color-mix(in srgb, var(--primary-color) 18%, transparent); }
     .ptz button[data-ptz]:hover:not(.active),
-    .patrol-dialog .dpad button:hover:not(.active),
-    .patrol-dialog .zoom button:hover:not(.active) {
+    .patrol-dialog .dpad button:hover:not(.active) {
       background: color-mix(in srgb, var(--primary-text-color) 10%, var(--secondary-background-color, #eee));
     }
   }
@@ -384,6 +412,8 @@ const PTZ_ICONS = {
   zoom_in: "mdi:magnify-plus-outline",
   zoom_out: "mdi:magnify-minus-outline",
 };
+const ZOOM_REPEAT_MS = 450;
+const ZOOM_MEMORY_MS = 4000;
 const PTZ_LABELS = { up: "Tilt up", down: "Tilt down", left: "Pan left", right: "Pan right", zoom_in: "Zoom in", zoom_out: "Zoom out" };
 
 const HTTPS_NOTE =
@@ -422,6 +452,8 @@ const CARD_DEFAULTS = {
 const CAMERA_OPTION_KEYS = [
   "entity",
   "camera_entity",
+  "tele_entity",
+  "lens",
   "name",
   "icon",
   "channel",
@@ -437,6 +469,8 @@ const CAMERA_OPTION_KEYS = [
   "show_level",
 ];
 
+const LENS_MODES = ["auto", "wide", "tele"];
+
 function _hasCameraTarget(c) {
   return !!(c && (c.entity || c.camera_entity || (c.channel !== undefined && c.channel !== "")));
 }
@@ -447,6 +481,12 @@ function _validateModeDuplex(c, prefix) {
   }
   if (c.duplex && !["half", "full"].includes(c.duplex)) {
     throw new Error(`${prefix}'duplex' must be 'half' or 'full'`);
+  }
+}
+
+function _validateLens(c, prefix) {
+  if (c && c.lens && !LENS_MODES.includes(c.lens)) {
+    throw new Error(`${prefix}'lens' must be 'auto', 'wide' or 'tele'`);
   }
 }
 
@@ -487,7 +527,14 @@ function _layoutOptions(config) {
   if (config.hide_grid_warning != null && typeof config.hide_grid_warning !== "boolean") {
     throw new Error("'hide_grid_warning' must be true or false");
   }
-  return { view, grid_columns, hide_grid_warning: config.hide_grid_warning === true };
+  let layout = "card";
+  if (config.layout != null && config.layout !== "") {
+    if (config.layout !== "card" && config.layout !== "fullscreen") {
+      throw new Error("'layout' must be 'card' or 'fullscreen'");
+    }
+    layout = config.layout;
+  }
+  return { view, grid_columns, hide_grid_warning: config.hide_grid_warning === true, layout };
 }
 
 function normalizeCardConfig(config) {
@@ -500,11 +547,13 @@ function normalizeCardConfig(config) {
       throw new Error("'cameras' must be a non-empty list of camera configs");
     }
     _validateModeDuplex(config, "");
+    _validateLens(config, "");
     const cameras = config.cameras.map((entry, i) => {
       if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
         throw new Error(`cameras[${i}] must be a camera config`);
       }
       _validateModeDuplex(entry, `cameras[${i}]: `);
+      _validateLens(entry, `cameras[${i}]: `);
       const merged = mergeCameraEntry(config, entry);
       if (!_hasCameraTarget(merged)) {
         throw new Error(`cameras[${i}]: set 'entity', 'channel' or 'camera_entity'`);
@@ -514,7 +563,13 @@ function normalizeCardConfig(config) {
       }
       return merged;
     });
-    return { cameras, multi: cameras.length >= 2, default_camera: config.default_camera, ...layout };
+    return {
+      cameras,
+      multi: cameras.length >= 2,
+      default_camera: config.default_camera,
+      start_camera: config.start_camera,
+      ...layout,
+    };
   }
   if (!config.entity && !config.camera_entity && (config.channel === undefined || config.channel === "")) {
     throw new Error("Set 'entity' (an Advanced Reolink Card speaker media_player), 'channel' or 'camera_entity'");
@@ -525,31 +580,144 @@ function normalizeCardConfig(config) {
   if (config.duplex && !["half", "full"].includes(config.duplex)) {
     throw new Error("'duplex' must be 'half' or 'full'");
   }
+  _validateLens(config, "");
   if (config.talk !== false && !config.entity && (config.channel === undefined || config.channel === "")) {
     throw new Error("Talk needs 'entity' (speaker) or 'channel'; set 'talk: false' for a view-only card");
   }
-  return { cameras: [mergeCameraEntry(config, null)], multi: false, default_camera: config.default_camera, ...layout };
+  return {
+    cameras: [mergeCameraEntry(config, null)],
+    multi: false,
+    default_camera: config.default_camera,
+    start_camera: config.start_camera,
+    ...layout,
+  };
+}
+
+function _queryKey(part) {
+  const eq = part.indexOf("=");
+  const key = eq >= 0 ? part.slice(0, eq) : part;
+  try {
+    return decodeURIComponent(key.replace(/\+/g, " "));
+  } catch (_err) {
+    return key;
+  }
+}
+
+function _queryValue(part) {
+  const eq = part.indexOf("=");
+  if (eq < 0) return "";
+  const val = part.slice(eq + 1);
+  try {
+    return decodeURIComponent(val.replace(/\+/g, " "));
+  } catch (_err) {
+    return val;
+  }
+}
+
+function _splitQuery(href) {
+  const raw = String(href == null ? "" : href);
+  const hashAt = raw.indexOf("#");
+  const hash = hashAt >= 0 ? raw.slice(hashAt) : "";
+  const withoutHash = hashAt >= 0 ? raw.slice(0, hashAt) : raw;
+  const qAt = withoutHash.indexOf("?");
+  if (qAt >= 0) {
+    return { path: withoutHash.slice(0, qAt), query: withoutHash.slice(qAt + 1), hash };
+  }
+  if (withoutHash.startsWith("/") || /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(withoutHash)) {
+    return { path: withoutHash, query: "", hash };
+  }
+  return { path: "", query: withoutHash, hash };
+}
+
+function parseCameraParam(search) {
+  if (search == null || search === "") return null;
+  const parts = _splitQuery(search);
+  if (!parts.query) return null;
+  const chunks = parts.query.split("&");
+  for (let i = 0; i < chunks.length; i++) {
+    if (!chunks[i] || _queryKey(chunks[i]) !== "camera") continue;
+    const value = String(_queryValue(chunks[i]) || "").trim();
+    return value || null;
+  }
+  return null;
+}
+
+function stripCameraParam(href) {
+  const parts = _splitQuery(href);
+  if (!parts.query) return String(href == null ? "" : href);
+  const kept = [];
+  const chunks = parts.query.split("&");
+  for (let i = 0; i < chunks.length; i++) {
+    if (!chunks[i]) continue;
+    if (_queryKey(chunks[i]) === "camera") continue;
+    kept.push(chunks[i]);
+  }
+  const search = kept.length ? `?${kept.join("&")}` : "";
+  return parts.path + search + parts.hash;
+}
+
+function _entityShortName(id) {
+  const full = String(id || "").trim().toLowerCase();
+  if (!full) return "";
+  const dot = full.indexOf(".");
+  const objectId = dot >= 0 ? full.slice(dot + 1) : full;
+  return objectId.replace(/_(?:fluent|main|sub|clear|speaker|snapshots(?:_sub)?|autotrack(?:_sub)?)$/, "");
+}
+
+function matchCameraIndex(cameras, value) {
+  const n = cameras && cameras.length ? cameras.length : 0;
+  if (!n) return null;
+  if (value === undefined || value === null || value === "") return null;
+  if (typeof value === "number" || (typeof value === "string" && /^-?\d+$/.test(String(value).trim()))) {
+    const i = Number(value);
+    return i >= 0 && i < n ? i : null;
+  }
+  const needle = String(value).trim().toLowerCase();
+  if (!needle) return null;
+  for (let i = 0; i < n; i++) {
+    const c = cameras[i];
+    if (!c) continue;
+    if (c.name && String(c.name).trim().toLowerCase() === needle) return i;
+    for (const id of [c.camera_entity, c.entity]) {
+      if (!id) continue;
+      const full = String(id).trim().toLowerCase();
+      if (full === needle) return i;
+      const dot = full.indexOf(".");
+      const objectId = dot >= 0 ? full.slice(dot + 1) : full;
+      if (objectId === needle || _entityShortName(id) === needle) return i;
+    }
+  }
+  return null;
+}
+
+const ZOOM_STEPS = 10;
+
+function zoomStepValue(current, attrs, role) {
+  const min = Number(attrs && attrs.min);
+  const max = Number(attrs && attrs.max);
+  const from = Number(current);
+  if (!Number.isFinite(min) || !Number.isFinite(max) || !Number.isFinite(from) || max <= min) return null;
+  const step = Math.max(Number(attrs.step) || 1, Math.round((max - min) / ZOOM_STEPS));
+  const next = Math.min(max, Math.max(min, from + (role === "zoom_in" ? step : -step)));
+  return next === from ? null : next;
+}
+
+function nextLensAfterZoom(mode, lens, role, value, min, hasTele) {
+  const current = lens === "tele" ? "tele" : "wide";
+  if (mode !== "auto" || !hasTele) return current;
+  if (role === "zoom_in" && current === "wide") return "tele";
+  const reading = value != null && value !== "" ? Number(value) : NaN;
+  const floor = Number(min);
+  if (role === "zoom_out" && current === "tele" && Number.isFinite(reading) && Number.isFinite(floor) && reading <= floor) return "wide";
+  return current;
 }
 
 function resolveCameraIndex(cameras, defaultCamera, fallback) {
   const n = cameras && cameras.length ? cameras.length : 0;
   if (!n) return 0;
   const fb = fallback == null || fallback < 0 || fallback >= n ? 0 : fallback;
-  if (defaultCamera === undefined || defaultCamera === null || defaultCamera === "") return fb;
-  if (typeof defaultCamera === "number" || (typeof defaultCamera === "string" && /^-?\d+$/.test(defaultCamera))) {
-    const i = Number(defaultCamera);
-    if (i >= 0 && i < n) return i;
-  }
-  const needle = String(defaultCamera).toLowerCase();
-  for (let i = 0; i < n; i++) {
-    if (cameras[i].name && String(cameras[i].name).toLowerCase() === needle) return i;
-  }
-  for (let i = 0; i < n; i++) {
-    const c = cameras[i];
-    if (c.entity && String(c.entity).toLowerCase() === needle) return i;
-    if (c.camera_entity && String(c.camera_entity).toLowerCase() === needle) return i;
-  }
-  return fb;
+  const found = matchCameraIndex(cameras, defaultCamera);
+  return found == null ? fb : found;
 }
 /* CARD_CONFIG_END */
 
@@ -567,6 +735,8 @@ class AdvancedReolinkCard extends HTMLElement {
     this._listen = { state: "off", message: "" };
     this._listening = false;
     this._listenBlocked = false;
+    this._lens = "wide";
+    this._lensPicked = false;
     this._ducked = false;
     this._status = { text: "", kind: "" };
     this._cameras = [];
@@ -578,7 +748,7 @@ class AdvancedReolinkCard extends HTMLElement {
     this._infoPromises = {};
     this._swipeMoved = false;
     this._viewMode = null;
-    this._layout = { view: "tabs", grid_columns: null, hide_grid_warning: false };
+    this._layout = { view: "tabs", grid_columns: null, hide_grid_warning: false, layout: "card" };
     this._gridSessions = null;
     this._gridWarnDismissed = false;
     this._pendingGridStart = false;
@@ -595,6 +765,7 @@ class AdvancedReolinkCard extends HTMLElement {
       this._abandonPatrol();
       this._stopAllStreams("hidden");
     };
+    this._onLocation = () => this._applyCameraLink();
   }
 
   static getConfigElement() {
@@ -620,19 +791,26 @@ class AdvancedReolinkCard extends HTMLElement {
       view: normalized.view,
       grid_columns: normalized.grid_columns,
       hide_grid_warning: normalized.hide_grid_warning,
+      layout: normalized.layout,
     };
+    this._syncLayoutAttr();
     if (!normalized.multi) this._viewMode = "tabs";
     else if (this._viewMode == null) this._viewMode = normalized.view === "grid" ? "grid" : "tabs";
+    const startAt =
+      config.start_camera != null && config.start_camera !== "" ? config.start_camera : config.default_camera;
     let index;
     if (typeof prevIndex === "number" && prevCameras && prevCameras.length && this._cameras.length) {
       const prevKey = this._targetKey(prevCameras[prevIndex] || prev || {});
       const found = this._cameras.findIndex((c) => this._targetKey(c) === prevKey);
-      index = found >= 0 ? found : resolveCameraIndex(this._cameras, config.default_camera, 0);
+      index = found >= 0 ? found : resolveCameraIndex(this._cameras, startAt, 0);
     } else {
-      index = resolveCameraIndex(this._cameras, config.default_camera, 0);
+      index = resolveCameraIndex(this._cameras, startAt, 0);
     }
+    const linked = this._cameraLinkIndex();
+    if (linked != null) index = linked;
     this._activeIndex = index;
     this._applyActiveConfig();
+    this._resetLens();
     if (prev && this._targetKey(prev) !== this._targetKey(this._config)) {
       this._stopTalk("config");
       this._stopAllStreams("config");
@@ -641,13 +819,17 @@ class AdvancedReolinkCard extends HTMLElement {
     }
     this._render();
     if (this._hass) this._fetchInfo();
+    if (this.isConnected) this._applyCameraLink();
   }
 
   set hass(hass) {
     const first = !this._hass;
     this._hass = hass;
     this._refreshNames();
-    if (first) this._fetchInfo();
+    if (first) {
+      this._fetchInfo();
+      this._applyCameraLink();
+    }
     this._updatePresets();
   }
 
@@ -659,7 +841,10 @@ class AdvancedReolinkCard extends HTMLElement {
 
   connectedCallback() {
     document.addEventListener("visibilitychange", this._onVisibility);
+    window.addEventListener("location-changed", this._onLocation);
+    window.addEventListener("popstate", this._onLocation);
     this._watchCardWidth();
+    this._applyCameraLink();
   }
 
   disconnectedCallback() {
@@ -672,6 +857,8 @@ class AdvancedReolinkCard extends HTMLElement {
     this._cancelHeightAnim();
     clearTimeout(this._holdTimer);
     document.removeEventListener("visibilitychange", this._onVisibility);
+    window.removeEventListener("location-changed", this._onLocation);
+    window.removeEventListener("popstate", this._onLocation);
     this._stopTalk("card removed");
     this._abandonPatrol();
     this._stopAllStreams("card removed");
@@ -679,6 +866,57 @@ class AdvancedReolinkCard extends HTMLElement {
     this._ducked = false;
     this._audioStream = null;
     this._unlockedEl = null;
+  }
+
+  _isFullscreen() {
+    return !!(this._layout && this._layout.layout === "fullscreen");
+  }
+
+  _syncLayoutAttr() {
+    if (this._isFullscreen()) this.setAttribute("data-layout", "fullscreen");
+    else this.removeAttribute("data-layout");
+  }
+
+  _cameraLinkValue() {
+    if (typeof window === "undefined" || !window.location) return null;
+    return parseCameraParam(window.location.search);
+  }
+
+  _cameraLinkIndex(value) {
+    const raw = value === undefined ? this._cameraLinkValue() : value;
+    if (raw == null || raw === "") return null;
+    const found = matchCameraIndex(this._cameras, raw);
+    if (found != null) return found;
+    const needle = String(raw).trim().toLowerCase();
+    if (!needle || !this._cameras) return null;
+    for (let i = 0; i < this._cameras.length; i++) {
+      const label = this._cameraLabel(this._cameras[i]);
+      if (label && String(label).trim().toLowerCase() === needle) return i;
+    }
+    return null;
+  }
+
+  _stripCameraLink() {
+    if (typeof window === "undefined" || !window.location || !window.history) return;
+    const href = window.location.pathname + window.location.search + window.location.hash;
+    const cleaned = stripCameraParam(href);
+    if (cleaned === href) return;
+    const run = () => {
+      try {
+        window.history.replaceState(window.history.state, "", cleaned);
+      } catch (_err) {}
+    };
+    if (typeof queueMicrotask === "function") queueMicrotask(run);
+    else Promise.resolve().then(run);
+  }
+
+  _applyCameraLink() {
+    const value = this._cameraLinkValue();
+    if (value == null) return;
+    const idx = this._cameraLinkIndex(value);
+    if (idx == null) return;
+    this._selectCamera(idx);
+    this._stripCameraLink();
   }
 
   _targetKey(c) {
@@ -723,6 +961,7 @@ class AdvancedReolinkCard extends HTMLElement {
       if (key === this._targetKey(this._config)) {
         this._info = this._infoCache[key];
         this._infoError = this._infoErrorCache[key] || null;
+        this._adoptInitialLens();
         this._update();
         this._updatePresets();
         this._refreshNames();
@@ -752,6 +991,7 @@ class AdvancedReolinkCard extends HTMLElement {
         }
         this._info = info;
         this._infoError = null;
+        this._adoptInitialLens();
         this._update();
         this._updatePresets();
         this._refreshNames();
@@ -769,8 +1009,64 @@ class AdvancedReolinkCard extends HTMLElement {
     if (key === this._targetKey(this._config)) this._infoPromise = this._infoPromises[key];
   }
 
+  _lensMode() {
+    const lens = this._config && this._config.lens;
+    return lens === "wide" || lens === "tele" ? lens : "auto";
+  }
+
+  _teleEntity() {
+    const configured = this._config && this._config.tele_entity;
+    if (typeof configured === "string") {
+      const id = configured.trim();
+      if (id) return id;
+    }
+    if (configured === false) return null;
+    return this._info?.lenses?.tele || null;
+  }
+
+  _wideEntity() {
+    const own = this._config && this._config.camera_entity;
+    const lenses = this._info?.lenses;
+    if (own && !(lenses?.wide && own === this._teleEntity())) return own;
+    return lenses?.wide || own || this._info?.camera_entity || null;
+  }
+
+  _initialLens() {
+    const tele = this._teleEntity();
+    if (!tele) return "wide";
+    if (this._config.lens === "tele") return "tele";
+    return this._config.camera_entity === tele && this._config.lens !== "wide" ? "tele" : "wide";
+  }
+
+  _resetLens() {
+    this._lensPicked = false;
+    this._lens = this._initialLens();
+    this._lensWait = 0;
+    this._spareBroken = null;
+  }
+
+  _videoOn() {
+    return this._video.state !== "off" && this._video.state !== "error";
+  }
+
   _cameraEntity() {
-    return this._config.camera_entity || this._info?.camera_entity || null;
+    if (this._lens === "tele") {
+      const tele = this._teleEntity();
+      if (tele) return tele;
+    }
+    return this._wideEntity();
+  }
+
+  _adoptInitialLens() {
+    if (this._lensPicked) return;
+    const next = this._initialLens();
+    if (next === this._lens) return;
+    if (this._inGrid()) {
+      this._lens = next;
+      return;
+    }
+    if (this._videoOn() && this._config?.video) this._setLens(next);
+    else this._lens = next;
   }
 
   _battery() {
@@ -862,8 +1158,10 @@ class AdvancedReolinkCard extends HTMLElement {
 
   _render() {
     if (!this._config) return;
+    this._syncLayoutAttr();
     this._closePresets(false);
     this._abandonPatrol();
+    this._dropSpare();
     this._cancelHeightAnim();
     this._clearHostPad();
     this._cardMinHeight = 0;
@@ -919,19 +1217,24 @@ class AdvancedReolinkCard extends HTMLElement {
           <div class="stage">
             <canvas class="holdframe" hidden></canvas>
             <video muted playsinline autoplay disablepictureinpicture hidden></video>
+            <video class="behind" muted playsinline autoplay disablepictureinpicture hidden></video>
             <img class="still" alt="" hidden>
             <div class="slot" hidden></div>
             <button type="button" class="play" aria-label="Start live view"><ha-icon icon="mdi:play-circle-outline"></ha-icon><span>Tap to start live view</span></button>
             <button type="button" class="stopvideo" aria-label="Stop live view" title="Stop live view" hidden><ha-icon icon="mdi:stop"></ha-icon></button>
+            <button type="button" class="lens" aria-pressed="false" aria-label="Switch lens" title="Switch lens" hidden><ha-icon icon="mdi:camera-switch-outline"></ha-icon><span class="lens-label">Wide</span></button>
+            <div class="zoomctl" hidden>
+              <button type="button" data-ptz="zoom_out" aria-label="Zoom out" title="Zoom out"><ha-icon icon="mdi:magnify-minus-outline"></ha-icon></button>
+              <button type="button" data-ptz="zoom_in" aria-label="Zoom in" title="Zoom in"><ha-icon icon="mdi:magnify-plus-outline"></ha-icon></button>
+            </div>
             <div class="overlay" aria-live="polite"></div>
           </div>
         </div>` : ""}
         ${showPtz ? `
         <div class="ptz" hidden>
           <div class="dpad">${dir("up")}${dir("left")}${dir("right")}${dir("down")}</div>
-          <div class="zoom" hidden>${dir("zoom_in")}${dir("zoom_out")}</div>
-        </div>
-        <div class="note ptznote" hidden></div>` : ""}
+        </div>` : ""}
+        ${showVideo || showPtz ? `<div class="note ptznote" hidden></div>` : ""}
         ${showListen ? `
         <div class="listenrow">
           <button type="button" class="listen" aria-pressed="false"><ha-icon icon="mdi:volume-off"></ha-icon><span class="llabel">Listen</span></button>
@@ -956,14 +1259,17 @@ class AdvancedReolinkCard extends HTMLElement {
     this._videoBox = $(".video");
     this._videoStage = $(".video .stage");
     this._holdEl = $("canvas.holdframe");
-    this._videoEl = $(".video video");
+    const videos = this.shadowRoot.querySelectorAll(".video .stage video");
+    this._videoEl = videos[0] || null;
+    this._spareEl = videos[1] || null;
     this._stillEl = $(".video img.still");
     this._slotEl = $(".video .slot");
     this._playBtn = $(".video button.play");
     this._stopVideoBtn = $(".video button.stopvideo");
+    this._lensBtn = $(".video button.lens");
     this._overlayEl = $(".video .overlay");
     this._ptzEl = $(".ptz");
-    this._zoomEl = $(".zoom");
+    this._zoomEl = $(".video .zoomctl");
     this._ptzNoteEl = $(".ptznote");
     this._listenRow = $(".listenrow");
     this._listenBtn = $("button.listen");
@@ -1041,8 +1347,12 @@ class AdvancedReolinkCard extends HTMLElement {
   _scrollActiveTab() {
     const el = this._tabsEl;
     const tab = el && el.querySelector('[role="tab"][aria-selected="true"]');
-    if (tab && typeof tab.scrollIntoView === "function") {
-      tab.scrollIntoView({ block: "nearest", inline: "nearest" });
+    if (tab) {
+      // Scroll the row only, so the page itself never jumps.
+      const row = el.getBoundingClientRect();
+      const box = tab.getBoundingClientRect();
+      if (box.left < row.left) el.scrollLeft -= row.left - box.left;
+      else if (box.right > row.right) el.scrollLeft += box.right - row.right;
     }
     this._watchRow(el);
     this._fadeRow(el);
@@ -1106,6 +1416,7 @@ class AdvancedReolinkCard extends HTMLElement {
     this._stopAllStreams("camera switch");
     this._activeIndex = next;
     this._applyActiveConfig();
+    this._resetLens();
     this._video = { state: "off", kind: null, message: "" };
     this._listen = { state: "off", message: "" };
     this._listening = false;
@@ -1300,7 +1611,7 @@ class AdvancedReolinkCard extends HTMLElement {
   }
 
   _lockCardHeight(useRendered = false) {
-    if (!this._config || this._inGrid()) return;
+    if (!this._config || this._inGrid() || this._isFullscreen()) return;
     const card = this._cardEl();
     if (!card) return;
     this._heightGen = (this._heightGen || 0) + 1;
@@ -1327,7 +1638,7 @@ class AdvancedReolinkCard extends HTMLElement {
   }
 
   _settleCardHeight() {
-    if (!this._config || this._inGrid()) {
+    if (!this._config || this._inGrid() || this._isFullscreen()) {
       this._releaseCardHeight();
       this._clearHostPad();
       return;
@@ -1487,6 +1798,11 @@ class AdvancedReolinkCard extends HTMLElement {
     let y0 = 0;
     let tracking = false;
     this._videoBox.addEventListener("touchstart", (ev) => {
+      const target = ev.target;
+      if (target && target.closest && target.closest("button, .zoomctl")) {
+        tracking = false;
+        return;
+      }
       if (ev.touches.length !== 1) {
         tracking = false;
         return;
@@ -1525,9 +1841,25 @@ class AdvancedReolinkCard extends HTMLElement {
       });
     }
     if (this._stopVideoBtn) this._stopVideoBtn.addEventListener("click", () => this._stopVideo("client"));
-    if (this._videoEl) {
-      this._videoEl.addEventListener("playing", () => this._videoLive());
-      this._videoEl.addEventListener("loadeddata", () => this._videoLive());
+    if (this._lensBtn) {
+      const keep = (ev) => ev.stopPropagation();
+      this._lensBtn.addEventListener("pointerdown", keep);
+      this._lensBtn.addEventListener("touchstart", keep, { passive: true });
+      this._lensBtn.addEventListener("click", (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        this._setLens(this._lens === "tele" ? "wide" : "tele");
+      });
+    }
+    for (const el of [this._videoEl, this._spareEl]) {
+      if (!el) continue;
+      el.addEventListener("playing", () => this._onVideoFrame(el));
+      el.addEventListener("loadeddata", () => this._onVideoFrame(el));
+    }
+    if (this._videoBox) {
+      const wake = () => this._spareTouch(true);
+      this._videoBox.addEventListener("pointerenter", wake);
+      this._videoBox.addEventListener("pointerdown", wake, true);
     }
     if (this._stillEl) this._stillEl.addEventListener("load", () => this._videoLive());
     if (this._listenBtn) this._listenBtn.addEventListener("click", () => this._onListenClick());
@@ -1538,7 +1870,10 @@ class AdvancedReolinkCard extends HTMLElement {
       });
     }
     if (this._ptzEl) {
-      for (const b of this.shadowRoot.querySelectorAll(".ptz button[data-ptz]")) this._bindPtz(b);
+      for (const b of this._ptzEl.querySelectorAll("button[data-ptz]")) this._bindPtz(b);
+    }
+    if (this._zoomEl) {
+      for (const b of this._zoomEl.querySelectorAll("button[data-ptz]")) this._bindPtz(b);
     }
     if (this._guardBtn) this._guardBtn.addEventListener("click", () => this._returnToGuard());
     if (this._patrolBtn) this._patrolBtn.addEventListener("click", () => this._openPatrol());
@@ -1588,10 +1923,16 @@ class AdvancedReolinkCard extends HTMLElement {
     b.addEventListener("pointerdown", (ev) => {
       if (ev.button !== undefined && ev.button !== 0) return;
       ev.preventDefault();
+      ev.stopPropagation();
       b.setPointerCapture?.(ev.pointerId);
       this._ptzStart(b.dataset.ptz, b);
     });
-    const release = () => this._ptzStop();
+    const release = (ev) => {
+      if (ev) ev.stopPropagation();
+      this._ptzStop();
+    };
+    b.addEventListener("click", (ev) => ev.stopPropagation());
+    b.addEventListener("touchstart", (ev) => ev.stopPropagation(), { passive: true });
     b.addEventListener("pointerup", release);
     b.addEventListener("pointercancel", release);
     b.addEventListener("lostpointercapture", release);
@@ -1640,25 +1981,45 @@ class AdvancedReolinkCard extends HTMLElement {
       this._playBtn.hidden = on || !!this._patrolEl;
       this._stopVideoBtn.hidden = !on;
       this._videoEl.hidden = !(on && v.kind === "webrtc");
+      if (this._spareEl) this._spareEl.hidden = !(on && v.kind === "webrtc" && this._spare && this._spareEl.srcObject);
       this._stillEl.hidden = !(on && v.kind === "image");
       this._slotEl.hidden = !(on && v.kind === "stream");
       const waking = v.state === "waking";
+      const switching = !!(this._lensWait && v.state !== "error");
+      this._overlayEl.classList.toggle("soft", switching);
+      if (this._holdEl) this._holdEl.classList.toggle("soft", switching);
       this._overlayEl.textContent =
+        switching ? (this._lensHint() ? "Switching lens" : "") :
         v.state === "connecting" ? "Connecting" :
         waking ? "Waking the camera" :
         v.state === "error" ? v.message || "Live view failed" :
         v.state === "live" && v.kind === "image" ? "Still image. Live video is not available." : "";
     }
-    if (this._ptzEl) {
-      const ptz = this._info?.ptz;
-      const show = this._ptzAvailable();
-      this._ptzEl.hidden = !show;
-      this._zoomEl.hidden = !(show && ptz && ptz.zoom);
+    const ptz = this._info?.ptz;
+    let showPad = false;
+    if (this._ptzEl || this._zoomEl || this._ptzNoteEl) showPad = this._ptzAvailable();
+    if (this._ptzEl) this._ptzEl.hidden = !showPad;
+    if (this._zoomEl) {
+      const zoomOn = !!(this._videoOn() && showPad && ptz && ptz.zoom);
+      this._zoomEl.hidden = !zoomOn;
+      if (this._videoBox) this._videoBox.classList.toggle("zoom-on", zoomOn);
+    }
+    if (this._lensBtn) {
+      const showLens = !!(this._videoOn() && c.video && this._teleEntity());
+      this._lensBtn.hidden = !showLens;
+      const label = this._lens === "tele" ? "Tele" : "Wide";
+      const span = this._lensBtn.querySelector(".lens-label");
+      if (span && span.textContent !== label) span.textContent = label;
+      this._lensBtn.setAttribute("aria-pressed", this._lens === "tele" ? "true" : "false");
+    }
+    if (this._ptzNoteEl) {
       let note = "";
-      if (c.ptz && this._info && !show && ptz && ptz.disabled_entities?.length && !ptz.supported) {
+      if (c.ptz && this._info && !showPad && ptz && ptz.disabled_entities?.length && !ptz.supported) {
         note = "Pan and tilt are turned off in Home Assistant. Turn them on to move this camera.";
-      } else if (show && ptz && !ptz.zoom && ptz.disabled_entities?.some((e) => /zoom/.test(e))) {
+      } else if (showPad && ptz && !ptz.zoom && ptz.disabled_entities?.some((e) => /zoom/.test(e))) {
         note = "Zoom is turned off in Home Assistant. Turn on zoom to use it.";
+      } else if ((c.ptz || c.video) && this._info?.lenses?.tele_disabled && !this._teleEntity()) {
+        note = "The telephoto stream is turned off in Home Assistant. Turn it on to use the Tele lens.";
       }
       this._ptzNoteEl.textContent = note;
       this._ptzNoteEl.hidden = !note;
@@ -1931,10 +2292,17 @@ class AdvancedReolinkCard extends HTMLElement {
 
   _ptzStart(role, button) {
     const ent = this._info?.ptz?.entities?.[role];
-    if (!ent || !this._hass) return;
+    const zoomEnt = !ent && (role === "zoom_in" || role === "zoom_out") ? this._info?.ptz?.zoom_entity : null;
+    if ((!ent && !zoomEnt) || !this._hass) return;
     if (this._ptzActive) this._ptzStop();
-    this._ptzActive = { role, button };
+    this._ptzActive = { role, button, zoom: !!zoomEnt };
     button?.classList.add("active");
+    if (role === "zoom_in") this._autoLensFromZoomIn();
+    if (zoomEnt) {
+      this._zoomStep(zoomEnt, role, true);
+      this._zoomTimer = setInterval(() => this._zoomStep(zoomEnt, role, true), ZOOM_REPEAT_MS);
+      return;
+    }
     this._hass.callService("button", "press", { entity_id: ent }).catch((err) => {
       this._setStatus((err && err.message) || "Could not move the camera.", "error");
     });
@@ -1945,12 +2313,259 @@ class AdvancedReolinkCard extends HTMLElement {
     if (!active) return;
     this._ptzActive = null;
     active.button?.classList.remove("active");
+    if (active.zoom) {
+      clearInterval(this._zoomTimer);
+      this._zoomTimer = null;
+      return;
+    }
     const stop = this._info?.ptz?.entities?.stop;
     if (stop && this._hass) {
       this._hass.callService("button", "press", { entity_id: stop }).catch((err) => {
         this._setStatus((err && err.message) || "Could not stop the camera.", "error");
       });
     }
+  }
+
+  // The zoom number only updates after a poll, so keep stepping from the last value sent.
+  _zoomStep(entityId, role, trackLens) {
+    const st = this._hass?.states?.[entityId];
+    if (!st) return;
+    const last = this._zoomSent;
+    const fresh = last && last.entityId === entityId && Date.now() - last.at < ZOOM_MEMORY_MS;
+    const value = zoomStepValue(fresh ? last.value : st.state, st.attributes, role);
+    if (trackLens) this._autoLensFromZoomOut(role, value, st, fresh ? last.value : st.state);
+    if (value == null) return;
+    this._zoomSent = { entityId, value, at: Date.now() };
+    this._hass.callService("number", "set_value", { entity_id: entityId, value }).catch((err) => {
+      this._zoomSent = null;
+      this._setStatus((err && err.message) || "Could not zoom the camera.", "error");
+    });
+  }
+
+  _autoLensFromZoomIn() {
+    const next = nextLensAfterZoom(this._lensMode(), this._lens, "zoom_in", null, null, !!this._teleEntity());
+    if (next !== this._lens) this._setLens(next);
+  }
+
+  _autoLensFromZoomOut(role, value, st, current) {
+    if (role !== "zoom_out" || !st) return;
+    const min = st.attributes ? st.attributes.min : undefined;
+    const compare = value == null ? current : value;
+    const next = nextLensAfterZoom(this._lensMode(), this._lens, role, compare, min, !!this._teleEntity());
+    if (next !== this._lens) this._setLens(next);
+  }
+
+  _setLens(next) {
+    if (next !== "wide" && next !== "tele") return;
+    if (next === "tele" && !this._teleEntity()) return;
+    if (next === this._lens) return;
+    const live = !!(this._videoOn() && this._config?.video && !this._inGrid());
+    this._lens = next;
+    this._lensPicked = true;
+    if (!live) {
+      this._update();
+      return;
+    }
+    this._spareTouch(false);
+    const want = this._cameraEntity();
+    const pipe = this._video.kind === "webrtc" && this._pipe && !this._pipe.closed ? this._pipe : null;
+    if (pipe && pipe.entityId === want) {
+      // Switched back before the other lens was ready. The current stream is already right.
+      this._lensWait = 0;
+      this._update();
+      return;
+    }
+    this._startLensWait();
+    if (pipe && !this._battery() && this._spareEl) {
+      // Keep the current lens playing until the other one has a frame, then swap.
+      const spare = this._spare;
+      if (spare && spare.entity === want && spare.ready) this._swapToSpare();
+      else if (!spare || spare.entity !== want) this._openSpare(want);
+      return;
+    }
+    this._lockCardHeight(true);
+    this._captureHoldFrame();
+    this._update();
+    this._restartVideoForLens();
+  }
+
+  _startLensWait() {
+    this._lensWait = this._nowMs();
+    clearTimeout(this._lensHintTimer);
+    this._lensHintTimer = setTimeout(() => this._update(), LENS_HINT_MS);
+    this._update();
+  }
+
+  _lensHint() {
+    return !!(this._lensWait && this._nowMs() - this._lensWait >= LENS_HINT_MS);
+  }
+
+  _spareWanted() {
+    return !!(
+      this._config?.video &&
+      !this._inGrid() &&
+      !this._patrolEl &&
+      !this._battery() &&
+      this._spareEl &&
+      this._video.state === "live" &&
+      this._video.kind === "webrtc" &&
+      this._pipe &&
+      !this._pipe.closed &&
+      this._teleEntity() &&
+      typeof RTCPeerConnection !== "undefined" &&
+      document.visibilityState !== "hidden"
+    );
+  }
+
+  _otherLensEntity() {
+    return this._lens === "tele" ? this._wideEntity() : this._teleEntity();
+  }
+
+  _queueSpare() {
+    clearTimeout(this._spareQueue);
+    this._spareQueue = setTimeout(() => this._warmSpare(), SPARE_DELAY_MS);
+  }
+
+  _warmSpare() {
+    if (!this._spareWanted()) return;
+    const other = this._otherLensEntity();
+    if (!other || other === this._pipe.entityId || other === this._spareBroken) return;
+    if (this._spare && this._spare.entity === other) return;
+    this._openSpare(other);
+  }
+
+  /* Any tap or hover on the video counts as use. A closed spare opens again. */
+  _spareTouch(warm) {
+    clearTimeout(this._spareIdle);
+    this._spareIdle = setTimeout(() => {
+      if (this._spare && !this._lensWait) this._dropSpare();
+    }, SPARE_IDLE_MS);
+    if (warm && !this._spare) this._warmSpare();
+  }
+
+  _openSpare(entity) {
+    this._dropSpare();
+    if (!entity || !this._hass || typeof RTCPeerConnection === "undefined") return;
+    const pipe = new WebRtcPipe(this._hass, entity, {
+      video: true,
+      onTrack: (track) => this._routeTrack(pipe, track),
+      onError: (message) => this._routeError(pipe, message),
+    });
+    const spare = { pipe, entity, ready: false };
+    this._spare = spare;
+    this._spareTimer = setTimeout(() => {
+      if (this._spare === spare && !spare.ready) this._spareFailed(spare);
+    }, CONNECT_TIMEOUT_MS);
+    this._spareTouch(false);
+    pipe.start().catch((err) => this._routeError(pipe, (err && err.message) || String(err)));
+  }
+
+  _dropSpare() {
+    clearTimeout(this._spareTimer);
+    const spare = this._spare;
+    this._spare = null;
+    if (spare) spare.pipe.stop();
+    if (this._spareEl) {
+      this._spareEl.srcObject = null;
+      this._spareEl.hidden = true;
+    }
+  }
+
+  _spareFailed(spare) {
+    if (this._spare !== spare) return;
+    const waiting = !!(this._lensWait && spare.entity === this._cameraEntity());
+    this._spareBroken = spare.entity;
+    this._dropSpare();
+    if (!waiting) return;
+    this._lockCardHeight(true);
+    this._captureHoldFrame();
+    this._restartVideoForLens();
+  }
+
+  _routeTrack(pipe, track) {
+    if (!pipe.tracks) pipe.tracks = {};
+    pipe.tracks[track.kind] = track;
+    const spare = this._spare;
+    if (spare && spare.pipe === pipe) {
+      if (track.kind === "video" && this._spareEl) {
+        this._spareEl.srcObject = new MediaStream([track]);
+        this._spareEl.hidden = false;
+        this._spareEl.play?.().catch(() => {});
+      }
+      return;
+    }
+    this._onTrack(pipe, track);
+  }
+
+  _routeError(pipe, message) {
+    const spare = this._spare;
+    if (spare && spare.pipe === pipe) {
+      this._spareFailed(spare);
+      return;
+    }
+    this._onPipeError(pipe, message);
+  }
+
+  _onVideoFrame(el) {
+    if (el === this._videoEl) {
+      this._videoLive();
+      return;
+    }
+    const spare = this._spare;
+    if (el !== this._spareEl || !spare || spare.ready || !el.videoWidth) return;
+    spare.ready = true;
+    clearTimeout(this._spareTimer);
+    if (this._lensWait && spare.entity === this._cameraEntity()) this._swapToSpare();
+  }
+
+  /* The spare stream becomes the live view and the old one waits as the spare. */
+  _swapToSpare() {
+    const spare = this._spare;
+    if (!spare) return;
+    const oldPipe = this._pipe;
+    const oldEl = this._videoEl;
+    clearTimeout(this._pipeTimer);
+    this._spare = oldPipe && !oldPipe.closed ? { pipe: oldPipe, entity: oldPipe.entityId, ready: true } : null;
+    if (!this._spare && oldPipe) oldPipe.stop();
+    this._pipe = spare.pipe;
+    this._videoEl = this._spareEl;
+    this._spareEl = oldEl;
+    this._videoEl.classList.remove("behind");
+    this._spareEl.classList.add("behind");
+    if (!this._spare) this._spareEl.srcObject = null;
+    const audio = spare.pipe.tracks?.audio;
+    if (audio) this._attachAudio(audio);
+    else this._detachAudio();
+    if (this._listening) {
+      this._listen = { state: audio ? "live" : this._pipeConnecting(), message: "" };
+      if (!audio) this._armTimeout(this._pipe);
+    }
+    this._lensWait = 0;
+    this._releaseHoldFrame();
+    this._update();
+  }
+
+  async _restartVideoForLens() {
+    const run = (this._lensRun || 0) + 1;
+    this._lensRun = run;
+    this._videoGen = (this._videoGen || 0) + 1;
+    clearInterval(this._stillTimer);
+    this._stillTimer = null;
+    if (this._streamEl) {
+      this._streamEl.remove();
+      this._streamEl = null;
+    }
+    if (this._stillEl) this._stillEl.removeAttribute("src");
+    if (this._videoEl) this._videoEl.srcObject = null;
+    this._dropSpare();
+    this._closePipe();
+    this._video = { state: "off", kind: null, message: "" };
+    await this._startVideo();
+    if (run !== this._lensRun) return;
+    const videoPipe = this._video.kind === "webrtc" && this._video.state !== "off" && this._pipe && !this._pipe.closed;
+    if (this._listening && !videoPipe && this._video.state !== "off") await this._openPipe(false);
+    if (run !== this._lensRun) return;
+    this._queueSettleCardHeight();
   }
 
   _selectPreset(option) {
@@ -1992,8 +2607,8 @@ class AdvancedReolinkCard extends HTMLElement {
     this._closePipe();
     const pipe = new WebRtcPipe(this._hass, entity, {
       video,
-      onTrack: (track) => this._onTrack(pipe, track),
-      onError: (message) => this._onPipeError(pipe, message),
+      onTrack: (track) => this._routeTrack(pipe, track),
+      onError: (message) => this._routeError(pipe, message),
     });
     this._pipe = pipe;
     if (this._listening) {
@@ -2046,6 +2661,8 @@ class AdvancedReolinkCard extends HTMLElement {
 
   _onPipeError(pipe, message) {
     if (this._pipe !== pipe) return;
+    this._lensWait = 0;
+    this._dropSpare();
     this._closePipe();
     if (this._video.kind === "webrtc" && this._video.state !== "off") {
       this._video = { state: "error", kind: "webrtc", message };
@@ -2166,13 +2783,15 @@ class AdvancedReolinkCard extends HTMLElement {
 
   async _startVideo() {
     if (!this._hass || (this._video.state !== "off" && this._video.state !== "error")) return;
+    const gen = (this._videoGen || 0) + 1;
+    this._videoGen = gen;
     this._status = { text: "", kind: "" };
     this._video = { state: this._pipeConnecting(), kind: null, message: "" };
     this._update();
     let cam = this._cameraEntity();
     if (!cam) {
       if (this._infoPromise && this._info === undefined) await this._infoPromise;
-      if (this._video.state === "off") return;
+      if (gen !== this._videoGen || this._video.state === "off") return;
       cam = this._cameraEntity();
       if (!cam) {
         this._video = { state: "error", kind: null, message: "No camera found for live view." };
@@ -2187,7 +2806,7 @@ class AdvancedReolinkCard extends HTMLElement {
       }
     }
     const types = this._snapshotOnly(cam) ? [] : await this._capabilities(cam);
-    if (this._video.state === "off") return; // stopped while asking
+    if (gen !== this._videoGen || this._video.state === "off") return; // stopped while asking
     if (types.includes("web_rtc") && typeof RTCPeerConnection !== "undefined") {
       this._video.kind = "webrtc";
       this._update();
@@ -2201,11 +2820,13 @@ class AdvancedReolinkCard extends HTMLElement {
 
   _videoLive() {
     if (this._video.state === "off" || this._video.state === "error") return;
-    if (this._video.state !== "live") {
+    if (this._video.state !== "live" || this._lensWait) {
       this._video.state = "live";
+      if (!this._spare || this._spare.entity !== this._cameraEntity()) this._lensWait = 0;
       this._update();
     }
     this._releaseHoldFrame();
+    if (!this._spare) this._queueSpare();
   }
 
   /* Fallback: Home Assistant's own player (HLS), always muted. */
@@ -2246,6 +2867,8 @@ class AdvancedReolinkCard extends HTMLElement {
   _stopVideo(reason) {
     const wasWebRtc = this._video.kind === "webrtc";
     this._video = { state: "off", kind: null, message: "" };
+    this._lensWait = 0;
+    this._dropSpare();
     clearInterval(this._stillTimer);
     this._stillTimer = null;
     if (this._streamEl) {
@@ -2331,10 +2954,13 @@ class AdvancedReolinkCard extends HTMLElement {
   }
 
   _stopAllStreams(reason) {
+    this._lensRun = (this._lensRun || 0) + 1;
+    this._videoGen = (this._videoGen || 0) + 1;
     this._ptzStop();
     this._stopGrid();
     if (this._listening) this._stopListen(reason);
     if (this._video.state !== "off") this._stopVideo(reason);
+    this._dropSpare();
     this._closePipe();
   }
 
@@ -2569,7 +3195,10 @@ class AdvancedReolinkCard extends HTMLElement {
         btn.textContent = name;
         btn.setAttribute("aria-label", `Open ${name}`);
       }
-      tile.addEventListener("click", () => this._leaveGrid(i));
+      tile.addEventListener("click", (ev) => {
+        if (ev.target.closest && ev.target.closest(".zoomctl")) return;
+        this._leaveGrid(i);
+      });
     });
   }
 
@@ -2614,6 +3243,7 @@ class AdvancedReolinkCard extends HTMLElement {
 
   _leaveGrid(index) {
     if (!this._inGrid()) return;
+    this._tileZoomStop();
     const n = this._cameras.length || 1;
     const next = ((index % n) + n) % n;
     const sessions = this._gridSessions;
@@ -2643,6 +3273,7 @@ class AdvancedReolinkCard extends HTMLElement {
     this._viewMode = "tabs";
     this._activeIndex = next;
     this._applyActiveConfig();
+    this._resetLens();
     this._video = { state: "off", kind: null, message: "" };
     this._listen = { state: "off", message: "" };
     this._listening = false;
@@ -2652,8 +3283,8 @@ class AdvancedReolinkCard extends HTMLElement {
     this._render();
     const entity = this._cameraEntity();
     if (pipe && kind === "webrtc" && entity && pipe.entityId === entity) {
-      pipe.onTrack = (track) => this._onTrack(pipe, track);
-      pipe.onError = (message) => this._onPipeError(pipe, message);
+      pipe.onTrack = (track) => this._routeTrack(pipe, track);
+      pipe.onError = (message) => this._routeError(pipe, message);
       this._pipe = pipe;
       this._video = { state: state === "live" ? "live" : "connecting", kind: "webrtc", message: "" };
       if (this._videoEl && stream) {
@@ -2672,6 +3303,7 @@ class AdvancedReolinkCard extends HTMLElement {
   }
 
   _stopGrid() {
+    this._tileZoomStop();
     if (this._gridSessions) {
       for (const session of this._gridSessions.values()) this._destroyGridSession(session);
       this._gridSessions = null;
@@ -2715,6 +3347,7 @@ class AdvancedReolinkCard extends HTMLElement {
         stillEl: tile.querySelector("img"),
         slotEl: tile.querySelector(".slot"),
         statusEl: tile.querySelector(".tile-status"),
+        mediaEl: tile.querySelector(".tile-media"),
         state: "off",
         kind: null,
         stream: null,
@@ -2750,6 +3383,7 @@ class AdvancedReolinkCard extends HTMLElement {
     const idx = this._cameras.findIndex((c) => this._targetKey(c) === this._targetKey(cam));
     const session = idx >= 0 ? this._gridSessions?.get(idx) : null;
     if (session && session.state === "wait" && !session.dead) this._startGridTile(session);
+    if (session) this._syncTileZoom(session);
     this._refreshNames();
   }
 
@@ -2776,6 +3410,102 @@ class AdvancedReolinkCard extends HTMLElement {
 
   _paintGridTile(session, text) {
     if (session?.statusEl) session.statusEl.textContent = text || "";
+    this._syncTileZoom(session);
+  }
+
+  _tileCanZoom(index) {
+    const cam = this._cameras[index];
+    if (!cam || !cam.ptz) return false;
+    const info = this._infoForCam(cam);
+    return !!(info && info.ptz && info.ptz.zoom);
+  }
+
+  _syncTileZoom(session) {
+    const media = session && session.mediaEl;
+    if (!media || session.dead) return;
+    const show = session.state === "live" && this._tileCanZoom(session.index);
+    const group = media.querySelector(".zoomctl");
+    if (!show) {
+      if (group) {
+        if (this._tileZoom && group.contains(this._tileZoom.button)) this._tileZoomStop();
+        group.remove();
+      }
+      return;
+    }
+    if (group) return;
+    const wrap = document.createElement("div");
+    wrap.className = "zoomctl";
+    const stop = (ev) => ev.stopPropagation();
+    wrap.addEventListener("click", stop);
+    wrap.addEventListener("pointerdown", stop);
+    for (const role of ["zoom_out", "zoom_in"]) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.dataset.ptz = role;
+      button.setAttribute("aria-label", PTZ_LABELS[role]);
+      button.title = PTZ_LABELS[role];
+      const icon = document.createElement("ha-icon");
+      icon.setAttribute("icon", PTZ_ICONS[role]);
+      button.appendChild(icon);
+      this._bindTileZoom(button, session.index);
+      wrap.appendChild(button);
+    }
+    media.appendChild(wrap);
+  }
+
+  _bindTileZoom(button, index) {
+    button.addEventListener("pointerdown", (ev) => {
+      if (ev.button !== undefined && ev.button !== 0) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      button.setPointerCapture?.(ev.pointerId);
+      this._tileZoomStart(button, index);
+    });
+    const release = (ev) => {
+      if (ev) ev.stopPropagation();
+      if (this._tileZoom && this._tileZoom.button === button) this._tileZoomStop();
+    };
+    button.addEventListener("pointerup", release);
+    button.addEventListener("pointercancel", release);
+    button.addEventListener("lostpointercapture", release);
+    button.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+    });
+    button.addEventListener("touchstart", (ev) => ev.stopPropagation(), { passive: true });
+    button.addEventListener("contextmenu", (ev) => ev.preventDefault());
+  }
+
+  _tileZoomStart(button, index) {
+    const info = this._infoForCam(this._cameras[index]);
+    const role = button.dataset.ptz;
+    const ent = info?.ptz?.entities?.[role];
+    const zoomEnt = !ent && (role === "zoom_in" || role === "zoom_out") ? info?.ptz?.zoom_entity : null;
+    if ((!ent && !zoomEnt) || !this._hass) return;
+    this._tileZoomStop();
+    button.classList.add("active");
+    this._tileZoom = { button, zoom: !!zoomEnt, stop: info?.ptz?.entities?.stop || null };
+    if (zoomEnt) {
+      this._zoomStep(zoomEnt, role);
+      this._tileZoomTimer = setInterval(() => this._zoomStep(zoomEnt, role), ZOOM_REPEAT_MS);
+      return;
+    }
+    this._hass.callService("button", "press", { entity_id: ent }).catch((err) => {
+      this._setStatus((err && err.message) || "Could not zoom the camera.", "error");
+    });
+  }
+
+  _tileZoomStop() {
+    const active = this._tileZoom;
+    if (!active) return;
+    this._tileZoom = null;
+    clearInterval(this._tileZoomTimer);
+    this._tileZoomTimer = null;
+    active.button?.classList.remove("active");
+    if (active.zoom || !active.stop || !this._hass) return;
+    this._hass.callService("button", "press", { entity_id: active.stop }).catch((err) => {
+      this._setStatus((err && err.message) || "Could not stop the camera.", "error");
+    });
   }
 
   _armGridTimeout(session) {
@@ -3069,6 +3799,7 @@ class AdvancedReolinkCard extends HTMLElement {
         <div class="pmedia">
           <video class="pvideo" muted playsinline autoplay disablepictureinpicture controlslist="nodownload nofullscreen noremoteplayback noplaybackrate" hidden></video>
           <div class="pslot" hidden></div>
+          ${this._info?.ptz?.zoom ? `<div class="zoomctl"><button type="button" data-dir="zoom_out" aria-label="Zoom out" title="Zoom out"><ha-icon icon="${PTZ_ICONS.zoom_out}"></ha-icon></button><button type="button" data-dir="zoom_in" aria-label="Zoom in" title="Zoom in"><ha-icon icon="${PTZ_ICONS.zoom_in}"></ha-icon></button></div>` : ""}
         </div>
         <div class="pbody"></div>
         <p class="presult" aria-live="polite"></p>
@@ -3094,6 +3825,7 @@ class AdvancedReolinkCard extends HTMLElement {
       msg: "",
       saved: false,
     };
+    el.querySelectorAll(".pmedia .zoomctl button[data-dir]").forEach((button) => this._bindWizHold(button, button.dataset.dir));
     el.addEventListener("keydown", (ev) => {
       if (ev.key !== "Escape") return;
       ev.preventDefault();
@@ -3269,10 +4001,7 @@ class AdvancedReolinkCard extends HTMLElement {
       btn("right", "Pan right"),
       tilt ? btn("down", "Tilt down") : "",
     ].join("");
-    const zoom = this._info?.ptz?.zoom
-      ? `<div class="zoom">${btn("zoom_in", "Zoom in")}${btn("zoom_out", "Zoom out")}</div>`
-      : "";
-    return `<div class="padrow"><div class="dpad">${cells}</div>${zoom}</div>`;
+    return `<div class="padrow"><div class="dpad">${cells}</div></div>`;
   }
 
   _sliderHtml() {
@@ -3350,6 +4079,8 @@ class AdvancedReolinkCard extends HTMLElement {
     }
     this._bindGo(bodyEl);
     bodyEl.querySelectorAll("[data-dir]").forEach((button) => this._bindWizHold(button, button.dataset.dir));
+    const zoom = el.querySelector(".pmedia .zoomctl");
+    if (zoom) zoom.hidden = wiz.step > 1;
     const slider = bodyEl.querySelector(".speed");
     if (slider) {
       const onSpeed = () => {
@@ -3911,6 +4642,20 @@ class AdvancedReolinkCard extends HTMLElement {
 const EDITOR_SCHEMA = [
   { name: "entity", selector: { entity: { filter: { integration: DOMAIN, domain: "media_player" } } } },
   { name: "camera_entity", selector: { entity: { filter: { integration: "reolink", domain: "camera" } } } },
+  { name: "tele_entity", selector: { entity: { filter: { integration: "reolink", domain: "camera" } } } },
+  {
+    name: "lens",
+    selector: {
+      select: {
+        mode: "dropdown",
+        options: [
+          { value: "auto", label: "Auto" },
+          { value: "wide", label: "Wide" },
+          { value: "tele", label: "Tele" },
+        ],
+      },
+    },
+  },
   {
     type: "grid",
     name: "",
@@ -3968,11 +4713,26 @@ const EDITOR_SCHEMA = [
       { name: "show_level", selector: { boolean: {} } },
     ],
   },
+  { name: "start_camera", selector: { text: {} } },
+  {
+    name: "layout",
+    selector: {
+      select: {
+        mode: "dropdown",
+        options: [
+          { value: "card", label: "Card" },
+          { value: "fullscreen", label: "Fill the screen" },
+        ],
+      },
+    },
+  },
 ];
 
 const EDITOR_LABELS = {
   entity: "Speaker",
   camera_entity: "Camera",
+  tele_entity: "Telephoto camera",
+  lens: "Lens",
   name: "Name",
   icon: "Icon",
   video: "Live view",
@@ -3984,17 +4744,23 @@ const EDITOR_LABELS = {
   duplex: "While talking",
   talk_auto_listen: "Listen when you talk",
   show_level: "Microphone level",
+  start_camera: "Starting camera",
+  layout: "Layout",
 };
 
 const EDITOR_HELPERS = {
   camera_entity: "Leave empty to use the camera that belongs to this speaker.",
-  ptz: "Shown when this camera can pan. Presets, if the camera has any, are a header button.",
+  tele_entity: "Telephoto stream for dual-lens cameras. Found automatically. Leave empty to use it.",
+  lens: "Auto switches to Tele when you zoom in and back to Wide at minimum zoom.",
+  ptz: "Shown when this camera can pan. Zoom buttons show on the live view when the camera can zoom. Presets, if the camera has any, are a header button.",
   talk_auto_listen: "Turn on Listen as well.",
+  start_camera: "Entity id or short name. Used when the URL has no camera parameter.",
+  layout: "Fill the screen for a panel or a subview.",
 };
 
 class AdvancedReolinkCardEditor extends HTMLElement {
   setConfig(config) {
-    this._config = { mode: "hold", show_level: true, video: false, ptz: false, listen: false, talk: true, duplex: "half", volume: 80, talk_auto_listen: false, ...config };
+    this._config = { mode: "hold", show_level: true, video: false, ptz: false, listen: false, talk: true, duplex: "half", volume: 80, talk_auto_listen: false, layout: "card", lens: "auto", ...config };
     this._render();
   }
 
@@ -4018,6 +4784,13 @@ class AdvancedReolinkCardEditor extends HTMLElement {
     }
     const hideEl = this.querySelector('input[name="hide_grid_warning"]');
     next.hide_grid_warning = !!(hideEl && hideEl.checked);
+    const startEl = this.querySelector('input[name="start_camera"]');
+    const start = startEl ? String(startEl.value).trim() : "";
+    if (start) next.start_camera = start;
+    else delete next.start_camera;
+    const layoutEl = this.querySelector('select[name="layout"]');
+    if (layoutEl && layoutEl.value === "fullscreen") next.layout = "fullscreen";
+    else delete next.layout;
     this._config = next;
     this.dispatchEvent(
       new CustomEvent("config-changed", { detail: { config: next }, bubbles: true, composed: true })
@@ -4034,6 +4807,11 @@ class AdvancedReolinkCardEditor extends HTMLElement {
           ? ""
           : this._config.grid_columns;
       const hide = this._config.hide_grid_warning === true;
+      const start =
+        this._config.start_camera == null || this._config.start_camera === ""
+          ? ""
+          : this._config.start_camera;
+      const layout = this._config.layout === "fullscreen" ? "fullscreen" : "card";
       this.innerHTML = `
         <style>
           .multicam-note { font-size: 0.95em; line-height: 1.45; color: var(--primary-text-color); }
@@ -4042,10 +4820,10 @@ class AdvancedReolinkCardEditor extends HTMLElement {
           .layout-fields { display: grid; gap: 12px; margin-top: 14px; }
           .layout-fields label { display: flex; flex-direction: column; gap: 4px; font-size: 0.95em; }
           .layout-fields label.row { flex-direction: row; align-items: center; gap: 8px; }
-          .layout-fields select, .layout-fields input[type="number"] { font: inherit; padding: 6px 8px; max-width: 16em; }
+          .layout-fields select, .layout-fields input[type="number"], .layout-fields input[type="text"] { font: inherit; padding: 6px 8px; max-width: 16em; }
           .grid-warn { margin: 0; font-size: 0.9em; line-height: 1.45; color: var(--secondary-text-color); }
         </style>
-        <p class="multicam-note">This card uses a <code>cameras</code> list. Edit the cameras in YAML. You can change the view, the columns, and the warning here.</p>
+        <p class="multicam-note">This card uses a <code>cameras</code> list. Edit the cameras in YAML. You can change the view, the columns, the starting camera, the layout, and the warning here.</p>
         <ul class="multicam-list"></ul>
         <div class="layout-fields">
           <label>View
@@ -4058,6 +4836,16 @@ class AdvancedReolinkCardEditor extends HTMLElement {
             <input name="grid_columns" type="number" min="1" max="6" step="1" value="${_esc(cols)}" aria-describedby="cols-hint">
           </label>
           <p id="cols-hint" class="grid-warn">Leave empty to fit the width. Use 1 to 6.</p>
+          <label>Starting camera
+            <input name="start_camera" type="text" value="${_esc(start)}" aria-describedby="start-hint">
+          </label>
+          <p id="start-hint" class="grid-warn">Entity id or short name. Used when the URL has no camera parameter.</p>
+          <label>Layout
+            <select name="layout">
+              <option value="card"${layout === "card" ? " selected" : ""}>Card</option>
+              <option value="fullscreen"${layout === "fullscreen" ? " selected" : ""}>Fill the screen</option>
+            </select>
+          </label>
           <label class="row"><input name="hide_grid_warning" type="checkbox"${hide ? " checked" : ""}> Hide the warning</label>
           ${view === "grid" ? `<p class="grid-warn">${_esc(GRID_WARN_TEXT)}</p>` : ""}
         </div>
@@ -4073,6 +4861,8 @@ class AdvancedReolinkCardEditor extends HTMLElement {
         this._render();
       });
       this.querySelector('input[name="grid_columns"]').addEventListener("change", () => this._commitMultiLayout());
+      this.querySelector('input[name="start_camera"]').addEventListener("change", () => this._commitMultiLayout());
+      this.querySelector('select[name="layout"]').addEventListener("change", () => this._commitMultiLayout());
       this.querySelector('input[name="hide_grid_warning"]').addEventListener("change", () => this._commitMultiLayout());
       return;
     }
@@ -4084,6 +4874,7 @@ class AdvancedReolinkCardEditor extends HTMLElement {
       this._form.addEventListener("value-changed", (ev) => {
         const config = { ...ev.detail.value };
         for (const key of Object.keys(config)) if (config[key] === "" || config[key] === undefined) delete config[key];
+        if (config.layout === "card") delete config.layout;
         this._config = config;
         this.dispatchEvent(new CustomEvent("config-changed", { detail: { config }, bubbles: true, composed: true }));
       });

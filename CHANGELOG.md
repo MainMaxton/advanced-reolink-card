@@ -1,5 +1,64 @@
 # Changelog
 
+## 0.6.0 (2026-10-28)
+
+### Added
+- Setup and Configure can add a fullscreen Live page to a dashboard you pick.
+  Notification links such as `/<dashboard>/live?camera=camera.front_door` then
+  open that view fullscreen with the camera picked. Without a Live page, a
+  `?camera=` link still switches camera on any page that has the card. YAML
+  dashboards are skipped, existing views are never changed, and the option is
+  off each time you open Configure.
+
+## 0.5.9 (2026-10-28)
+
+### Fixed
+- Switching between Wide and Tele no longer drops to the Connecting screen. The
+  other lens opens quietly in the background while the live view plays, so the
+  swap is instant and Listen carries on. The background stream closes when you
+  change camera, stop the live view or leave the card alone for five minutes.
+  If the other lens is not ready yet, the current lens keeps playing and a small
+  "Switching lens" note shows until the new one has a picture.
+
+## 0.5.8 (2026-10-28)
+
+### Added
+- Zoom buttons sit on the video, at the bottom right, with minus on the left and
+  plus on the right. They show on the card, in the fullscreen layout, on each
+  live grid tile, and on the patrol preview.
+- Dual-lens cameras, such as the TrackMix, get a Wide / Tele switch on the live
+  view. In Auto, zooming in switches to Tele, and reaching minimum zoom switches
+  back to Wide.
+- `tele_entity` and `lens` options. `tele_entity` picks the telephoto stream, or
+  `false` turns the switch off. `lens` is `auto`, `wide` or `tele`.
+
+## 0.5.7 (2026-10-28)
+
+### Added
+- Open a camera from a link with `?camera=` on the dashboard address. The card
+  reads it on load and on every page change, switches to the matching tab
+  without a page jump, then removes only that value from the address. It
+  accepts an entity id, a short name such as `front_yard`, the camera's `name`
+  or the tab title, in any case. Values that match no camera are ignored.
+- `start_camera` picks the camera shown first when the address has no
+  `?camera=`. It takes an entity id, a short name, the camera's `name` or an
+  index. `default_camera` still works, and `start_camera` wins when both are set.
+- `layout: fullscreen` fills the view for a panel or a hidden subview on a
+  phone. Tabs, pan and tilt, zoom, presets, Guard, Patrol, Listen and hold to
+  talk all stay. The card scrolls when the controls do not fit, for example on a
+  phone turned sideways.
+- The card editor has **Starting camera** and **Layout**.
+- README: setting up a hidden Live view and a notification that opens it.
+
+### Fixed
+- Zoom works on cameras such as the TrackMix. Current Reolink releases give
+  them a *Zoom* slider (a `number` entity) instead of zoom buttons, so the zoom
+  buttons never showed. The card now steps that slider: tap for one step, hold
+  to repeat. Cameras with the zoom buttons still use them, and cameras with
+  neither do not show zoom. On a TrackMix, zoom moves the telephoto lens only.
+- Switching tabs no longer scrolls the page to bring the tab into view. Only the
+  tab row scrolls.
+
 ## 0.5.6 (2026-10-25)
 
 ### Fixed

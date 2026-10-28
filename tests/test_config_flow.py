@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import voluptuous as vol
@@ -12,7 +12,14 @@ from custom_components.advanced_reolink_card.baichuan_talk import (
     BaichuanConnectionError,
     BaichuanTimeoutError,
 )
-from custom_components.advanced_reolink_card.const import CONF_ENABLED_CHANNELS, DOMAIN
+from custom_components.advanced_reolink_card.const import (
+    CONF_ENABLED_CHANNELS,
+    CONF_LIVE_DASHBOARD,
+    CONF_LIVE_PAGE,
+    CONF_LIVE_PAGE_PENDING,
+    DOMAIN,
+)
+from custom_components.advanced_reolink_card.live_page import LivePageError, LivePageResult
 from homeassistant.config_entries import SOURCE_USER
 from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant
@@ -20,6 +27,19 @@ from homeassistant.data_entry_flow import FlowResultType
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from .conftest import DEVICE, PASSWORD, USER_INPUT, make_channels
+
+
+async def _submit_live_page(
+    hass: HomeAssistant,
+    flow_id: str,
+    *,
+    live_page: bool = False,
+    live_dashboard: str | None = None,
+) -> dict:
+    data: dict = {CONF_LIVE_PAGE: live_page}
+    if live_dashboard is not None:
+        data[CONF_LIVE_DASHBOARD] = live_dashboard
+    return await hass.config_entries.flow.async_configure(flow_id, data)
 
 
 async def test_user_flow_creates_entry(
@@ -31,12 +51,16 @@ async def test_user_flow_creates_entry(
     assert result["errors"] == {}
 
     result = await hass.config_entries.flow.async_configure(result["flow_id"], USER_INPUT)
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "live_page"
+    result = await _submit_live_page(hass, result["flow_id"])
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["title"] == "Test NVR"
     assert result["result"].unique_id == DEVICE["uid"]
     data = result["data"]
     assert data[CONF_PASSWORD] == PASSWORD
     assert [c["talk_status"] for c in data["channels"]] == ["supported", "unknown", "unsupported"]
+    assert CONF_LIVE_PAGE_PENDING not in data
     assert len(mock_setup_entry.mock_calls) == 1
 
 
@@ -69,6 +93,9 @@ async def test_user_flow_errors_and_recovery(
 
     mock_flow_nvr.discover.side_effect = None
     result = await hass.config_entries.flow.async_configure(result["flow_id"], USER_INPUT)
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "live_page"
+    result = await _submit_live_page(hass, result["flow_id"])
     assert result["type"] is FlowResultType.CREATE_ENTRY
 
 
@@ -92,6 +119,8 @@ async def test_user_flow_sleeping_only_device_is_accepted(
     mock_flow_nvr.discover.return_value = ({"name": "Battery Cam", "uid": "U2"}, standalone)
     result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
     result = await hass.config_entries.flow.async_configure(result["flow_id"], USER_INPUT)
+    assert result["step_id"] == "live_page"
+    result = await _submit_live_page(hass, result["flow_id"])
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["data"]["channels"][0]["talk_status"] == "unknown"
 
@@ -102,6 +131,7 @@ async def test_user_flow_unique_id_fallbacks(
     mock_flow_nvr.discover.return_value = ({"serial": "000000000000"}, make_channels())
     result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
     result = await hass.config_entries.flow.async_configure(result["flow_id"], USER_INPUT)
+    result = await _submit_live_page(hass, result["flow_id"])
     assert result["result"].unique_id == f"{USER_INPUT[CONF_HOST]}:9000"
     assert result["title"] == USER_INPUT[CONF_HOST]
 
@@ -291,3 +321,123 @@ async def test_options_flow_keeps_saved_patrol_limits(
     assert config_entry.options["volume"] == 80
     assert config_entry.options[CONF_ENABLED_CHANNELS] == [0]
     assert config_entry.options["patrol"] == saved
+    assert CONF_LIVE_PAGE not in config_entry.options
+    assert CONF_LIVE_DASHBOARD not in config_entry.options
+
+
+async def test_user_flow_live_page_on_stores_pending(
+    hass: HomeAssistant, mock_flow_nvr: MagicMock, mock_setup_entry: AsyncMock
+) -> None:
+    with patch(
+        "custom_components.advanced_reolink_card.config_flow.list_dashboards",
+        return_value=([("lovelace", "Overview")], 0),
+    ):
+        result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], USER_INPUT)
+        assert result["step_id"] == "live_page"
+        result = await _submit_live_page(
+            hass, result["flow_id"], live_page=True, live_dashboard="lovelace"
+        )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["data"][CONF_LIVE_PAGE_PENDING] == "lovelace"
+
+
+async def test_user_flow_live_page_on_without_dashboard_errors(
+    hass: HomeAssistant, mock_flow_nvr: MagicMock, mock_setup_entry: AsyncMock
+) -> None:
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], USER_INPUT)
+    assert result["step_id"] == "live_page"
+    result = await _submit_live_page(hass, result["flow_id"], live_page=True)
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"base": "no_dashboard"}
+    result = await _submit_live_page(hass, result["flow_id"], live_page=False)
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert CONF_LIVE_PAGE_PENDING not in result["data"]
+
+
+async def test_user_flow_live_page_mentions_yaml_when_skipped(
+    hass: HomeAssistant, mock_flow_nvr: MagicMock, mock_setup_entry: AsyncMock
+) -> None:
+    with patch(
+        "custom_components.advanced_reolink_card.config_flow.list_dashboards",
+        return_value=([("dashboard-cams", "Cameras")], 1),
+    ):
+        result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], USER_INPUT)
+    note = result["description_placeholders"]["yaml_note"]
+    assert "YAML dashboards are not listed" in note
+
+
+async def test_options_flow_live_page_on_shows_done(
+    hass: HomeAssistant,
+    mock_flow_nvr: MagicMock,
+    mock_setup_entry: AsyncMock,
+    config_entry: MockConfigEntry,
+) -> None:
+    config_entry.add_to_hass(hass)
+    added = LivePageResult("live", "/lovelace/live?camera=camera.front_door", True)
+    with (
+        patch(
+            "custom_components.advanced_reolink_card.config_flow.list_dashboards",
+            return_value=([("lovelace", "Overview")], 0),
+        ),
+        patch(
+            "custom_components.advanced_reolink_card.config_flow.async_add_live_page",
+            return_value=added,
+        ) as add_live,
+    ):
+        result = await hass.config_entries.options.async_init(config_entry.entry_id)
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            {
+                "voice": "en-US-GuyNeural",
+                "volume": 80,
+                CONF_ENABLED_CHANNELS: ["0"],
+                CONF_LIVE_PAGE: True,
+                CONF_LIVE_DASHBOARD: "lovelace",
+            },
+        )
+        assert result["type"] is FlowResultType.FORM
+        assert result["step_id"] == "live_page_done"
+        assert result["description_placeholders"]["link"] == added.link
+        assert "added" in result["description_placeholders"]["status"].lower()
+        add_live.assert_awaited_once()
+        result = await hass.config_entries.options.async_configure(result["flow_id"], {})
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert config_entry.options["voice"] == "en-US-GuyNeural"
+    assert CONF_LIVE_PAGE not in config_entry.options
+    assert CONF_LIVE_DASHBOARD not in config_entry.options
+
+
+async def test_options_flow_live_page_error_stays_on_init(
+    hass: HomeAssistant,
+    mock_flow_nvr: MagicMock,
+    mock_setup_entry: AsyncMock,
+    config_entry: MockConfigEntry,
+) -> None:
+    config_entry.add_to_hass(hass)
+    with (
+        patch(
+            "custom_components.advanced_reolink_card.config_flow.list_dashboards",
+            return_value=([("lovelace", "Overview")], 0),
+        ),
+        patch(
+            "custom_components.advanced_reolink_card.config_flow.async_add_live_page",
+            side_effect=LivePageError("save_failed"),
+        ),
+    ):
+        result = await hass.config_entries.options.async_init(config_entry.entry_id)
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            {
+                "voice": "en-US-JennyNeural",
+                "volume": 100,
+                CONF_ENABLED_CHANNELS: ["0", "1"],
+                CONF_LIVE_PAGE: True,
+                CONF_LIVE_DASHBOARD: "lovelace",
+            },
+        )
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "init"
+    assert result["errors"] == {"base": "save_failed"}

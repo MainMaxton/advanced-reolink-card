@@ -24,6 +24,9 @@ from .const import (
     CONF_CHANNELS,
     CONF_DEVICE,
     CONF_ENABLED_CHANNELS,
+    CONF_LIVE_DASHBOARD,
+    CONF_LIVE_PAGE,
+    CONF_LIVE_PAGE_PENDING,
     CONF_LIVE_TALK_NON_ADMIN,
     CONF_VOICE,
     CONF_VOLUME,
@@ -32,6 +35,14 @@ from .const import (
     DEFAULT_VOLUME,
     DOMAIN,
     TALK_UNSUPPORTED,
+)
+from .live_page import (
+    LivePageError,
+    LivePageResult,
+    async_add_live_page,
+    default_dashboard,
+    list_dashboards,
+    yaml_note,
 )
 from .talk_manager import AdvancedReolinkNvr
 
@@ -100,10 +111,32 @@ def _entry_title(device: Mapping[str, str], host: str) -> str:
     return device.get("name") or device.get("model") or host
 
 
+def _live_page_fields(usable: list[tuple[str, str]]) -> dict[Any, Any]:
+    fields: dict[Any, Any] = {
+        vol.Optional(CONF_LIVE_PAGE, default=False): selector.BooleanSelector(),
+    }
+    if usable:
+        default = default_dashboard(usable)
+        fields[
+            vol.Optional(CONF_LIVE_DASHBOARD, default=default)
+        ] = selector.SelectSelector(
+            selector.SelectSelectorConfig(
+                options=[
+                    selector.SelectOptionDict(value=value, label=label)
+                    for value, label in usable
+                ],
+                mode=selector.SelectSelectorMode.DROPDOWN,
+            )
+        )
+    return fields
+
+
 class AdvancedReolinkConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle the UI setup."""
 
     VERSION = 1
+    _pending_entry: dict[str, Any]
+    _entry_title: str
 
     @staticmethod
     @callback
@@ -127,13 +160,38 @@ class AdvancedReolinkConfigFlow(ConfigFlow, domain=DOMAIN):
                 if not selectable_channels(channels):
                     errors["base"] = "no_talk_channels"
                 else:
-                    return self.async_create_entry(
-                        title=_entry_title(device, user_input[CONF_HOST]),
-                        data={**user_input, CONF_DEVICE: device, CONF_CHANNELS: channels},
-                    )
+                    self._pending_entry = {
+                        **user_input,
+                        CONF_DEVICE: device,
+                        CONF_CHANNELS: channels,
+                    }
+                    self._entry_title = _entry_title(device, user_input[CONF_HOST])
+                    return await self.async_step_live_page()
         defaults = {k: v for k, v in (user_input or {}).items() if k != CONF_PASSWORD}
         return self.async_show_form(
             step_id="user", data_schema=_connection_schema(defaults), errors=errors
+        )
+
+    async def async_step_live_page(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        errors: dict[str, str] = {}
+        usable, yaml_count = await list_dashboards(self.hass)
+        if user_input is not None:
+            data = dict(self._pending_entry)
+            if user_input.get(CONF_LIVE_PAGE):
+                dashboard = user_input.get(CONF_LIVE_DASHBOARD) or default_dashboard(usable)
+                if not dashboard:
+                    errors["base"] = "no_dashboard"
+                else:
+                    data[CONF_LIVE_PAGE_PENDING] = dashboard
+            if not errors:
+                return self.async_create_entry(title=self._entry_title, data=data)
+        return self.async_show_form(
+            step_id="live_page",
+            data_schema=vol.Schema(_live_page_fields(usable)),
+            description_placeholders={"yaml_note": yaml_note(yaml_count)},
+            errors=errors,
         )
 
     async def async_step_reauth(self, entry_data: Mapping[str, Any]) -> ConfigFlowResult:
@@ -208,11 +266,17 @@ class AdvancedReolinkConfigFlow(ConfigFlow, domain=DOMAIN):
 class AdvancedReolinkOptionsFlow(OptionsFlow):
     """Default voice/volume, which channels may talk, and a channel re-scan."""
 
+    _pending_options: dict[str, Any]
+    _live_result: LivePageResult
+
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         entry = self.config_entry
+        errors: dict[str, str] = {}
         if user_input is not None:
+            want_live = bool(user_input.pop(CONF_LIVE_PAGE, False))
+            dashboard = user_input.pop(CONF_LIVE_DASHBOARD, None)
             user_input[CONF_ENABLED_CHANNELS] = sorted(
                 int(c) for c in user_input.get(CONF_ENABLED_CHANNELS, [])
             )
@@ -220,8 +284,42 @@ class AdvancedReolinkOptionsFlow(OptionsFlow):
             for key, value in entry.options.items():
                 if key not in user_input:
                     user_input[key] = value
-            return self.async_create_entry(data=user_input)
+            if want_live:
+                if not dashboard:
+                    errors["base"] = "no_dashboard"
+                else:
+                    try:
+                        result = await async_add_live_page(self.hass, entry, dashboard)
+                    except LivePageError as err:
+                        errors["base"] = err.reason
+                    else:
+                        self._pending_options = user_input
+                        self._live_result = result
+                        return await self.async_step_live_page_done()
+            else:
+                return self.async_create_entry(data=user_input)
 
+        return await self._async_show_init_form(errors)
+
+    async def async_step_live_page_done(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        if user_input is not None:
+            return self.async_create_entry(data=self._pending_options)
+        result = self._live_result
+        status = (
+            "This dashboard already had a Live view."
+            if not result.created
+            else "A Live view was added."
+        )
+        return self.async_show_form(
+            step_id="live_page_done",
+            data_schema=vol.Schema({}),
+            description_placeholders={"link": result.link, "status": status},
+        )
+
+    async def _async_show_init_form(self, errors: dict[str, str]) -> ConfigFlowResult:
+        entry = self.config_entry
         channels: list[dict[str, Any]] = list(entry.data.get(CONF_CHANNELS, []))
         # Re-scan names / online / sleep state / talk ability (read-only, never wakes
         # sleeping cameras). Keep the stored data if the device cannot be reached.
@@ -250,6 +348,7 @@ class AdvancedReolinkOptionsFlow(OptionsFlow):
             ]
         else:
             enabled_default = [str(c) for c in sorted(selectable)]
+        usable, yaml_count = await list_dashboards(self.hass)
         schema = vol.Schema(
             {
                 vol.Optional(
@@ -277,6 +376,7 @@ class AdvancedReolinkOptionsFlow(OptionsFlow):
                     CONF_LIVE_TALK_NON_ADMIN,
                     default=entry.options.get(CONF_LIVE_TALK_NON_ADMIN, False),
                 ): selector.BooleanSelector(),
+                **_live_page_fields(usable),
             }
         )
         unsupported = [
@@ -287,7 +387,9 @@ class AdvancedReolinkOptionsFlow(OptionsFlow):
         return self.async_show_form(
             step_id="init",
             data_schema=schema,
+            errors=errors,
             description_placeholders={
-                "unsupported": ", ".join(unsupported) if unsupported else "none"
+                "unsupported": ", ".join(unsupported) if unsupported else "none",
+                "yaml_note": yaml_note(yaml_count),
             },
         )

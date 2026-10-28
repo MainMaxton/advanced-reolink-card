@@ -25,12 +25,17 @@ this.normalizeCardConfig = normalizeCardConfig;
 this.resolveCameraIndex = resolveCameraIndex;
 this.mergeCameraEntry = mergeCameraEntry;
 this.CARD_DEFAULTS = CARD_DEFAULTS;
-this.CAMERA_OPTION_KEYS = CAMERA_OPTION_KEYS;`,
+this.CAMERA_OPTION_KEYS = CAMERA_OPTION_KEYS;
+this.parseCameraParam = parseCameraParam;
+this.matchCameraIndex = matchCameraIndex;
+this.stripCameraParam = stripCameraParam;
+this.zoomStepValue = zoomStepValue;
+this.nextLensAfterZoom = nextLensAfterZoom;`,
   context,
   { filename: "card-config.js" }
 );
 
-const { normalizeCardConfig, resolveCameraIndex, CAMERA_OPTION_KEYS } = context;
+const { normalizeCardConfig, resolveCameraIndex, CAMERA_OPTION_KEYS, parseCameraParam, matchCameraIndex, stripCameraParam, zoomStepValue, nextLensAfterZoom } = context;
 
 let failed = 0;
 function assert(cond, msg) {
@@ -173,9 +178,11 @@ assert(one.multi === false, "one-item cameras list is not multi (no tab bar)");
 
 const layoutDefault = normalizeCardConfig({ entity: "media_player.a" });
 equal(layoutDefault.view, "tabs", "view defaults to tabs");
+equal(layoutDefault.layout, "card", "layout defaults to card");
 equal(layoutDefault.grid_columns, null, "grid_columns defaults to null");
 equal(layoutDefault.hide_grid_warning, false, "hide_grid_warning defaults to false");
 assert(layoutDefault.multi === false, "layout defaults stay single-camera");
+assert(layoutDefault.start_camera === undefined, "start_camera is omitted when unset");
 
 const gridView = normalizeCardConfig({
   view: "grid",
@@ -196,6 +203,11 @@ throws(
   () => normalizeCardConfig({ entity: "media_player.a", view: "mosaic" }),
   /'view' must be 'tabs' or 'grid'/,
   "invalid view"
+);
+throws(
+  () => normalizeCardConfig({ entity: "media_player.a", layout: "wide" }),
+  /'layout' must be 'card' or 'fullscreen'/,
+  "invalid layout"
 );
 throws(
   () => normalizeCardConfig({ entity: "media_player.a", grid_columns: 0 }),
@@ -263,9 +275,114 @@ assert(resolveCameraIndex(multi.cameras, 99, 0) === 0, "out-of-range index falls
 assert(resolveCameraIndex(multi.cameras, undefined, 2) === 2, "undefined default uses fallback");
 assert(resolveCameraIndex(multi.cameras, "", 1) === 1, "empty default uses fallback");
 
+const fullLayout = normalizeCardConfig({ entity: "media_player.a", layout: "fullscreen" });
+equal(fullLayout.layout, "fullscreen", "layout fullscreen is passed through");
+equal(fullLayout.view, "tabs", "fullscreen keeps the default view");
+
+const started = normalizeCardConfig({
+  start_camera: "garage",
+  default_camera: "Front yard",
+  cameras: [
+    { entity: "media_player.front_yard_speaker", camera_entity: "camera.front_yard_fluent", name: "Front yard" },
+    { entity: "media_player.garage_speaker", camera_entity: "camera.garage_fluent", name: "Garage" },
+  ],
+});
+equal(started.start_camera, "garage", "start_camera passed through");
+equal(started.default_camera, "Front yard", "default_camera still passed through");
+assert(resolveCameraIndex(started.cameras, started.start_camera, 0) === 1, "start_camera matches by short name");
+assert(resolveCameraIndex(started.cameras, started.default_camera, 0) === 0, "default_camera still matches by name");
+assert(resolveCameraIndex(started.cameras, "front_yard", 1) === 0, "short name front_yard matches fluent camera");
+
+const linkCams = started.cameras;
+assert(matchCameraIndex(linkCams, "camera.front_yard_fluent") === 0, "match full camera entity id");
+assert(matchCameraIndex(linkCams, "CAMERA.FRONT_YARD_FLUENT") === 0, "match entity id is case-insensitive");
+assert(matchCameraIndex(linkCams, "media_player.garage_speaker") === 1, "match speaker entity id");
+assert(matchCameraIndex(linkCams, "front_yard") === 0, "match short name");
+assert(matchCameraIndex(linkCams, "Front_Yard") === 0, "match short name is case-insensitive");
+assert(matchCameraIndex(linkCams, "front_yard_fluent") === 0, "match object id without domain");
+assert(matchCameraIndex(linkCams, "Front yard") === 0, "match configured name");
+assert(matchCameraIndex(linkCams, "GARAGE") === 1, "match tab title is case-insensitive");
+assert(matchCameraIndex(linkCams, "missing") == null, "unknown camera is ignored");
+assert(matchCameraIndex(linkCams, "camera.backyard_fluent") == null, "unknown entity id is ignored");
+assert(matchCameraIndex(linkCams, "") == null, "empty match value is ignored");
+assert(matchCameraIndex(linkCams, null) == null, "null match value is ignored");
+
+equal(parseCameraParam("?camera=camera.front_yard_fluent"), "camera.front_yard_fluent", "parse entity id param");
+equal(parseCameraParam("?foo=1&camera=front_yard&bar=2"), "front_yard", "parse short name among other params");
+equal(parseCameraParam("camera=Front+Yard"), "Front Yard", "parse plus-encoded name");
+equal(parseCameraParam("/lovelace/cameras/live?camera=Garage#wide"), "Garage", "parse from a path and hash");
+equal(parseCameraParam("?kiosk=1"), null, "missing camera param");
+equal(parseCameraParam(""), null, "empty search");
+equal(parseCameraParam("?camera="), null, "empty camera param");
+equal(parseCameraParam("?CAMERA=front_yard"), null, "camera key is lowercase");
+
+equal(stripCameraParam("/lovelace/cameras/live?camera=front_yard"), "/lovelace/cameras/live", "strip lone camera param");
+equal(
+  stripCameraParam("/lovelace/cameras/live?kiosk=1&camera=front_yard&foo=bar#wide"),
+  "/lovelace/cameras/live?kiosk=1&foo=bar#wide",
+  "strip keeps other params and hash"
+);
+equal(
+  stripCameraParam("/lovelace/cameras/live?kiosk=1#wide"),
+  "/lovelace/cameras/live?kiosk=1#wide",
+  "strip leaves a URL with no camera param"
+);
+equal(stripCameraParam("/lovelace/cameras/live?camera=front_yard#panel"), "/lovelace/cameras/live#panel", "strip keeps hash after a lone camera param");
+
+const zoomAttrs = { min: 1000, max: 6000, step: 1 };
+equal(zoomStepValue("1000", zoomAttrs, "zoom_in"), 1500, "zoom in steps a tenth of the range");
+equal(zoomStepValue(3000, zoomAttrs, "zoom_out"), 2500, "zoom out steps down");
+equal(zoomStepValue(5800, zoomAttrs, "zoom_in"), 6000, "zoom in stops at max");
+equal(zoomStepValue(6000, zoomAttrs, "zoom_in"), null, "zoom in at max does nothing");
+equal(zoomStepValue(1000, zoomAttrs, "zoom_out"), null, "zoom out at min does nothing");
+equal(zoomStepValue("unavailable", zoomAttrs, "zoom_in"), null, "unavailable zoom does nothing");
+equal(zoomStepValue(0, { min: 0, max: 4, step: 1 }, "zoom_in"), 1, "small ranges still move one step");
+equal(zoomStepValue(0, {}, "zoom_in"), null, "zoom without a range does nothing");
+
+for (const lens of ["auto", "wide", "tele"]) {
+  const cfg = normalizeCardConfig({ entity: "media_player.a", lens });
+  equal(cfg.cameras[0].lens, lens, `lens ${lens} is accepted`);
+}
+throws(
+  () => normalizeCardConfig({ entity: "media_player.a", lens: "fisheye" }),
+  /'lens' must be 'auto', 'wide' or 'tele'/,
+  "invalid lens"
+);
+throws(
+  () => normalizeCardConfig({ cameras: [{ entity: "media_player.a", lens: "both" }] }),
+  /cameras\[0\]: 'lens' must be 'auto', 'wide' or 'tele'/,
+  "invalid lens on a camera entry"
+);
+const teleOff = normalizeCardConfig({ entity: "media_player.a", tele_entity: false });
+equal(teleOff.cameras[0].tele_entity, false, "tele_entity false is accepted");
+const teleOn = normalizeCardConfig({
+  tele_entity: false,
+  lens: "wide",
+  cameras: [
+    { entity: "media_player.a", tele_entity: "camera.a_telephoto_fluent", lens: "tele" },
+    { entity: "media_player.b" },
+  ],
+});
+equal(teleOn.cameras[0].tele_entity, "camera.a_telephoto_fluent", "per-camera tele_entity overrides the top level");
+equal(teleOn.cameras[0].lens, "tele", "per-camera lens overrides the top level");
+equal(teleOn.cameras[1].tele_entity, false, "top-level tele_entity false applies to other cameras");
+equal(teleOn.cameras[1].lens, "wide", "top-level lens applies to other cameras");
+
+equal(nextLensAfterZoom("auto", "wide", "zoom_in", 1500, 1000, true), "tele", "auto zoom in from wide goes to tele");
+equal(nextLensAfterZoom("auto", "tele", "zoom_in", 2000, 1000, true), "tele", "auto zoom in stays on tele");
+equal(nextLensAfterZoom("auto", "tele", "zoom_out", 1000, 1000, true), "wide", "auto zoom out at minimum goes wide");
+equal(nextLensAfterZoom("auto", "tele", "zoom_out", 1500, 1000, true), "tele", "auto zoom out above minimum stays tele");
+equal(nextLensAfterZoom("auto", "tele", "zoom_out", null, 1000, true), "tele", "zoom out without a value stays on tele");
+equal(nextLensAfterZoom("wide", "wide", "zoom_in", 1500, 1000, true), "wide", "wide mode does not auto switch");
+equal(nextLensAfterZoom("tele", "tele", "zoom_out", 1000, 1000, true), "tele", "tele mode does not return to wide");
+equal(nextLensAfterZoom("auto", "wide", "zoom_in", 1500, 1000, false), "wide", "zoom in without a tele entity stays wide");
+equal(nextLensAfterZoom("auto", "wide", "zoom_out", 1000, 1000, true), "wide", "zoom out on wide stays wide");
+
 const keys = [
   "entity",
   "camera_entity",
+  "tele_entity",
+  "lens",
   "name",
   "icon",
   "channel",
@@ -292,6 +409,50 @@ assert(selectBody.includes("_startVideo()"), "camera switch can restart live vie
 assert(!selectBody.includes("_startListen"), "camera switch does not start listen");
 assert(selectBody.includes("_lockCardHeight(true)"), "camera switch locks height during the swap");
 assert(selectBody.includes("_queueSettleCardHeight()"), "camera switch then settles to the new camera");
+assert(selectBody.includes("_resetLens()"), "camera switch goes back to the wide lens");
+const leaveStart = src.indexOf("  _leaveGrid(index) {");
+const leaveBody = src.slice(leaveStart, src.indexOf("\n  }\n", leaveStart));
+assert(leaveBody.includes("_resetLens()"), "leaving the grid starts on the wide lens");
+
+assert(src.includes('const CARD_VERSION = "0.6.0"'), "CARD_VERSION is 0.6.0");
+assert(src.includes('layout: "fullscreen"') || src.includes('layout === "fullscreen"'), "fullscreen layout is supported");
+assert(src.includes("100dvh"), "fullscreen uses 100dvh");
+assert(src.includes("100vh"), "fullscreen falls back to 100vh");
+assert(src.includes("safe-area-inset-"), "fullscreen respects safe areas");
+assert(src.includes('data-layout="fullscreen"'), "fullscreen is a host attribute");
+assert(src.includes("Starting camera"), "editor labels start_camera in plain English");
+assert(src.includes("Fill the screen"), "editor labels fullscreen in plain English");
+assert(methodSource("_applyCameraLink").includes("_selectCamera"), "a camera deep link uses _selectCamera");
+assert(!/focusTab|slide/.test(methodSource("_applyCameraLink")), "a camera deep link does not focus the tab or slide");
+assert(!methodSource("_scrollActiveTab").includes("scrollIntoView"), "tab row scrolls without moving the page");
+assert(methodSource("_applyCameraLink").includes("_stripCameraLink"), "a matching deep link cleans the URL");
+assert(methodSource("_stripCameraLink").includes("replaceState"), "URL cleanup uses replaceState");
+assert(methodSource("_stripCameraLink").includes("history.state"), "URL cleanup keeps history.state");
+assert(methodSource("connectedCallback").includes("location-changed"), "load watches location-changed");
+assert(methodSource("connectedCallback").includes("popstate"), "load watches popstate");
+assert(methodSource("connectedCallback").includes("_applyCameraLink"), "connectedCallback reads the camera param");
+assert(methodSource("disconnectedCallback").includes('removeEventListener("location-changed"'), "disconnect drops location-changed");
+assert(methodSource("disconnectedCallback").includes('removeEventListener("popstate"'), "disconnect drops popstate");
+assert(methodSource("set hass").includes("_applyCameraLink"), "first hass set reads the camera param");
+assert(
+  /:host\(\[data-layout="fullscreen"\]\) \.video \{[^}]*flex: 1 1 auto/.test(src),
+  "fullscreen video fills the remaining space"
+);
+assert(
+  /:host\(\[data-layout="fullscreen"\]\) ha-card \{[^}]*border-radius: 0/.test(src),
+  "fullscreen drops card border radius"
+);
+assert(
+  /:host\(\[data-layout="fullscreen"\]\) ha-card \{[^}]*box-shadow: none/.test(src),
+  "fullscreen drops card shadow"
+);
+
+const ptzStartSrc = methodSource("_ptzStart");
+assert(ptzStartSrc.includes("zoom_entity"), "zoom falls back to the zoom number when there are no zoom buttons");
+assert(ptzStartSrc.indexOf("entities?.[role]") < ptzStartSrc.indexOf("zoom_entity"), "zoom buttons win over the zoom number");
+assert(methodSource("_zoomStep").includes('"number", "set_value"'), "zoom number is stepped with number.set_value");
+assert(methodSource("_ptzStop").includes("clearInterval(this._zoomTimer)"), "releasing zoom stops the repeat");
+assert(!methodSource("_render").includes("_isFullscreen"), "fullscreen renders the same controls as the card layout");
 
 function methodSource(name) {
   const re = new RegExp(`  (?:async )?${name}\\([^)]*\\) \\{`);
@@ -1295,6 +1456,190 @@ try {
 }
 assert(!crashed, "a read-only volume does not crash");
 assert(readOnly._audioEl.muted === false, "listening still unmutes when volume cannot be set");
+
+
+// Lens swap: the other lens opens in the background and takes over without a reconnect.
+const lensMethods = [
+  ["_setLens", "next"],
+  ["_startLensWait", ""],
+  ["_lensHint", ""],
+  ["_spareWanted", ""],
+  ["_otherLensEntity", ""],
+  ["_queueSpare", ""],
+  ["_warmSpare", ""],
+  ["_spareTouch", "warm"],
+  ["_openSpare", "entity"],
+  ["_dropSpare", ""],
+  ["_spareFailed", "spare"],
+  ["_routeTrack", "pipe, track"],
+  ["_routeError", "pipe, message"],
+  ["_onVideoFrame", "el"],
+  ["_swapToSpare", ""],
+  ["_videoLive", ""],
+];
+const lensCtx = {
+  setTimeout: () => 0,
+  clearTimeout: () => {},
+  document: { visibilityState: "visible" },
+  RTCPeerConnection: function () {},
+  MediaStream: function (tracks) {
+    this.tracks = tracks;
+  },
+  CONNECT_TIMEOUT_MS: 20000,
+  SPARE_DELAY_MS: 2000,
+  SPARE_IDLE_MS: 300000,
+  LENS_HINT_MS: 400,
+  WebRtcPipe: class {
+    constructor(hass, entityId, opts) {
+      this.entityId = entityId;
+      this.opts = opts;
+      this.closed = false;
+    }
+    start() {
+      return Promise.resolve();
+    }
+    stop() {
+      this.closed = true;
+    }
+  },
+};
+vm.runInNewContext(
+  `this.methods = {${lensMethods.map(([name, args]) => `${name}: function(${args}) ${methodFn(name)}`).join(",\n")}};`,
+  lensCtx,
+  { filename: "lens-swap.js" }
+);
+
+function videoEl(behind) {
+  const classes = new Set(behind ? ["behind"] : []);
+  return {
+    hidden: true,
+    srcObject: null,
+    videoWidth: 0,
+    classList: {
+      add: (c) => classes.add(c),
+      remove: (c) => classes.delete(c),
+      contains: (c) => classes.has(c),
+    },
+    play: () => Promise.resolve(),
+  };
+}
+
+function lensCard() {
+  const card = Object.assign(Object.create(null), lensCtx.methods);
+  const mainPipe = new lensCtx.WebRtcPipe(null, "camera.fy_fluent", {});
+  mainPipe.tracks = { audio: { kind: "audio", id: "wide-audio" } };
+  Object.assign(card, {
+    _config: { video: true },
+    _hass: {},
+    _lens: "wide",
+    _lensWait: 0,
+    _spare: null,
+    _spareBroken: null,
+    _patrolEl: null,
+    _video: { state: "live", kind: "webrtc", message: "" },
+    _pipe: mainPipe,
+    _videoEl: videoEl(false),
+    _spareEl: videoEl(true),
+    _listening: true,
+    _listen: { state: "live", message: "" },
+    restarts: 0,
+    attached: [],
+    updates: 0,
+    _now: 1000,
+    _nowMs() { return this._now; },
+    _update() { this.updates += 1; },
+    _inGrid: () => false,
+    _battery: () => false,
+    _videoOn() { return this._video.state !== "off" && this._video.state !== "error"; },
+    _teleEntity: () => "camera.fy_telephoto_fluent",
+    _wideEntity: () => "camera.fy_fluent",
+    _cameraEntity() { return this._lens === "tele" ? "camera.fy_telephoto_fluent" : "camera.fy_fluent"; },
+    _lockCardHeight() {},
+    _captureHoldFrame() {},
+    _releaseHoldFrame() {},
+    _armTimeout() {},
+    _pipeConnecting: () => "connecting",
+    _restartVideoForLens() { this.restarts += 1; },
+    _attachAudio(track) { this.attached.push(track.id); },
+    _detachAudio() { this.attached.push(null); },
+    _onTrack() {},
+    _onPipeError() {},
+  });
+  return card;
+}
+
+function feedSpare(card, id) {
+  const pipe = card._spare.pipe;
+  card._routeTrack(pipe, { kind: "audio", id: `${id}-audio` });
+  card._routeTrack(pipe, { kind: "video", id: `${id}-video` });
+  card._spareEl.videoWidth = 896;
+  card._onVideoFrame(card._spareEl);
+}
+
+const warm = lensCard();
+const wideEl = warm._videoEl;
+const wideSpareEl = warm._spareEl;
+warm._warmSpare();
+assert(warm._spare && warm._spare.entity === "camera.fy_telephoto_fluent", "the tele stream opens in the background");
+feedSpare(warm, "tele");
+assert(warm._spare.ready, "the background stream is ready once it has a frame");
+assert(warm._pipe.entityId === "camera.fy_fluent", "a ready background stream does not take over on its own");
+warm._setLens("tele");
+assert(warm._pipe.entityId === "camera.fy_telephoto_fluent", "a warm swap moves the live view to tele");
+assert(warm._videoEl === wideSpareEl && warm._spareEl === wideEl, "a warm swap trades the two video elements");
+assert(!warm._videoEl.classList.contains("behind") && warm._spareEl.classList.contains("behind"), "the new lens is shown and the old one hidden");
+equal(warm.restarts, 0, "a warm swap does not reconnect");
+equal(warm._lensWait, 0, "a warm swap has no wait");
+equal(warm._video.state, "live", "a warm swap never shows Connecting");
+equal(warm.attached, ["tele-audio"], "Listen moves to the tele audio");
+equal(warm._listen.state, "live", "Listen stays live across the swap");
+assert(warm._spare && warm._spare.entity === "camera.fy_fluent" && warm._spare.ready, "the wide stream waits as the spare");
+warm._setLens("wide");
+assert(warm._pipe.entityId === "camera.fy_fluent", "zooming back out swaps straight back to wide");
+equal(warm.restarts, 0, "swapping back does not reconnect");
+
+const cold = lensCard();
+const coldMain = cold._pipe;
+cold._setLens("tele");
+assert(cold._spare && cold._spare.entity === "camera.fy_telephoto_fluent", "a cold swap opens tele beside the live view");
+assert(cold._pipe === coldMain && !coldMain.closed, "wide keeps playing while tele connects");
+equal(cold._video.state, "live", "a cold swap does not show Connecting");
+assert(cold._lensWait > 0, "a cold swap waits for the first tele frame");
+assert(!cold._lensHint(), "the hint stays hidden for a quick swap");
+cold._now += 500;
+assert(cold._lensHint(), "a slow swap shows the Switching lens hint");
+feedSpare(cold, "tele");
+assert(cold._pipe.entityId === "camera.fy_telephoto_fluent", "the first tele frame finishes the swap");
+equal(cold._lensWait, 0, "the wait ends with the swap");
+equal(cold.restarts, 0, "a cold swap does not restart the live view");
+
+const undo = lensCard();
+undo._setLens("tele");
+undo._setLens("wide");
+equal(undo._lensWait, 0, "switching back before tele is ready ends the wait");
+assert(undo._pipe.entityId === "camera.fy_fluent", "switching back keeps the wide stream");
+feedSpare(undo, "tele");
+assert(undo._pipe.entityId === "camera.fy_fluent", "a late tele frame does not take over after switching back");
+
+const broken = lensCard();
+broken._setLens("tele");
+broken._routeError(broken._spare.pipe, "no answer");
+equal(broken.restarts, 1, "a failed background stream falls back to a normal restart");
+equal(broken._spareBroken, "camera.fy_telephoto_fluent", "a failed lens is not retried in the background");
+assert(broken._spare === null, "the failed stream is closed");
+broken._warmSpare();
+assert(broken._spare === null, "a broken lens does not reopen on its own");
+
+const battery = lensCard();
+battery._battery = () => true;
+battery._warmSpare();
+assert(battery._spare === null, "battery cameras do not open a second stream");
+
+assert(methodSource("_stopVideo").includes("_dropSpare()"), "stopping live view closes the spare stream");
+assert(methodSource("_stopAllStreams").includes("_dropSpare()"), "camera switch and hiding the page close the spare stream");
+assert(methodSource("_render").includes("_dropSpare()"), "a rebuild closes the spare stream");
+assert(methodSource("_resetLens").includes("_spareBroken = null"), "a camera switch forgets a failed lens");
+assert(/const switching = [^;]*_lensWait/.test(methodSource("_update")), "the lens wait replaces the Connecting text");
 
 if (failed) {
   console.error(`${failed} assertion(s) failed`);

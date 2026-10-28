@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 import logging
 from typing import Any
 
 import voluptuous as vol
 
+from homeassistant.components import persistent_notification
 from homeassistant.components.ffmpeg import get_ffmpeg_manager
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
@@ -48,6 +50,7 @@ from .const import (
     CONF_CHANNELS,
     CONF_DEVICE,
     CONF_ENABLED_CHANNELS,
+    CONF_LIVE_PAGE_PENDING,
     CONF_VOICE,
     CONF_VOLUME,
     DEFAULT_VOICE,
@@ -96,6 +99,7 @@ from .patrol_settings import (
     resolve_sweep_options,
     with_camera_settings,
 )
+from .live_page import LivePageError, async_add_live_page
 from .live_talk import async_setup_live_talk, async_stop_sessions
 from .talk_manager import (
     AdvancedReolinkNvr,
@@ -296,12 +300,72 @@ async def async_setup_entry(hass: HomeAssistant, entry: AdvancedReolinkConfigEnt
                     dev_reg.async_remove_device(dev.id)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
+    if entry.data.get(CONF_LIVE_PAGE_PENDING) is not None:
+        entry.async_create_background_task(
+            hass,
+            _async_finish_live_page(hass, entry),
+            f"{DOMAIN} live page {entry.entry_id}",
+        )
     # Refresh channel names / models / talk abilities in the background so a new
     # camera or a changed name is picked up without blocking startup.
     entry.async_create_background_task(
         hass, _async_rediscover(hass, entry), f"{DOMAIN} rediscover {entry.entry_id}"
     )
     return True
+
+
+_LIVE_PAGE_REASONS = {
+    "dashboard_missing": "That dashboard no longer exists.",
+    "dashboard_yaml": "That dashboard is YAML, so Home Assistant cannot save to it.",
+    "dashboard_empty": (
+        "That dashboard has no saved layout yet. Open it, add a card, then try again."
+    ),
+    "no_speakers": "No camera speakers are ready yet. Try again in a moment.",
+    "save_failed": "Could not save the dashboard.",
+}
+
+
+def _clear_live_page_pending(hass: HomeAssistant, entry: AdvancedReolinkConfigEntry) -> None:
+    if CONF_LIVE_PAGE_PENDING not in entry.data:
+        return
+    hass.config_entries.async_update_entry(
+        entry, data={k: v for k, v in entry.data.items() if k != CONF_LIVE_PAGE_PENDING}
+    )
+
+
+async def _async_finish_live_page(
+    hass: HomeAssistant, entry: AdvancedReolinkConfigEntry
+) -> None:
+    """Add the Live page requested at setup. Failures are notified; setup already succeeded."""
+    url_path = entry.data.get(CONF_LIVE_PAGE_PENDING)
+    if not url_path:
+        return
+    try:
+        for _ in range(20):
+            if entry.runtime_data.speakers:
+                break
+            await asyncio.sleep(0.5)
+        result = await async_add_live_page(hass, entry, str(url_path))
+    except LivePageError as err:
+        _LOGGER.warning("Live page not added: %s", err.reason)
+        persistent_notification.async_create(
+            hass,
+            _LIVE_PAGE_REASONS.get(err.reason, "Something went wrong."),
+            title="Live page not added",
+        )
+    except Exception:  # noqa: BLE001
+        _LOGGER.exception("Live page not added")
+        persistent_notification.async_create(
+            hass, "Something went wrong.", title="Live page not added"
+        )
+    else:
+        _LOGGER.info("Live page added at %s", result.link)
+        persistent_notification.async_create(
+            hass,
+            f"[Open the Live page]({result.link})\n\nLink for notifications: `{result.link}`",
+            title="Live page added",
+        )
+    _clear_live_page_pending(hass, entry)
 
 
 async def _async_rediscover(hass: HomeAssistant, entry: AdvancedReolinkConfigEntry) -> None:

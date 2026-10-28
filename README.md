@@ -27,8 +27,8 @@ Advanced Reolink Card is two things in one install:
   own Baichuan protocol. It gives each camera a speaker you can use from
   automations, and it powers live talk and patrol.
 - **A Lovelace card**, `custom:advanced-reolink-card`, that puts every camera on
-  one card: tabs to switch cameras, live view, a pan and tilt pad, presets,
-  listen, hold to talk, and a guided patrol setup.
+  one card: tabs to switch cameras, live view, a pan and tilt pad, zoom, presets,
+  listen, hold to talk, a fullscreen layout, and a guided patrol setup.
 
 The card is served by the integration and loads on every dashboard by itself.
 There is nothing extra to add as a resource.
@@ -47,11 +47,22 @@ Not affiliated with or endorsed by Reolink.
 - **Optional grid.** A button next to the tabs shows every camera at once. The
   first time, the card warns that streaming every camera uses more network and
   processor time. Tap a tile to go back to that camera.
+- **Fullscreen live layout.** `layout: fullscreen` fills a phone screen with the
+  live view and keeps every control. Good for a hidden Live view that a
+  notification opens.
+- **Open a camera from a link.** Add `?camera=front_yard` to the dashboard
+  address and the card switches to that camera.
 
 **Controls**
 
-- **Pan, tilt and zoom** for cameras that can move, such as the TrackMix. Press and
+- **Pan and tilt** for cameras that can move, such as the TrackMix. Press and
   hold to move, release to stop.
+- **Zoom** buttons on the live view, bottom right, for cameras that can zoom.
+  Minus is on the left, plus is on the right. Tap to zoom one step, hold to keep
+  zooming. Cameras that cannot zoom do not show them.
+- **Wide / Tele** on dual-lens cameras such as the TrackMix. The switch sits at
+  the top left of the live view. Auto moves to Tele when you zoom in and back to
+  Wide at the minimum zoom.
 - **Presets** in the card header, next to Guard and Patrol, on a camera that has
   them. The marker button opens a menu of preset names. The list is read from
   Home Assistant and updates as soon as its preset list changes. The Reolink
@@ -135,6 +146,11 @@ before they speak. Nothing streams until you tap, so they are not kept awake.
    username and password of a Reolink user that can talk.
 3. Submit. Setup only reads the camera list. It does not change the device and
    does not wake sleeping cameras.
+4. Optionally turn on **Create a fullscreen Live page** and pick a dashboard.
+   This adds a hidden Live view that a `?camera=` link can open fullscreen.
+   YAML dashboards are not listed, because Home Assistant cannot save to them.
+   If no dashboard can take the page, add one in **Settings**, **Dashboards**,
+   put a card on it, then turn the option on in **Configure**.
 
 Each camera that can talk becomes a device with a speaker and a notify entity.
 New and renamed cameras are picked up each time Home Assistant starts.
@@ -147,6 +163,8 @@ New and renamed cameras are picked up each time Home Assistant starts.
 | Default volume | Software gain in percent. 100 plays the audio as it is. |
 | Cameras allowed to talk | Only these cameras get a speaker. Actions refuse the rest. |
 | Let other people use live talk | Off by default, so only administrators can talk from the card. |
+| Create a fullscreen Live page | Adds one Live view to the dashboard you pick. Existing views are never changed. Off each time you open Configure; it is an action, not a stored setting. |
+| Dashboard | Only dashboards edited in the UI can be used. |
 
 Use **Reconfigure** to change the address, port or login without removing the
 integration. **Download diagnostics** gives a report with the password,
@@ -156,21 +174,23 @@ username, address and device IDs removed.
 
 Add the card from the card picker (**Advanced Reolink Card**) or in YAML. The
 visual editor covers a single camera. For several cameras, write the `cameras`
-list in YAML; the editor then lets you set the view, the grid columns and the
-grid warning.
+list in YAML; the editor then lets you set the view, the grid columns, the
+starting camera, the layout and the grid warning.
 
 ### Card options
 
 | Option | Type | Default | Description |
 |---|---|---|---|
 | `entity` | string | none | Speaker `media_player` from this integration. Used to talk and to find the camera. |
-| `camera_entity` | string | auto | Reolink camera entity for live view, listen and pan and tilt. Leave it out to match the speaker's camera. |
+| `camera_entity` | string | auto | Reolink camera entity for live view, listen and pan and tilt. Leave it out to match the speaker's camera. On a dual-lens camera this is the wide stream. |
+| `tele_entity` | string or false | auto | Telephoto stream for a dual-lens camera. Found automatically. Leave it out to use that stream. Set `false` to turn the lens switch off. |
+| `lens` | string | `auto` | `auto`, `wide` or `tele`. Auto switches to Tele when you zoom in and back to Wide at minimum zoom. `wide` and `tele` stay on that lens. |
 | `channel` | number | none | NVR channel (0 based), instead of `entity`. |
 | `config_entry_id` | string | none | Only needed with `channel` when you have more than one NVR or camera set up. |
 | `name` | string | camera name | Card title, and the tab label in a `cameras` list. |
 | `icon` | string | `mdi:cctv` | Header and tab icon. A talk only card uses `mdi:microphone`. |
 | `video` | boolean | `false` | Live view. |
-| `ptz` | boolean | `false` | Pan and tilt pad and zoom. Shown only when the camera can pan. |
+| `ptz` | boolean | `false` | Pan and tilt pad. Shown only when the camera can pan. Zoom buttons show on the live view when the camera can zoom. |
 | `listen` | boolean | `false` | Listen button and volume slider. |
 | `talk` | boolean | `true` | Talk button. Set `false` for a view only camera. |
 | `talk_auto_listen` | boolean | `false` | Pressing talk also turns on Listen. |
@@ -179,8 +199,10 @@ grid warning.
 | `mode` | string | `hold` | Talk button: `hold` to talk, or `toggle` to tap on and off. |
 | `show_level` | boolean | `true` | Microphone level bar under the talk button. |
 | `cameras` | list | none | Several cameras on one card. Each entry takes the per camera keys above (`entity` to `show_level`). Top level values are the defaults, and each entry can override them. |
-| `default_camera` | number or string | `0` | Starting tab: an index, or a camera's `name`, `entity` or `camera_entity`. |
+| `start_camera` | string | none | Camera shown first when the address has no `?camera=`. An entity id, a short name such as `front_yard`, the camera's `name`, or a 0 based index. |
+| `default_camera` | number or string | `0` | The older name for `start_camera`. It still works and takes the same values. `start_camera` wins when both are set. |
 | `view` | string | `tabs` | `tabs` or `grid`. Needs two or more cameras. The button on the card can switch while it is open. |
+| `layout` | string | `card` | `card` for the usual dashboard card, or `fullscreen` to fill the view. See [Fullscreen live layout](#fullscreen-live-layout). |
 | `grid_columns` | number | auto | Fixed grid columns, 1 to 6. Leave it out and the grid fits the width. |
 | `hide_grid_warning` | boolean | `false` | Never show the bandwidth warning in the grid. |
 
@@ -214,7 +236,7 @@ ptz: true
 listen: true
 talk: true
 volume: 80
-default_camera: Front Yard
+start_camera: front_yard
 cameras:
   - entity: media_player.front_yard_speaker
     camera_entity: camera.front_yard_fluent
@@ -249,6 +271,142 @@ cameras:
     talk: false
 ```
 
+### Fullscreen live layout
+
+`layout: fullscreen` turns the card into a full screen live view, made for a
+panel view or a hidden subview on a phone.
+
+- The card fills the height of the view below the Home Assistant header and
+  keeps clear of the phone's notch and home bar (safe areas).
+- It has no rounded corners, border or shadow.
+- The video takes all the space the controls do not need.
+- Tabs, pan and tilt, zoom, presets, Guard, Patrol, Listen and hold to talk all
+  stay, and work the same as on the normal card. Only the layout changes.
+- On iPhone, tap Listen to allow sound. If the button says *Tap to hear*, tap it
+  again. Volume follows the phone buttons there.
+- If the controls do not fit, for example on a phone turned sideways, the card
+  scrolls. The video always keeps at least 40% of the card's height.
+
+The default is `layout: card`, the usual dashboard card. Both are in the card
+editor under **Layout** (**Card** or **Fill the screen**).
+
+### Open a camera from a notification
+
+Add `?camera=` to a dashboard address to open that camera, for example
+`/<dashboard>/live?camera=camera.front_door`.
+
+**With a Live page.** Setup and **Configure** can add a hidden fullscreen Live
+view to a dashboard you pick. A link such as
+`/lovelace/live?camera=camera.front_door` then opens it fullscreen with that
+camera already picked.
+
+**Without a Live page.** The same `?camera=` value still works on any page that
+already has the card: the card switches to that camera. The page is not
+forced fullscreen.
+
+You can add the Live page later: open the integration, **Configure**, turn on
+**Create a fullscreen Live page**, and pick a dashboard.
+
+How the card reads the link:
+
+- The card reads it when the page loads and each time you move to another page
+  in Home Assistant, including the browser back and forward buttons.
+- The value can be a full entity id (`camera.front_yard_fluent` or the speaker
+  `media_player.front_yard_speaker`), a short name (`front_yard`), the camera's
+  `name`, or the tab title. Case does not matter. The short name is the entity id
+  without the domain and without endings such as `_fluent`, `_clear`, `_main`,
+  `_sub`, `_snapshots` or `_speaker`.
+- When it matches a camera on the card, the card switches to that tab the same
+  way a tap does. The page does not jump or scroll.
+- It then removes only `camera` from the address. The rest of the address,
+  including other parameters, stays as it was.
+- A value that matches no camera is ignored and stays in the address.
+- With more than one card on the page, every card that has that camera can
+  switch to it.
+
+`start_camera` picks the camera shown first when the address has no
+`camera` value. It takes an entity id or a short name, the camera's `name`, or a
+0 based index. `default_camera` from older configs still works; when both are
+set, `start_camera` wins.
+
+**1. Add a hidden Live view.** In the dashboard's raw configuration editor, add
+a subview with the card in `layout: fullscreen`. A subview is not shown in the
+dashboard's tab bar.
+
+```yaml
+views:
+  - title: Cameras
+    path: cameras
+    cards:
+      # your usual cards
+  - title: Live
+    path: live
+    type: panel
+    subview: true
+    back_path: /lovelace/cameras
+    cards:
+      - type: custom:advanced-reolink-card
+        layout: fullscreen
+        start_camera: front_yard
+        video: true
+        ptz: true
+        listen: true
+        talk: true
+        cameras:
+          - entity: media_player.front_yard_speaker
+            camera_entity: camera.front_yard_fluent
+            name: Front Yard
+          - entity: media_player.front_door_speaker
+            name: Front Door
+            ptz: false
+```
+
+This example uses the default dashboard, so the view opens at `/lovelace/live`.
+On another dashboard, use its address, such as `/dashboard-cameras/live`.
+
+**2. Send a notification that opens it.** The companion app opens `url` on
+iPhone and `clickAction` on Android, so set both. The **Live view** action
+button opens the same page.
+
+```yaml
+alias: Camera alert
+triggers:
+  - trigger: state
+    entity_id:
+      - binary_sensor.front_yard_person
+      - binary_sensor.front_door_person
+    to: "on"
+variables:
+  cam: >-
+    {{ device_entities(device_id(trigger.entity_id))
+       | select('match', 'camera\\.') | first }}
+  live: "/lovelace/live?camera={{ cam }}"
+actions:
+  - action: notify.mobile_app_phone
+    data:
+      title: "Motion: {{ device_attr(device_id(trigger.entity_id), 'name') }}"
+      message: Tap to open the live view.
+      data:
+        url: "{{ live }}"
+        clickAction: "{{ live }}"
+        actions:
+          - action: URI
+            title: Live view
+            uri: "{{ live }}"
+```
+
+The `cam` template finds the first camera entity on the same device as the
+sensor that fired. The card matches it by short name, so a camera such as
+`camera.front_yard_clear` still opens the Front Yard tab. A TrackMix also has a
+telephoto camera (`camera.front_yard_telephoto_fluent`); if that comes first and
+is not on the card, the card stays on its first camera.
+
+**Getting back.** The Live view has a back arrow in the top left corner. It goes
+to `back_path`, on iPhone and on Android. On Android the system back gesture
+goes back through the app's own history instead; when the notification opened
+the app straight on the Live view, there may be nothing to go back to, so use
+the arrow.
+
 ### How the card behaves
 
 - **Nothing starts on its own.** Live view and listening start when you tap, and
@@ -263,8 +421,26 @@ cameras:
 - **Camera matching.** The card finds the Reolink camera, pan buttons, preset list
   and battery sensors that belong to the speaker. It prefers the Fluent stream.
   Set `camera_entity` to pick another stream.
-- **Zoom** needs the *PTZ zoom in* and *PTZ zoom out* buttons enabled in the
-  Reolink integration. They are off by default.
+- **Zoom** shows on the live picture, at the bottom right, when live view is
+  running and the camera can zoom. Minus is on the left, plus is on the right.
+  The same buttons show in fullscreen, on each live grid tile that can zoom, and
+  on the patrol preview. They stay hidden on the "Tap to start live view" screen,
+  and on cameras that cannot zoom. With the *Zoom* slider (a `number` entity,
+  which a TrackMix has), a tap moves the zoom one tenth of its range and holding
+  repeats about twice a second until you let go or it reaches the end. With the
+  *PTZ zoom in* and *PTZ zoom out* buttons, the camera zooms while you hold. If
+  zoom is turned off in Home Assistant, the card says so.
+- **Wide and Tele.** A dual-lens camera shows a Wide / Tele switch at the top
+  left of the live view, once the picture is running. Auto (the default) switches
+  to Tele when you zoom in, and back to Wide when zoom reaches its minimum.
+  `lens: wide` or `lens: tele` stays on that lens. The card finds the telephoto
+  stream on its own. Set `tele_entity` to pick one, or `tele_entity: false` to
+  hide the switch. If that stream is turned off in Home Assistant, the card says
+  so and does not turn it on. Grid tiles keep the wide stream.
+  While the live view plays, the card quietly opens the other lens in the
+  background, so the swap is instant. It closes that stream when you change
+  camera, stop the live view or leave the card alone for five minutes. Battery
+  cameras do not get the background stream.
 - **Battery cameras** show a battery badge and *Waking the camera* while they wake
   (about 5 to 20 seconds).
 
@@ -407,7 +583,7 @@ optional `volume` from 0 to 200 percent. `say` also takes `voice`.
 | *Failed to connect* during setup | The address and port are right and the Baichuan port is turned on in the device's network settings. |
 | *Invalid authentication* | The Reolink username and password. After a password change, use **Reconfigure**. |
 | *No camera found for live view* | Set up Home Assistant's Reolink integration for the same device and keep its Fluent camera entity enabled, or set `camera_entity`. |
-| No pan and tilt pad | The Reolink *PTZ left, right, up, down and stop* buttons must be enabled for that camera. Zoom also needs *PTZ zoom in* and *PTZ zoom out*. |
+| No pan and tilt pad | The Reolink *PTZ left, right, up, down and stop* buttons must be enabled for that camera. Zoom also needs the *Zoom* number, or *PTZ zoom in* and *PTZ zoom out*. |
 | No Patrol or Guard button | They show only for administrators, on cameras that can pan, and not in the grid. |
 | No Presets button | The camera needs at least one preset, and pan and tilt must be on. It is hidden in the grid. The names come from the camera's preset list in Home Assistant. |
 | Talk button says it needs a secure page | Open Home Assistant over HTTPS or use the companion app. |
