@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.2 (2026-10-29)
+
+### Changed
+- Talk is now a small microphone icon on the live view, right of the speaker
+  icon at the bottom left, in the normal card, the fullscreen layout and every
+  camera tab. Hold it to talk, or tap it in toggle mode. It turns orange while
+  connecting and red while you talk, as before. The status text moves over to
+  make room.
+- The full width talk button is gone when there is live view. A card without
+  live view keeps it. The microphone level bar stays under the live view.
+
 ## 0.6.1 (2026-10-29)
 
 ### Changed

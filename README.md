@@ -72,8 +72,9 @@ Not affiliated with or endorsed by Reolink.
 - **Listen** to the camera microphone. A speaker icon at the bottom left of the
   live view mutes and unmutes the sound. Volume is set on your phone or
   computer. On iPhone, tap the icon to allow sound.
-- **Hold to talk** through the camera speaker. Talk is half duplex by default:
-  listening is muted while you talk, so you do not hear yourself.
+- **Hold to talk** through the camera speaker. The microphone icon sits right
+  of the speaker icon at the bottom left of the live view. Talk is half duplex
+  by default: listening is muted while you talk, so you do not hear yourself.
 
 **Patrol wizard**
 
@@ -193,11 +194,11 @@ starting camera, the layout and the grid warning.
 | `video` | boolean | `false` | Live view. |
 | `ptz` | boolean | `false` | Pan and tilt pad. Shown only when the camera can pan. Zoom buttons show on the live view when the camera can zoom. |
 | `listen` | boolean | `false` | Mute and unmute icon at the bottom left of the live view. Without live view it is a Listen button. |
-| `talk` | boolean | `true` | Talk button. Set `false` for a view only camera. |
+| `talk` | boolean | `true` | Microphone icon next to the speaker icon on the live view. Without live view it is a full width talk button. Set `false` for a view only camera. |
 | `talk_auto_listen` | boolean | `false` | Pressing talk also turns on Listen. |
 | `duplex` | string | `half` | `half` mutes listening while you talk. `full` keeps it on and may echo. |
-| `mode` | string | `hold` | Talk button: `hold` to talk, or `toggle` to tap on and off. |
-| `show_level` | boolean | `true` | Microphone level bar under the talk button. |
+| `mode` | string | `hold` | Talk: `hold` to talk, or `toggle` to tap on and off. |
+| `show_level` | boolean | `true` | Microphone level bar under the live view, or under the talk button on a card without live view. |
 | `cameras` | list | none | Several cameras on one card. Each entry takes the per camera keys above (`entity` to `show_level`). Top level values are the defaults, and each entry can override them. |
 | `start_camera` | string | none | Camera shown first when the address has no `?camera=`. An entity id, a short name such as `front_yard`, the camera's `name`, or a 0 based index. |
 | `default_camera` | number or string | `0` | The older name for `start_camera`. It still works and takes the same values. `start_camera` wins when both are set. |
@@ -445,7 +446,7 @@ the arrow.
 
 ### Talk and listen
 
-Hold the talk button, speak, and let go. Your voice reaches the camera speaker in
+Hold the microphone icon (or the talk button on a card without live view), speak, and let go. Your voice reaches the camera speaker in
 about half a second on a local network. Starting a session takes a second or two,
 longer if a battery camera has to wake.
 
@@ -585,7 +586,7 @@ optional `volume` from 0 to 200 percent. `say` also takes `voice`.
 | No pan and tilt pad | The Reolink *PTZ left, right, up, down and stop* buttons must be enabled for that camera. Zoom also needs the *Zoom* number, or *PTZ zoom in* and *PTZ zoom out*. |
 | No Patrol or Guard button | They show only for administrators, on cameras that can pan, and not in the grid. |
 | No Presets button | The camera needs at least one preset, and pan and tilt must be on. It is hidden in the grid. The names come from the camera's preset list in Home Assistant. |
-| Talk button says it needs a secure page | Open Home Assistant over HTTPS or use the companion app. |
+| Talk is greyed out and a note says it needs a secure page | Open Home Assistant over HTTPS or use the companion app. |
 | *Microphone permission was denied* | Allow the microphone for Home Assistant in the browser or phone settings. |
 | No sound when listening | Turn on the camera's *Record audio* switch in the Reolink integration, and check the speaker icon is not muted and the phone volume is up. On an iPhone, tap the speaker icon. If it turns orange, tap it again. Volume follows the phone buttons there. |
 | Talk says the camera is busy | A message is already playing on that NVR. Try again when it ends. |
