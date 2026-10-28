@@ -414,7 +414,7 @@ const leaveStart = src.indexOf("  _leaveGrid(index) {");
 const leaveBody = src.slice(leaveStart, src.indexOf("\n  }\n", leaveStart));
 assert(leaveBody.includes("_resetLens()"), "leaving the grid starts on the wide lens");
 
-assert(src.includes('const CARD_VERSION = "0.5.9"'), "CARD_VERSION is 0.5.9");
+assert(src.includes('const CARD_VERSION = "0.6.0"'), "CARD_VERSION is 0.6.0");
 assert(src.includes('layout: "fullscreen"') || src.includes('layout === "fullscreen"'), "fullscreen layout is supported");
 assert(src.includes("100dvh"), "fullscreen uses 100dvh");
 assert(src.includes("100vh"), "fullscreen falls back to 100vh");

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.0 (2026-10-28)
+
+### Added
+- Setup and Configure can add a fullscreen Live page to a dashboard you pick.
+  Notification links such as `/<dashboard>/live?camera=camera.front_door` then
+  open that view fullscreen with the camera picked. Without a Live page, a
+  `?camera=` link still switches camera on any page that has the card. YAML
+  dashboards are skipped, existing views are never changed, and the option is
+  off each time you open Configure.
+
 ## 0.5.9 (2026-10-28)
 
 ### Fixed

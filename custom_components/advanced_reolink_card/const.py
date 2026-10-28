@@ -26,6 +26,9 @@ CONF_VOICE: Final = "voice"
 CONF_VOLUME: Final = "volume"
 CONF_ENABLED_CHANNELS: Final = "enabled_channels"
 CONF_LIVE_TALK_NON_ADMIN: Final = "live_talk_non_admin"
+CONF_LIVE_PAGE: Final = "live_page"
+CONF_LIVE_DASHBOARD: Final = "live_dashboard"
+CONF_LIVE_PAGE_PENDING: Final = "live_page_pending"
 
 # channel talk status (see baichuan_talk.ChannelInfo.talk_status)
 TALK_SUPPORTED: Final = "supported"

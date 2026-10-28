@@ -146,6 +146,11 @@ before they speak. Nothing streams until you tap, so they are not kept awake.
    username and password of a Reolink user that can talk.
 3. Submit. Setup only reads the camera list. It does not change the device and
    does not wake sleeping cameras.
+4. Optionally turn on **Create a fullscreen Live page** and pick a dashboard.
+   This adds a hidden Live view that a `?camera=` link can open fullscreen.
+   YAML dashboards are not listed, because Home Assistant cannot save to them.
+   If no dashboard can take the page, add one in **Settings**, **Dashboards**,
+   put a card on it, then turn the option on in **Configure**.
 
 Each camera that can talk becomes a device with a speaker and a notify entity.
 New and renamed cameras are picked up each time Home Assistant starts.
@@ -158,6 +163,8 @@ New and renamed cameras are picked up each time Home Assistant starts.
 | Default volume | Software gain in percent. 100 plays the audio as it is. |
 | Cameras allowed to talk | Only these cameras get a speaker. Actions refuse the rest. |
 | Let other people use live talk | Off by default, so only administrators can talk from the card. |
+| Create a fullscreen Live page | Adds one Live view to the dashboard you pick. Existing views are never changed. Off each time you open Configure; it is an action, not a stored setting. |
+| Dashboard | Only dashboards edited in the UI can be used. |
 
 Use **Reconfigure** to change the address, port or login without removing the
 integration. **Download diagnostics** gives a report with the password,
@@ -285,8 +292,22 @@ editor under **Layout** (**Card** or **Fill the screen**).
 
 ### Open a camera from a notification
 
-Add `?camera=` to a dashboard address to open the card on that camera, for
-example `/lovelace/live?camera=camera.front_yard_fluent`.
+Add `?camera=` to a dashboard address to open that camera, for example
+`/<dashboard>/live?camera=camera.front_door`.
+
+**With a Live page.** Setup and **Configure** can add a hidden fullscreen Live
+view to a dashboard you pick. A link such as
+`/lovelace/live?camera=camera.front_door` then opens it fullscreen with that
+camera already picked.
+
+**Without a Live page.** The same `?camera=` value still works on any page that
+already has the card: the card switches to that camera. The page is not
+forced fullscreen.
+
+You can add the Live page later: open the integration, **Configure**, turn on
+**Create a fullscreen Live page**, and pick a dashboard.
+
+How the card reads the link:
 
 - The card reads it when the page loads and each time you move to another page
   in Home Assistant, including the browser back and forward buttons.

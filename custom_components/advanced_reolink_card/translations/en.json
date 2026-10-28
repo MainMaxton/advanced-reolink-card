@@ -44,6 +44,18 @@
           "username": "A user on the device.",
           "password": "Leave empty to keep the saved password."
         }
+      },
+      "live_page": {
+        "title": "Live page",
+        "description": "Add a fullscreen Live page to a dashboard, for links like /<dashboard>/live?camera=<camera>. You can also do this later in Configure.{yaml_note}",
+        "data": {
+          "live_page": "Create a fullscreen Live page",
+          "live_dashboard": "Dashboard"
+        },
+        "data_description": {
+          "live_page": "Notification links then open this page fullscreen with that camera picked. Without it, a ?camera= link still switches camera on any page with the card, just not fullscreen. Existing views are never changed.",
+          "live_dashboard": "Only dashboards edited in the UI can be used."
+        }
       }
     },
     "error": {
@@ -51,7 +63,13 @@
       "invalid_auth": "[%key:common::config_flow::error::invalid_auth%]",
       "timeout": "[%key:common::config_flow::error::timeout_connect%]",
       "no_talk_channels": "Connected, but no camera on this device can talk.",
-      "unknown": "[%key:common::config_flow::error::unknown%]"
+      "unknown": "[%key:common::config_flow::error::unknown%]",
+      "no_dashboard": "No dashboard can take the Live page. Add a dashboard in Settings, Dashboards, give it a card, then turn this on in Configure.",
+      "dashboard_missing": "That dashboard no longer exists.",
+      "dashboard_yaml": "That dashboard is YAML, so Home Assistant cannot save to it.",
+      "dashboard_empty": "That dashboard has no saved layout yet. Open it, add a card, then try again.",
+      "no_speakers": "No camera speakers are ready yet. Try again in a moment.",
+      "save_failed": "Could not save the dashboard."
     },
     "abort": {
       "already_configured": "[%key:common::config_flow::abort::already_configured_device%]",
@@ -64,20 +82,36 @@
     "step": {
       "init": {
         "title": "Advanced Reolink Card options",
-        "description": "The camera list was checked when this page opened. Sleeping cameras are listed and wake when they need to speak. Cameras that cannot talk: {unsupported}.",
+        "description": "The camera list was checked when this page opened. Sleeping cameras are listed and wake when they need to speak. Cameras that cannot talk: {unsupported}.{yaml_note}",
         "data": {
           "voice": "Default voice",
           "volume": "Default volume",
           "enabled_channels": "Cameras allowed to talk",
-          "live_talk_non_admin": "Let other people use live talk"
+          "live_talk_non_admin": "Let other people use live talk",
+          "live_page": "Create a fullscreen Live page",
+          "live_dashboard": "Dashboard"
         },
         "data_description": {
           "voice": "Any Microsoft Edge neural voice name.",
           "volume": "100 percent plays the audio as it is. Higher values make it louder and may distort.",
           "enabled_channels": "Only these cameras get a speaker, and actions refuse the rest.",
-          "live_talk_non_admin": "Live talk on the card is for administrators unless this is on."
+          "live_talk_non_admin": "Live talk on the card is for administrators unless this is on.",
+          "live_page": "Notification links then open this page fullscreen with that camera picked. Without it, a ?camera= link still switches camera on any page with the card, just not fullscreen. Existing views are never changed.",
+          "live_dashboard": "Only dashboards edited in the UI can be used."
         }
+      },
+      "live_page_done": {
+        "title": "Live page ready",
+        "description": "{status}\n\nLink: {link}"
       }
+    },
+    "error": {
+      "no_dashboard": "No dashboard can take the Live page. Add a dashboard in Settings, Dashboards, give it a card, then turn this on in Configure.",
+      "dashboard_missing": "That dashboard no longer exists.",
+      "dashboard_yaml": "That dashboard is YAML, so Home Assistant cannot save to it.",
+      "dashboard_empty": "That dashboard has no saved layout yet. Open it, add a card, then try again.",
+      "no_speakers": "No camera speakers are ready yet. Try again in a moment.",
+      "save_failed": "Could not save the dashboard."
     }
   },
   "entity": {
