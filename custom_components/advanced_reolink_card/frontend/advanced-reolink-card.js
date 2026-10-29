@@ -2,7 +2,7 @@
  * Live view, pan, listen and talk.
  * custom:audiohook-talk-card stays as an alias for older dashboards.
  */
-const CARD_VERSION = "0.6.0";
+const CARD_VERSION = "0.6.2";
 const DOMAIN = "advanced_reolink_card";
 const WS_PTZ_MOVE = "advanced_reolink_card/ptz/move";
 const WS_PTZ_STOP = "advanced_reolink_card/ptz/stop";
@@ -322,6 +322,9 @@ const STYLE = `
   .video video.behind { opacity: 0; pointer-events: none; }
   .video .overlay { position: absolute; left: 0; right: 0; bottom: 0; z-index: 3; padding: 6px 10px; font-size: 0.85em; color: #fff; background: linear-gradient(transparent, rgba(0,0,0,.65)); }
   .video.zoom-on .overlay { padding-right: 112px; }
+  .video.vctl-1 .overlay { padding-left: 64px; }
+  .video.vctl-2 .overlay { padding-left: 112px; }
+  .video .vctl { position: absolute; bottom: 12px; left: 12px; z-index: 4; display: flex; gap: 8px; }
   @media (prefers-reduced-motion: reduce) {
     .video canvas.holdframe { transition: none; }
   }
@@ -360,13 +363,14 @@ const STYLE = `
   .listenrow { display: flex; align-items: center; gap: 12px; }
   button.listen { all: unset; box-sizing: border-box; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 0 16px; min-height: 48px; border-radius: 24px;
     background: var(--secondary-background-color, #eee); color: var(--primary-text-color); }
+  .video button.listen, .video button.talk { width: 40px; height: 40px; min-height: 0; padding: 0; gap: 0; border-radius: 20px; background: rgba(0,0,0,.5); color: #fff; }
+  .video button.listen ha-icon, .video button.talk ha-icon { --mdc-icon-size: 22px; width: 22px; height: 22px; }
   button.listen.live { background: var(--success-color, #43a047); color: #fff; }
   button.listen.connecting { background: var(--warning-color, #ffa600); color: #fff; }
   button.listen.error { background: var(--disabled-color, #9e9e9e); color: #fff; }
   button.listen.blocked { background: var(--accent-color, #ff9800); color: #fff; }
   /* Not display:none. iOS will not play an audio element that is hidden that way. */
   audio.sink { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
-  input.volume { flex: 1; accent-color: var(--primary-color); }
   button.talk {
     all: unset; box-sizing: border-box; cursor: pointer; user-select: none; -webkit-user-select: none;
     touch-action: none; -webkit-touch-callout: none;
@@ -377,6 +381,7 @@ const STYLE = `
   }
   button.talk:focus-visible { outline: 3px solid var(--accent-color, #ff9800); outline-offset: 2px; }
   button.talk:active { transform: scale(0.99); }
+  .video button.talk:active { transform: scale(0.94); }
   button.talk.connecting { background: var(--warning-color, #ffa600); }
   button.talk.live { background: var(--error-color, #db4437); box-shadow: 0 0 0 6px rgba(219, 68, 55, 0.25); }
   button.talk.error { background: var(--disabled-color, #9e9e9e); }
@@ -446,7 +451,6 @@ const CARD_DEFAULTS = {
   talk: true,
   talk_auto_listen: false,
   duplex: "half",
-  volume: 80,
 };
 
 const CAMERA_OPTION_KEYS = [
@@ -463,7 +467,6 @@ const CAMERA_OPTION_KEYS = [
   "listen",
   "talk",
   "talk_auto_listen",
-  "volume",
   "duplex",
   "mode",
   "show_level",
@@ -934,7 +937,6 @@ class AdvancedReolinkCard extends HTMLElement {
   _applyActiveConfig() {
     const cam = this._cameras[this._activeIndex] || {};
     this._config = { ...this._rawConfig, ...cam };
-    this._volume = Math.max(0, Math.min(100, Number(this._config.volume))) / 100;
     const key = this._targetKey(cam);
     this._info = this._infoCache[key];
     this._infoError = this._infoErrorCache[key] || null;
@@ -1197,7 +1199,10 @@ class AdvancedReolinkCard extends HTMLElement {
     const showVideo = union.video && !grid;
     const showPtz = union.ptz && !grid;
     const showListen = union.listen && !grid;
+    // Cards without live view keep Listen in its own row.
+    const listenRow = showListen && (!showVideo || this._cameras.some((cam) => cam && cam.listen && !cam.video));
     const showTalk = union.talk && !grid;
+    const talkRow = showTalk && (!showVideo || this._cameras.some((cam) => cam && cam.talk && !cam.video));
     this.shadowRoot.innerHTML = `
       <style>${STYLE}</style>
       <ha-card>
@@ -1227,6 +1232,11 @@ class AdvancedReolinkCard extends HTMLElement {
               <button type="button" data-ptz="zoom_out" aria-label="Zoom out" title="Zoom out"><ha-icon icon="mdi:magnify-minus-outline"></ha-icon></button>
               <button type="button" data-ptz="zoom_in" aria-label="Zoom in" title="Zoom in"><ha-icon icon="mdi:magnify-plus-outline"></ha-icon></button>
             </div>
+            ${showListen || showTalk ? `
+            <div class="vctl">
+              ${showListen ? `<button type="button" class="listen" aria-pressed="false" aria-label="Listen" title="Listen" hidden><ha-icon icon="mdi:volume-off"></ha-icon></button>` : ""}
+              ${showTalk ? `<button type="button" class="talk" aria-pressed="false" aria-label="${holdHint}" title="${holdHint}" hidden><ha-icon icon="mdi:microphone"></ha-icon></button>` : ""}
+            </div>` : ""}
             <div class="overlay" aria-live="polite"></div>
           </div>
         </div>` : ""}
@@ -1235,15 +1245,15 @@ class AdvancedReolinkCard extends HTMLElement {
           <div class="dpad">${dir("up")}${dir("left")}${dir("right")}${dir("down")}</div>
         </div>` : ""}
         ${showVideo || showPtz ? `<div class="note ptznote" hidden></div>` : ""}
-        ${showListen ? `
+        ${listenRow ? `
         <div class="listenrow">
-          <button type="button" class="listen" aria-pressed="false"><ha-icon icon="mdi:volume-off"></ha-icon><span class="llabel">Listen</span></button>
-          <input class="volume" type="range" min="0" max="100" step="1" value="${Math.round(this._volume * 100)}" aria-label="Listening volume">
+          <button type="button" class="listen" aria-pressed="false" aria-label="Listen"><ha-icon icon="mdi:volume-off"></ha-icon><span class="llabel">Listen</span></button>
         </div>` : ""}
-        ${showTalk ? `
+        ${talkRow ? `
         <button class="talk" type="button" aria-pressed="false">
           <ha-icon icon="mdi:microphone"></ha-icon><span class="label">${holdHint}</span>
-        </button>
+        </button>` : ""}
+        ${showTalk ? `
         ${union.meter ? '<div class="meter" role="meter" aria-label="Microphone level"><div></div></div>' : ""}
         <div class="note https" hidden>${HTTPS_NOTE}</div>` : ""}
         <audio class="sink" playsinline muted></audio>
@@ -1272,10 +1282,11 @@ class AdvancedReolinkCard extends HTMLElement {
     this._zoomEl = $(".video .zoomctl");
     this._ptzNoteEl = $(".ptznote");
     this._listenRow = $(".listenrow");
-    this._listenBtn = $("button.listen");
-    this._volumeEl = $("input.volume");
-    this._button = $("button.talk");
-    this._label = $(".label");
+    this._videoListenBtn = $(".video button.listen");
+    this._listenBtns = [...this.shadowRoot.querySelectorAll("button.listen")];
+    this._videoTalkBtn = $(".video button.talk");
+    this._talkBtns = [...this.shadowRoot.querySelectorAll("button.talk")];
+    this._label = $("button.talk .label");
     this._httpsEl = $(".note.https");
     this._statusEl = $(".status");
     this._meterWrap = $(".meter");
@@ -1828,7 +1839,7 @@ class AdvancedReolinkCard extends HTMLElement {
   }
 
   _bindInput() {
-    if (this._button) this._bindTalk(this._button);
+    for (const b of this._talkBtns || []) this._bindTalk(b);
     if (this._playBtn) {
       this._playBtn.addEventListener("click", (ev) => {
         if (this._swipeMoved) {
@@ -1862,13 +1873,7 @@ class AdvancedReolinkCard extends HTMLElement {
       this._videoBox.addEventListener("pointerdown", wake, true);
     }
     if (this._stillEl) this._stillEl.addEventListener("load", () => this._videoLive());
-    if (this._listenBtn) this._listenBtn.addEventListener("click", () => this._onListenClick());
-    if (this._volumeEl) {
-      this._volumeEl.addEventListener("input", () => {
-        this._volume = Number(this._volumeEl.value) / 100;
-        this._applySink();
-      });
-    }
+    for (const b of this._listenBtns || []) b.addEventListener("click", () => this._onListenClick());
     if (this._ptzEl) {
       for (const b of this._ptzEl.querySelectorAll("button[data-ptz]")) this._bindPtz(b);
     }
@@ -2024,35 +2029,51 @@ class AdvancedReolinkCard extends HTMLElement {
       this._ptzNoteEl.textContent = note;
       this._ptzNoteEl.hidden = !note;
     }
-    if (this._listenRow) this._listenRow.hidden = !c.listen || this._inGrid();
-    if (this._listenBtn) {
+    const onVideo = !!(c.listen && c.video && this._videoListenBtn && !this._inGrid());
+    const talkOnVideo = !!(c.talk && c.video && this._videoTalkBtn && !this._inGrid());
+    if (this._listenRow) this._listenRow.hidden = !c.listen || onVideo || this._inGrid();
+    if (this._videoListenBtn) this._videoListenBtn.hidden = !onVideo;
+    if (this._videoBox) {
+      const n = (onVideo ? 1 : 0) + (talkOnVideo ? 1 : 0);
+      this._videoBox.classList.toggle("vctl-1", n === 1);
+      this._videoBox.classList.toggle("vctl-2", n === 2);
+    }
+    if (this._listenBtns && this._listenBtns.length) {
       const l = this._listen;
       const blocked = !!(this._listening && this._listenBlocked);
       const stateClass = l.state === "waking" ? "connecting" : l.state;
-      this._listenBtn.className = blocked ? "listen blocked" : `listen ${stateClass}`;
-      this._listenBtn.setAttribute("aria-pressed", this._listening ? "true" : "false");
-      this._listenBtn.querySelector("ha-icon").setAttribute("icon", this._listening && !blocked ? "mdi:volume-high" : "mdi:volume-off");
-      this._listenBtn.querySelector(".llabel").textContent = blocked ? "Tap to hear" :
+      const text = blocked ? "Tap to hear" :
         l.state === "connecting" ? "Connecting" : l.state === "waking" ? "Waking the camera" :
         this._listening ? (this._ducked && c.duplex !== "full" ? "Muted while talking" : "Listening") : "Listen";
+      for (const b of this._listenBtns) {
+        b.className = blocked ? "listen blocked" : `listen ${stateClass}`;
+        b.setAttribute("aria-pressed", this._listening ? "true" : "false");
+        b.setAttribute("title", text);
+        b.querySelector("ha-icon").setAttribute("icon", this._listening && !blocked ? "mdi:volume-high" : "mdi:volume-off");
+        const label = b.querySelector(".llabel");
+        if (label) label.textContent = text;
+      }
     }
-    if (this._volumeEl && this.shadowRoot.activeElement !== this._volumeEl) {
-      const next = String(Math.round(this._volume * 100));
-      if (this._volumeEl.value !== next) this._volumeEl.value = next;
-    }
-    if (this._button) {
+    if (this._talkBtns && this._talkBtns.length) {
       const showTalk = !!c.talk && !this._inGrid();
-      this._button.hidden = !showTalk;
       const state = this._talk;
       const secure = window.isSecureContext && !!navigator.mediaDevices?.getUserMedia;
-      this._button.disabled = !secure;
       if (this._httpsEl) this._httpsEl.hidden = !showTalk || secure;
-      this._button.className = `talk ${state === "waking" ? "connecting" : state}`;
-      this._button.setAttribute("aria-pressed", this._talkActive() ? "true" : "false");
       const idleLabel = c.mode === "hold" ? "Hold to talk" : "Tap to talk";
-      this._label.textContent = !secure ? "Talk needs a secure page" :
+      const text = !secure ? "Talk needs a secure page" :
         state === "live" ? (c.mode === "hold" ? "Release to stop" : "Tap to stop") :
         state === "connecting" || state === "waking" ? TALK_TEXT[state] : idleLabel;
+      for (const b of this._talkBtns) {
+        b.hidden = b === this._videoTalkBtn ? !talkOnVideo : !showTalk || talkOnVideo;
+        b.disabled = !secure;
+        b.className = `talk ${state === "waking" ? "connecting" : state}`;
+        b.setAttribute("aria-pressed", this._talkActive() ? "true" : "false");
+        if (b === this._videoTalkBtn) {
+          b.setAttribute("aria-label", idleLabel);
+          b.setAttribute("title", text);
+        }
+      }
+      if (this._label) this._label.textContent = text;
       if (this._meterEl) this._meterEl.style.width = state === "live" ? `${Math.round(this._level * 100)}%` : "0%";
     }
     if (this._meterWrap) this._meterWrap.hidden = !(c.talk && c.show_level) || this._inGrid();
@@ -2686,7 +2707,6 @@ class AdvancedReolinkCard extends HTMLElement {
     const el = this._audioEl;
     if (!el) return;
     el.muted = this._sinkMuted();
-    try { el.volume = this._volume; } catch (_e) { /* iOS volume is read-only */ }
     this._update();
   }
 
@@ -2725,7 +2745,6 @@ class AdvancedReolinkCard extends HTMLElement {
     if (!el) return;
     this._unlockedEl = el;
     el.muted = false;
-    try { el.volume = this._volume; } catch (_e) { /* iOS volume is read-only */ }
     this._notePlay(this._playElement(el));
   }
 
@@ -2735,7 +2754,6 @@ class AdvancedReolinkCard extends HTMLElement {
     if (!el || this._unlockedEl === el) return;
     this._unlockedEl = el;
     el.muted = this._sinkMuted();
-    try { el.volume = this._volume; } catch (_e) { /* iOS volume is read-only */ }
     const pending = this._playElement(el);
     if (this._listening) this._notePlay(pending);
     else if (pending && typeof pending.catch === "function") pending.catch(() => {});
@@ -4674,7 +4692,6 @@ const EDITOR_SCHEMA = [
       { name: "talk", selector: { boolean: {} } },
     ],
   },
-  { name: "volume", selector: { number: { min: 0, max: 100, step: 5, mode: "slider", unit_of_measurement: "%" } } },
   {
     type: "grid",
     name: "",
@@ -4739,7 +4756,6 @@ const EDITOR_LABELS = {
   ptz: "Pan and tilt",
   listen: "Listen",
   talk: "Talk",
-  volume: "Listening volume",
   mode: "Talk button",
   duplex: "While talking",
   talk_auto_listen: "Listen when you talk",
@@ -4760,7 +4776,7 @@ const EDITOR_HELPERS = {
 
 class AdvancedReolinkCardEditor extends HTMLElement {
   setConfig(config) {
-    this._config = { mode: "hold", show_level: true, video: false, ptz: false, listen: false, talk: true, duplex: "half", volume: 80, talk_auto_listen: false, layout: "card", lens: "auto", ...config };
+    this._config = { mode: "hold", show_level: true, video: false, ptz: false, listen: false, talk: true, duplex: "half", talk_auto_listen: false, layout: "card", lens: "auto", ...config };
     this._render();
   }
 
